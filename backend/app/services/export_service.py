@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import Asset
 from app.services.repository import Repository
 from app.services.storage import exports_root
+from app.services.utils import sanitize_filename
 
 
 class ExportService:
@@ -51,39 +52,30 @@ class ExportService:
 
     def _write_csv(self, path: Path, runs_data: list[tuple]) -> None:
         headers = [
-            "run_id",
-            "entry_id",
             "word",
-            "part_of_sentence",
+            "part of sentence",
             "category",
+            "synonyms",
+            "Base_Asset_Slug – your filename key",
             "context",
-            "boy_or_girl",
-            "batch",
-            "status",
-            "quality_score",
-            "quality_threshold",
-            "optimization_attempt",
-            "max_optimization_attempts",
-            "first_prompt",
-            "upgraded_prompt_count",
-            "upgraded_prompts_json",
-            "with_background_last_image_name",
-            "with_background_last_image_path",
-            "without_background_last_image_name",
-            "without_background_last_image_path",
-            "with_background_images_by_attempt_json",
-            "without_background_images_by_attempt_json",
-            "all_image_names_json",
-            "stage_statuses_json",
-            "assets_json",
-            "error_detail",
+            "need a person",
+            "prompt 1",
+            "file name 1",
+            "image 1",
+            "prompt 2",
+            "file name 2",
+            "image 2",
+            "upgraded prompt",
+            "file name upgraded",
+            "upgraded image 2",
+            "boy or girl",
         ]
 
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=headers)
             writer.writeheader()
             for run, entry in runs_data:
-                _, stages, prompts, assets, _ = self.repo.run_details(run.id)
+                _, _stages, prompts, assets, _ = self.repo.run_details(run.id)
 
                 first_prompt = ""
                 upgraded_prompts: list[dict[str, Any]] = []
@@ -100,80 +92,48 @@ class ExportService:
                     if prompt.stage_name == "stage3_upgrade":
                         upgraded_prompts.append(payload)
 
-                stage_statuses = [
-                    {
-                        "stage_name": stage.stage_name,
-                        "attempt": stage.attempt,
-                        "status": stage.status,
-                        "error_detail": stage.error_detail,
-                    }
-                    for stage in stages
-                ]
                 by_stage_attempt: dict[str, dict[int, Asset]] = defaultdict(dict)
                 for asset in assets:
                     by_stage_attempt[asset.stage_name][asset.attempt] = asset
                 stage3_by_attempt = by_stage_attempt.get("stage3_upgraded", {})
-                stage4_by_attempt = by_stage_attempt.get("stage4_white_bg", {})
+                stage2_by_attempt = by_stage_attempt.get("stage2_draft", {})
                 last_stage3_attempt = max(stage3_by_attempt.keys()) if stage3_by_attempt else None
-                last_stage4_attempt = max(stage4_by_attempt.keys()) if stage4_by_attempt else None
                 last_stage3 = stage3_by_attempt.get(last_stage3_attempt) if last_stage3_attempt is not None else None
-                last_stage4 = stage4_by_attempt.get(last_stage4_attempt) if last_stage4_attempt is not None else None
+                last_stage2_attempt = max(stage2_by_attempt.keys()) if stage2_by_attempt else None
+                last_stage2 = stage2_by_attempt.get(last_stage2_attempt) if last_stage2_attempt is not None else None
+                first_stage3 = stage3_by_attempt.get(1)
 
-                stage3_images_by_attempt = [
-                    {
-                        "attempt": attempt,
-                        "file_name": asset.file_name,
-                        "abs_path": asset.abs_path,
-                    }
-                    for attempt, asset in sorted(stage3_by_attempt.items(), key=lambda item: item[0])
-                ]
-                stage4_images_by_attempt = [
-                    {
-                        "attempt": attempt,
-                        "file_name": asset.file_name,
-                        "abs_path": asset.abs_path,
-                    }
-                    for attempt, asset in sorted(stage4_by_attempt.items(), key=lambda item: item[0])
-                ]
-                assets_export = [
-                    {
-                        "asset_id": asset.id,
-                        "stage_name": asset.stage_name,
-                        "attempt": asset.attempt,
-                        "abs_path": asset.abs_path,
-                        "model_name": asset.model_name,
-                    }
-                    for asset in assets
-                ]
+                prompt2 = upgraded_prompts[0]["prompt_text"] if upgraded_prompts else ""
+                upgraded_prompt = upgraded_prompts[-1]["prompt_text"] if upgraded_prompts else ""
+                need_person = ""
+                for prompt in prompts:
+                    if prompt.stage_name == "stage1_prompt":
+                        need_person = prompt.needs_person
+                        break
+
+                file_name_1 = self._unique_export_name(run.id, last_stage2) if last_stage2 else ""
+                file_name_2 = self._unique_export_name(run.id, first_stage3) if first_stage3 else ""
+                file_name_upgraded = self._unique_export_name(run.id, last_stage3) if last_stage3 else ""
 
                 writer.writerow(
                     {
-                        "run_id": run.id,
-                        "entry_id": entry.id,
                         "word": entry.word,
-                        "part_of_sentence": entry.part_of_sentence,
+                        "part of sentence": entry.part_of_sentence,
                         "category": entry.category,
+                        "synonyms": "",
+                        "Base_Asset_Slug – your filename key": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category),
                         "context": entry.context,
-                        "boy_or_girl": entry.boy_or_girl,
-                        "batch": entry.batch,
-                        "status": run.status,
-                        "quality_score": run.quality_score,
-                        "quality_threshold": run.quality_threshold,
-                        "optimization_attempt": run.optimization_attempt,
-                        "max_optimization_attempts": run.max_optimization_attempts,
-                        "first_prompt": first_prompt,
-                        "upgraded_prompt_count": len(upgraded_prompts),
-                        "upgraded_prompts_json": json.dumps(upgraded_prompts, ensure_ascii=False),
-                        "with_background_last_image_name": last_stage3.file_name if last_stage3 else "",
-                        "with_background_last_image_path": last_stage3.abs_path if last_stage3 else "",
-                        "without_background_last_image_name": last_stage4.file_name if last_stage4 else "",
-                        "without_background_last_image_path": last_stage4.abs_path if last_stage4 else "",
-                        "with_background_images_by_attempt_json": json.dumps(stage3_images_by_attempt, ensure_ascii=False),
-                        "without_background_images_by_attempt_json": json.dumps(stage4_images_by_attempt, ensure_ascii=False),
-                        "all_image_names_json": json.dumps([asset.file_name for asset in assets], ensure_ascii=False),
-                        "stage_statuses_json": json.dumps(stage_statuses, ensure_ascii=False),
-                        "assets_json": json.dumps(assets_export, ensure_ascii=False),
-                        "error_detail": run.error_detail,
+                        "need a person": need_person,
+                        "prompt 1": first_prompt,
+                        "file name 1": file_name_1,
+                        "image 1": last_stage2.abs_path if last_stage2 else "",
+                        "prompt 2": prompt2,
+                        "file name 2": file_name_2,
+                        "image 2": first_stage3.abs_path if first_stage3 else "",
+                        "upgraded prompt": upgraded_prompt,
+                        "file name upgraded": file_name_upgraded,
+                        "upgraded image 2": last_stage3.abs_path if last_stage3 else "",
+                        "boy or girl": entry.boy_or_girl,
                     }
                 )
 
@@ -186,7 +146,13 @@ class ExportService:
                     continue
                 asset_path = Path(selected.abs_path)
                 if asset_path.exists():
-                    archive.write(asset_path, arcname=f"{run.id}/{asset_path.name}")
+                    archive.write(asset_path, arcname=self._unique_export_name(run.id, selected))
+
+    @staticmethod
+    def _base_asset_slug(word: str, part_of_sentence: str, category: str) -> str:
+        parts = [word.strip(), part_of_sentence.strip(), category.strip()]
+        merged = "_".join(part for part in parts if part)
+        return sanitize_filename(merged.lower())
 
     @staticmethod
     def _latest_asset_for_stage(assets: list[Asset], stage_name: str) -> Asset | None:
@@ -194,6 +160,13 @@ class ExportService:
         if not candidates:
             return None
         return max(candidates, key=lambda item: item.attempt)
+
+    @staticmethod
+    def _unique_export_name(run_id: str, asset: Asset | None) -> str:
+        if asset is None:
+            return ""
+        safe_name = sanitize_filename(asset.file_name)
+        return f"{run_id}__{asset.id}__{safe_name}"
 
     def _build_manifest(self, runs_data: list[tuple]) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
