@@ -102,17 +102,6 @@ body {
   flex-wrap: wrap;
 }
 
-.checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 700;
-}
-
-.checkbox-label input {
-  width: auto;
-}
-
 label {
   display: grid;
   gap: 6px;
@@ -217,35 +206,6 @@ pre {
 
 .asset-meta a:hover {
   text-decoration: underline;
-}
-
-.warning-badge {
-  display: inline-block;
-  border: 1px solid #b56f0a;
-  background: #fff1d9;
-  color: #8a4f00;
-  border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.warning-banner {
-  border: 1px solid #b56f0a;
-  border-radius: 10px;
-  background: #fff1d9;
-  color: #5c3300;
-  padding: 10px 12px;
-  margin: 0 0 10px;
-}
-
-.progress-note {
-  margin: 0 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #f6f2e8;
-  padding: 8px 10px;
-  font-weight: 700;
 }
 
 @media (max-width: 640px) {

@@ -28,10 +28,10 @@ def db_session(tmp_path: Path):
 
     with SessionLocal() as session:
         session.add(
-                RuntimeConfig(
-                    id=1,
-                    quality_threshold=95,
-                    max_optimization_loops=3,
+            RuntimeConfig(
+                id=1,
+                quality_threshold=95,
+                max_optimization_loops=3,
                 max_api_retries=3,
                 stage_retry_limit=3,
                 worker_poll_seconds=0.1,

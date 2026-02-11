@@ -59,8 +59,6 @@ class RunOut(BaseModel):
     optimization_attempt: int
     max_optimization_attempts: int
     technical_retry_count: int
-    review_warning: bool
-    review_warning_reason: str
     error_detail: str
     created_at: datetime
     updated_at: datetime

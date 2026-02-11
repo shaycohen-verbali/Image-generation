@@ -14,31 +14,6 @@ function stageTitle(stageName) {
   return stageName
 }
 
-function isTerminalRun(status) {
-  return status === 'completed_pass' || status === 'completed_fail_threshold'
-}
-
-function runProgress(run) {
-  const totalRounds = (run.max_optimization_attempts ?? 0) + 1
-  const currentRound = Math.max(run.optimization_attempt ?? 0, 1)
-  if (run.status === 'running' && run.current_stage === 'stage4_background') {
-    return `Rounds completed (${currentRound}/${totalRounds}). Creating final white background image now.`
-  }
-  if (run.status === 'running') {
-    return `Round ${currentRound}/${totalRounds} is in progress at ${run.current_stage}.`
-  }
-  if (run.status === 'queued' || run.status === 'retry_queued') {
-    return `Queued. Up to ${totalRounds} rounds are planned.`
-  }
-  if (run.status === 'completed_pass') {
-    return `Completed on round ${currentRound}/${totalRounds}.`
-  }
-  if (run.status === 'completed_fail_threshold') {
-    return `Stopped after ${currentRound}/${totalRounds} rounds (threshold not reached).`
-  }
-  return `Status: ${run.status}`
-}
-
 export default function EntryDetailPage() {
   const [runId, setRunId] = useState('')
   const [data, setData] = useState(null)
@@ -65,11 +40,7 @@ export default function EntryDetailPage() {
       })
     : []
 
-  const latestFinalAsset = [...sortedAssets]
-    .filter((asset) => asset.stage_name === 'stage4_white_bg')
-    .sort((left, right) => (left.attempt || 0) - (right.attempt || 0))
-    .pop()
-  const showFinalImage = Boolean(data && isTerminalRun(data.run.status) && latestFinalAsset?.origin_url)
+  const finalAsset = sortedAssets.find((asset) => asset.stage_name === 'stage4_white_bg')
 
   return (
     <section className="card-grid">
@@ -85,29 +56,22 @@ export default function EntryDetailPage() {
 
         {data && (
           <>
-            {data.run.review_warning ? (
-              <div className="warning-banner">
-                <strong>Review recommended:</strong> {data.run.review_warning_reason || 'This abstract concept may be hard to interpret.'}
-              </div>
-            ) : null}
-
             <h3>Run</h3>
             <pre>{JSON.stringify(data.run, null, 2)}</pre>
-            <p className="progress-note">{runProgress(data.run)}</p>
 
             <h3>Final Image</h3>
-            {showFinalImage ? (
+            {finalAsset?.origin_url ? (
               <div className="asset-card">
-                <img className="asset-image" src={latestFinalAsset.origin_url} alt="Final white background output" />
+                <img className="asset-image" src={finalAsset.origin_url} alt="Final white background output" />
                 <div className="asset-meta">
-                  <p>{latestFinalAsset.file_name}</p>
-                  <a href={latestFinalAsset.origin_url} target="_blank" rel="noreferrer">
+                  <p>{finalAsset.file_name}</p>
+                  <a href={finalAsset.origin_url} target="_blank" rel="noreferrer">
                     Open Full Image
                   </a>
                 </div>
               </div>
             ) : (
-              <p>Final image is available only after all rounds finish and status becomes completed.</p>
+              <p>No final image yet. Wait until run status is completed and reload.</p>
             )}
 
             <h3>Image History</h3>

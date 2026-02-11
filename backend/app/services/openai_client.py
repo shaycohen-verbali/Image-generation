@@ -169,26 +169,14 @@ class OpenAIClient:
         category: str,
         threshold: int,
         model: str,
-        abstract_mode: bool = False,
-        contrast_subject: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         image_data_uri = self._to_data_uri(image_path)
-        if abstract_mode:
-            prompt = (
-                "Score this AAC image for an abstract/ambiguous concept. Return STRICT JSON with fields: "
-                '{"score":0-100, "contrast_clarity":0-5, "absence_signal_strength":0-5, "aac_interpretability":0-5, '
-                '"explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. '
-                f"Word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
-                f"Contrast subject: {contrast_subject}. "
-                f"Pass threshold is {threshold}."
-            )
-        else:
-            prompt = (
-                "Score the AAC concept image quality for a child user. Return STRICT JSON with fields: "
-                '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. '
-                f"Word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
-                f"Pass threshold is {threshold}."
-            )
+        prompt = (
+            "Score the AAC concept image quality for a child user. Return STRICT JSON with fields: "
+            '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. '
+            f"Word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+            f"Pass threshold is {threshold}."
+        )
         payload = {
             "model": model,
             "messages": [
@@ -205,21 +193,6 @@ class OpenAIClient:
         response = self._request("POST", f"{OPENAI_BASE_URL}/chat/completions", json_body=payload)
         content = response["choices"][0]["message"]["content"]
         parsed = parse_json_relaxed(content)
-        if abstract_mode:
-            parsed = self.normalize_abstract_rubric(parsed)
-        elif "score" not in parsed:
+        if "score" not in parsed:
             parsed["score"] = 0
         return parsed, {"raw_response": response, "raw_text": content}
-
-    @staticmethod
-    def normalize_abstract_rubric(parsed: dict[str, Any]) -> dict[str, Any]:
-        normalized = dict(parsed)
-        normalized["score"] = float(normalized.get("score", 0) or 0)
-        normalized["contrast_clarity"] = float(normalized.get("contrast_clarity", 0) or 0)
-        normalized["absence_signal_strength"] = float(normalized.get("absence_signal_strength", 0) or 0)
-        normalized["aac_interpretability"] = float(normalized.get("aac_interpretability", 0) or 0)
-        if not isinstance(normalized.get("failure_tags"), list):
-            normalized["failure_tags"] = []
-        if "explanation" not in normalized:
-            normalized["explanation"] = ""
-        return normalized
