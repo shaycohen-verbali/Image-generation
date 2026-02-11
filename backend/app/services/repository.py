@@ -11,6 +11,8 @@ from app.models import Asset, Entry, Export, Prompt, Run, RuntimeConfig, Score, 
 from app.services.utils import deterministic_entry_id, source_row_hash
 
 MIN_QUALITY_THRESHOLD = 95
+MIN_PARALLEL_RUNS = 1
+MAX_PARALLEL_RUNS = 50
 
 
 def _dumps(value: dict[str, Any] | list[Any]) -> str:
@@ -41,6 +43,7 @@ class Repository:
             if value is not None and hasattr(config, key):
                 setattr(config, key, value)
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
+        config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))
         self.db.add(config)
         self.db.commit()
         self.db.refresh(config)

@@ -153,6 +153,7 @@ class RuntimeConfig(Base):
     max_api_retries: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     stage_retry_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     worker_poll_seconds: Mapped[float] = mapped_column(Float, default=2.0, nullable=False)
+    max_parallel_runs: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     flux_imagen_fallback_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     openai_assistant_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     openai_assistant_name: Mapped[str] = mapped_column(String(256), default="Prompt generator -JSON output", nullable=False)

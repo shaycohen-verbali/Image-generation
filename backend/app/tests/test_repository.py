@@ -39,3 +39,12 @@ def test_update_runtime_config_clamps_quality_threshold_to_95(db_session) -> Non
     repo = Repository(db_session)
     config = repo.update_runtime_config({"quality_threshold": 90})
     assert config.quality_threshold == 95
+
+
+def test_update_runtime_config_clamps_worker_count(db_session) -> None:
+    repo = Repository(db_session)
+    config_low = repo.update_runtime_config({"max_parallel_runs": 0})
+    assert config_low.max_parallel_runs == 1
+
+    config_high = repo.update_runtime_config({"max_parallel_runs": 999})
+    assert config_high.max_parallel_runs == 50

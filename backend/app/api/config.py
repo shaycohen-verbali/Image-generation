@@ -17,6 +17,7 @@ def _to_schema(config) -> RuntimeConfigOut:
         max_api_retries=config.max_api_retries,
         stage_retry_limit=config.stage_retry_limit,
         worker_poll_seconds=config.worker_poll_seconds,
+        max_parallel_runs=config.max_parallel_runs,
         flux_imagen_fallback_enabled=config.flux_imagen_fallback_enabled,
         openai_assistant_id=config.openai_assistant_id,
         openai_assistant_name=config.openai_assistant_name,

@@ -68,6 +68,8 @@ class ExportService:
             "upgraded prompt",
             "file name upgraded",
             "upgraded image 2",
+            "file name without background",
+            "image without background",
             "boy or girl",
         ]
 
@@ -96,9 +98,12 @@ class ExportService:
                 for asset in assets:
                     by_stage_attempt[asset.stage_name][asset.attempt] = asset
                 stage3_by_attempt = by_stage_attempt.get("stage3_upgraded", {})
+                stage4_by_attempt = by_stage_attempt.get("stage4_white_bg", {})
                 stage2_by_attempt = by_stage_attempt.get("stage2_draft", {})
                 last_stage3_attempt = max(stage3_by_attempt.keys()) if stage3_by_attempt else None
+                last_stage4_attempt = max(stage4_by_attempt.keys()) if stage4_by_attempt else None
                 last_stage3 = stage3_by_attempt.get(last_stage3_attempt) if last_stage3_attempt is not None else None
+                last_stage4 = stage4_by_attempt.get(last_stage4_attempt) if last_stage4_attempt is not None else None
                 last_stage2_attempt = max(stage2_by_attempt.keys()) if stage2_by_attempt else None
                 last_stage2 = stage2_by_attempt.get(last_stage2_attempt) if last_stage2_attempt is not None else None
                 first_stage3 = stage3_by_attempt.get(1)
@@ -114,6 +119,7 @@ class ExportService:
                 file_name_1 = self._unique_export_name(run.id, last_stage2) if last_stage2 else ""
                 file_name_2 = self._unique_export_name(run.id, first_stage3) if first_stage3 else ""
                 file_name_upgraded = self._unique_export_name(run.id, last_stage3) if last_stage3 else ""
+                file_name_without_background = self._unique_export_name(run.id, last_stage4) if last_stage4 else ""
 
                 writer.writerow(
                     {
@@ -133,6 +139,8 @@ class ExportService:
                         "upgraded prompt": upgraded_prompt,
                         "file name upgraded": file_name_upgraded,
                         "upgraded image 2": last_stage3.abs_path if last_stage3 else "",
+                        "file name without background": file_name_without_background,
+                        "image without background": last_stage4.abs_path if last_stage4 else "",
                         "boy or girl": entry.boy_or_girl,
                     }
                 )

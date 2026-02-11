@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { createEntry, createRuns, importCsv } from '../lib/api'
+import React, { useEffect, useState } from 'react'
+import { createEntry, createRuns, getConfig, importCsv, updateConfig } from '../lib/api'
 
 export default function SubmitPage() {
   const [form, setForm] = useState({
@@ -13,6 +13,25 @@ export default function SubmitPage() {
   const [lastEntryId, setLastEntryId] = useState('')
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
+  const [workerCount, setWorkerCount] = useState(10)
+
+  useEffect(() => {
+    let mounted = true
+    const loadConfig = async () => {
+      try {
+        const config = await getConfig()
+        if (mounted && config?.max_parallel_runs) {
+          setWorkerCount(config.max_parallel_runs)
+        }
+      } catch (_error) {
+        // Keep default UI value when config endpoint is unavailable.
+      }
+    }
+    loadConfig()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const onSubmit = async (event) => {
     event.preventDefault()
@@ -69,6 +88,22 @@ export default function SubmitPage() {
     }
   }
 
+  const onSaveWorkerConfig = async () => {
+    const parsed = Number(workerCount)
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 50) {
+      setMessage('Workers must be an integer between 1 and 50')
+      return
+    }
+    setMessage('Saving worker configuration...')
+    try {
+      const updated = await updateConfig({ max_parallel_runs: parsed })
+      setWorkerCount(updated.max_parallel_runs)
+      setMessage(`Saved workers: ${updated.max_parallel_runs}`)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
   return (
     <section className="card-grid">
       <article className="card">
@@ -117,6 +152,24 @@ export default function SubmitPage() {
       <article className="card message-card">
         <h2>Status</h2>
         <p>{message}</p>
+      </article>
+
+      <article className="card">
+        <h2>Processing Speed</h2>
+        <p>Set how many runs the worker can process in parallel.</p>
+        <div className="inline-fields">
+          <label>
+            Max parallel workers
+            <input
+              type="number"
+              min="1"
+              max="50"
+              value={workerCount}
+              onChange={(e) => setWorkerCount(e.target.value)}
+            />
+          </label>
+          <button type="button" onClick={onSaveWorkerConfig}>Save Workers</button>
+        </div>
       </article>
     </section>
   )

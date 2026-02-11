@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     max_api_retries: int = Field(default=3, alias="MAX_API_RETRIES")
     stage_retry_limit: int = Field(default=3, alias="STAGE_RETRY_LIMIT")
     worker_poll_seconds: float = Field(default=2.0, alias="WORKER_POLL_SECONDS")
+    max_parallel_runs: int = Field(default=10, alias="MAX_PARALLEL_RUNS")
     flux_imagen_fallback_enabled: bool = Field(default=True, alias="FLUX_IMAGEN_FALLBACK_ENABLED")
 
 
