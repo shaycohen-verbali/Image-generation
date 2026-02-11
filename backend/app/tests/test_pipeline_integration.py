@@ -159,12 +159,14 @@ def _create_run(
 
 def test_happy_path_all_stages(db_session):
     run = _create_run(db_session)
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=MockReplicate())
+    mock_replicate = MockReplicate()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_pass"
     assert result.quality_score == 95
+    assert mock_replicate.stage4_calls == 1
 
 
 def test_stage2_retry_then_success(db_session):
@@ -208,24 +210,28 @@ def test_stage4_failure_exhausts_retries(db_session):
 
 def test_quality_loop_passes_on_second_attempt(db_session):
     run = _create_run(db_session, max_optimization_attempts=3)
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[80, 96]), replicate_client=MockReplicate())
+    mock_replicate = MockReplicate()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[80, 96]), replicate_client=mock_replicate)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_pass"
     assert result.optimization_attempt == 2
     assert result.quality_score == 96
+    assert mock_replicate.stage4_calls == 1
 
 
 def test_quality_loop_reaches_fail_threshold(db_session):
     run = _create_run(db_session, max_optimization_attempts=1)
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[70, 75]), replicate_client=MockReplicate())
+    mock_replicate = MockReplicate()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[70, 75]), replicate_client=mock_replicate)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_fail_threshold"
     assert result.optimization_attempt == 2
     assert result.quality_score == 75
+    assert mock_replicate.stage4_calls == 1
 
 
 def test_abstract_word_sets_review_warning_after_three_failed_attempts(db_session):

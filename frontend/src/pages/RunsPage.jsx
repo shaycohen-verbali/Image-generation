@@ -1,6 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { listRuns, retryRun } from '../lib/api'
 
+function roundsLabel(run) {
+  const totalRounds = (run.max_optimization_attempts ?? 0) + 1
+  const currentRound = Math.max(run.optimization_attempt ?? 0, 1)
+  if (run.status === 'running' && run.current_stage === 'stage4_background') {
+    return `Rounds done (${currentRound}/${totalRounds}), finalizing`
+  }
+  if (run.status === 'running') {
+    return `Round ${currentRound}/${totalRounds} in progress`
+  }
+  if (run.status.startsWith('completed')) {
+    return `Completed on round ${currentRound}/${totalRounds}`
+  }
+  return `Planned rounds: ${totalRounds}`
+}
+
 export default function RunsPage() {
   const [filters, setFilters] = useState({ status: '', entry_id: '' })
   const [runs, setRuns] = useState([])
@@ -72,7 +87,7 @@ export default function RunsPage() {
                 <th>Status</th>
                 <th>Stage</th>
                 <th>Score</th>
-                <th>Attempt</th>
+                <th>Rounds</th>
                 <th>Warning</th>
                 <th>Retry</th>
               </tr>
@@ -85,7 +100,7 @@ export default function RunsPage() {
                   <td>{run.status}</td>
                   <td>{run.current_stage}</td>
                   <td>{run.quality_score ?? '-'}</td>
-                  <td>{run.optimization_attempt}</td>
+                  <td>{roundsLabel(run)}</td>
                   <td>
                     {run.review_warning ? (
                       <span className="warning-badge" title={run.review_warning_reason || ''}>

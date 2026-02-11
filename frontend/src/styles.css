@@ -239,6 +239,15 @@ pre {
   margin: 0 0 10px;
 }
 
+.progress-note {
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f6f2e8;
+  padding: 8px 10px;
+  font-weight: 700;
+}
+
 @media (max-width: 640px) {
   .app-shell {
     padding: 12px;

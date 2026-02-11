@@ -295,6 +295,10 @@ class PipelineRunner:
         current_attempt = max(run.optimization_attempt, 0) + 1
         previous_score_explanation = ""
         previous_failure_tags: list[str] = []
+        selected_attempt = current_attempt
+        final_status = "completed_fail_threshold"
+        final_score = 0.0
+        final_rubric: dict[str, Any] = {}
 
         while current_attempt <= total_attempt_budget:
             run = self.repo.update_run(run, current_stage="stage3_upgrade", optimization_attempt=current_attempt)
@@ -312,17 +316,6 @@ class PipelineRunner:
                 ),
             )
 
-            run = self.repo.update_run(run, current_stage="stage4_background", optimization_attempt=current_attempt)
-            self._execute_with_stage_retry(
-                retry_limit,
-                lambda: self._run_stage4_attempt(
-                    run=run,
-                    entry=entry,
-                    attempt=current_attempt,
-                    abstract_intent=abstract_intent,
-                ),
-            )
-
             run = self.repo.update_run(run, current_stage="quality_gate", optimization_attempt=current_attempt)
             score, passed, rubric = self._execute_with_stage_retry(
                 retry_limit,
@@ -333,46 +326,67 @@ class PipelineRunner:
                     abstract_intent=abstract_intent,
                 ),
             )
+            selected_attempt = current_attempt
+            final_score = score
+            final_rubric = rubric
 
             if passed:
-                run = self.repo.update_run(
-                    run,
-                    status="completed_pass",
-                    current_stage="completed",
-                    quality_score=score,
-                    review_warning=False,
-                    review_warning_reason="",
-                    error_detail="",
-                )
-                return run
+                final_status = "completed_pass"
+                break
 
             previous_score_explanation = str(rubric.get("explanation", ""))
             previous_failure_tags = [str(item) for item in rubric.get("failure_tags", [])]
             if current_attempt >= total_attempt_budget:
-                review_warning = bool(abstract_intent.is_abstract and current_attempt >= 3)
-                review_reason = (
-                    f"Abstract word did not pass quality gate after {current_attempt} attempts."
-                    if review_warning
-                    else ""
-                )
-                run = self.repo.update_run(
-                    run,
-                    status="completed_fail_threshold",
-                    current_stage="completed",
-                    quality_score=score,
-                    review_warning=review_warning,
-                    review_warning_reason=review_reason,
-                    error_detail=f"Final score {score} below threshold {run.quality_threshold}",
-                )
-                return run
+                final_status = "completed_fail_threshold"
+                break
 
             current_attempt += 1
 
         run = self.repo.update_run(
             run,
+            current_stage="stage4_background",
+            optimization_attempt=selected_attempt,
+        )
+        self._execute_with_stage_retry(
+            retry_limit,
+            lambda: self._run_stage4_attempt(
+                run=run,
+                entry=entry,
+                attempt=selected_attempt,
+            ),
+        )
+
+        if final_status == "completed_pass":
+            run = self.repo.update_run(
+                run,
+                status="completed_pass",
+                current_stage="completed",
+                quality_score=final_score,
+                review_warning=False,
+                review_warning_reason="",
+                error_detail="",
+            )
+            return run
+
+        review_warning = bool(abstract_intent.is_abstract and selected_attempt >= 3)
+        review_reason = (
+            f"Abstract word did not pass quality gate after {selected_attempt} attempts."
+            if review_warning
+            else ""
+        )
+        failure_explanation = str(final_rubric.get("explanation", "")).strip()
+        failure_detail = f"Final score {final_score} below threshold {run.quality_threshold}"
+        if failure_explanation:
+            failure_detail = f"{failure_detail}. {failure_explanation}"
+
+        run = self.repo.update_run(
+            run,
             status="completed_fail_threshold",
             current_stage="completed",
-            error_detail="attempt budget exhausted",
+            quality_score=final_score,
+            review_warning=review_warning,
+            review_warning_reason=review_reason,
+            error_detail=failure_detail,
         )
         return run
 
@@ -387,7 +401,7 @@ class PipelineRunner:
         previous_failure_tags: list[str],
         abstract_intent: AbstractIntent,
     ) -> None:
-        critique_source_asset = self._latest_asset(run.id, "stage4_white_bg") or self._latest_asset(run.id, "stage2_draft")
+        critique_source_asset = self._latest_asset(run.id, "stage3_upgraded") or self._latest_asset(run.id, "stage2_draft")
         if critique_source_asset is None:
             raise RuntimeError("No source asset available for stage 3")
         critique_path = Path(critique_source_asset.abs_path)
@@ -501,7 +515,7 @@ class PipelineRunner:
             },
         )
 
-    def _run_stage4_attempt(self, *, run: Run, entry: Entry, attempt: int, abstract_intent: AbstractIntent) -> None:
+    def _run_stage4_attempt(self, *, run: Run, entry: Entry, attempt: int) -> None:
         upgraded_asset = self._latest_asset(run.id, "stage3_upgraded")
         if upgraded_asset is None:
             raise RuntimeError("Missing stage3 upgraded image")
@@ -555,14 +569,14 @@ class PipelineRunner:
         attempt: int,
         abstract_intent: AbstractIntent,
     ) -> tuple[float, bool, dict[str, Any]]:
-        final_asset = self._latest_asset(run.id, "stage4_white_bg")
-        if final_asset is None:
-            raise RuntimeError("Missing stage4 white background image")
+        candidate_asset = self._latest_asset(run.id, "stage3_upgraded")
+        if candidate_asset is None:
+            raise RuntimeError("Missing stage3 upgraded image for quality gate")
 
         start = perf_counter()
         config = self.repo.get_runtime_config()
         rubric, raw = self.openai.score_image(
-            Path(final_asset.abs_path),
+            Path(candidate_asset.abs_path),
             word=entry.word,
             part_of_sentence=entry.part_of_sentence,
             category=entry.category,
@@ -593,11 +607,11 @@ class PipelineRunner:
             stage_name="quality_gate",
             attempt=attempt,
             status="ok",
-            request_json={"asset": final_asset.abs_path, "threshold": run.quality_threshold},
+            request_json={"asset": candidate_asset.abs_path, "threshold": run.quality_threshold},
             response_json={"rubric": rubric, "raw": raw, "abstract_intent": abstract_intent.to_dict()},
         )
 
-        run_dir_file = Path(final_asset.abs_path).parent / f"metadata_attempt_{attempt}.json"
+        run_dir_file = Path(candidate_asset.abs_path).parent / f"metadata_attempt_{attempt}.json"
         metadata: dict[str, Any] = {}
         if run_dir_file.exists():
             metadata = json.loads(run_dir_file.read_text(encoding="utf-8"))
