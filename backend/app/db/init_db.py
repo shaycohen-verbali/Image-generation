@@ -17,7 +17,7 @@ def init_db() -> None:
             db.add(
                 RuntimeConfig(
                     id=1,
-                    quality_threshold=settings.quality_threshold,
+                    quality_threshold=max(MIN_QUALITY_THRESHOLD, int(settings.quality_threshold)),
                     max_optimization_loops=settings.max_optimization_loops,
                     max_api_retries=settings.max_api_retries,
                     stage_retry_limit=settings.stage_retry_limit,
