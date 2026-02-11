@@ -160,6 +160,54 @@ pre {
   padding: 10px;
 }
 
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.asset-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.asset-card h4 {
+  margin: 0;
+  padding: 8px 10px;
+  background: #f6f2e8;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.asset-image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.asset-meta {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px 10px;
+  font-size: 0.85rem;
+}
+
+.asset-meta p {
+  margin: 0;
+}
+
+.asset-meta a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.asset-meta a:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 640px) {
   .app-shell {
     padding: 12px;
