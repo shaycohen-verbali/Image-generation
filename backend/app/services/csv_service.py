@@ -51,6 +51,4 @@ def validate_entry_row(row: dict[str, str]) -> str | None:
         return "word is required"
     if not row.get("part_of_sentence"):
         return "part_of_sentence is required"
-    if not row.get("category"):
-        return "category is required"
     return None

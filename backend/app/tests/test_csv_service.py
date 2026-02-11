@@ -14,6 +14,11 @@ def test_parse_entries_csv_supports_existing_column_names() -> None:
     assert rows[0]["category"] == "food"
 
 
-def test_validate_entry_row_requires_core_fields() -> None:
+def test_validate_entry_row_requires_word_and_part_of_sentence() -> None:
     error = validate_entry_row({"word": "", "part_of_sentence": "noun", "category": "food"})
     assert error is not None
+
+
+def test_validate_entry_row_allows_empty_category() -> None:
+    error = validate_entry_row({"word": "apple", "part_of_sentence": "noun", "category": ""})
+    assert error is None

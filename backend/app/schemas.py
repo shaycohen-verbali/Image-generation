@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class EntryCreate(BaseModel):
     word: str
     part_of_sentence: str
-    category: str
+    category: str = ""
     context: str = ""
     boy_or_girl: str = ""
     batch: str = ""

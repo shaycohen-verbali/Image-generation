@@ -83,8 +83,8 @@ export default function SubmitPage() {
             <input value={form.part_of_sentence} onChange={(e) => setForm({ ...form, part_of_sentence: e.target.value })} required />
           </label>
           <label>
-            Category
-            <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required />
+            Category (optional)
+            <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
           </label>
           <label>
             Context
