@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import zipfile
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -27,18 +28,20 @@ class ExportService:
             runs = self.repo.list_runs_for_export(filters)
             manifest = self._build_manifest(runs)
             csv_path = export_dir / "export.csv"
-            zip_path = export_dir / "images.zip"
+            white_bg_zip_path = export_dir / "images_white_bg.zip"
+            with_bg_zip_path = export_dir / "images_with_bg_last_attempt.zip"
             manifest_path = export_dir / "manifest.json"
 
             self._write_csv(csv_path, runs)
-            self._write_zip(zip_path, runs)
+            self._write_zip(white_bg_zip_path, runs, stage_name="stage4_white_bg")
+            self._write_zip(with_bg_zip_path, runs, stage_name="stage3_upgraded")
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
             self.repo.update_export(
                 record,
                 status="completed",
                 csv_path=csv_path.as_posix(),
-                zip_path=zip_path.as_posix(),
+                zip_path=white_bg_zip_path.as_posix(),
                 manifest_path=manifest_path.as_posix(),
             )
         except Exception as exc:  # noqa: BLE001
@@ -59,9 +62,18 @@ class ExportService:
             "status",
             "quality_score",
             "quality_threshold",
+            "optimization_attempt",
             "max_optimization_attempts",
             "first_prompt",
+            "upgraded_prompt_count",
             "upgraded_prompts_json",
+            "with_background_last_image_name",
+            "with_background_last_image_path",
+            "without_background_last_image_name",
+            "without_background_last_image_path",
+            "with_background_images_by_attempt_json",
+            "without_background_images_by_attempt_json",
+            "all_image_names_json",
             "stage_statuses_json",
             "assets_json",
             "error_detail",
@@ -97,6 +109,32 @@ class ExportService:
                     }
                     for stage in stages
                 ]
+                by_stage_attempt: dict[str, dict[int, Asset]] = defaultdict(dict)
+                for asset in assets:
+                    by_stage_attempt[asset.stage_name][asset.attempt] = asset
+                stage3_by_attempt = by_stage_attempt.get("stage3_upgraded", {})
+                stage4_by_attempt = by_stage_attempt.get("stage4_white_bg", {})
+                last_stage3_attempt = max(stage3_by_attempt.keys()) if stage3_by_attempt else None
+                last_stage4_attempt = max(stage4_by_attempt.keys()) if stage4_by_attempt else None
+                last_stage3 = stage3_by_attempt.get(last_stage3_attempt) if last_stage3_attempt is not None else None
+                last_stage4 = stage4_by_attempt.get(last_stage4_attempt) if last_stage4_attempt is not None else None
+
+                stage3_images_by_attempt = [
+                    {
+                        "attempt": attempt,
+                        "file_name": asset.file_name,
+                        "abs_path": asset.abs_path,
+                    }
+                    for attempt, asset in sorted(stage3_by_attempt.items(), key=lambda item: item[0])
+                ]
+                stage4_images_by_attempt = [
+                    {
+                        "attempt": attempt,
+                        "file_name": asset.file_name,
+                        "abs_path": asset.abs_path,
+                    }
+                    for attempt, asset in sorted(stage4_by_attempt.items(), key=lambda item: item[0])
+                ]
                 assets_export = [
                     {
                         "asset_id": asset.id,
@@ -121,23 +159,41 @@ class ExportService:
                         "status": run.status,
                         "quality_score": run.quality_score,
                         "quality_threshold": run.quality_threshold,
+                        "optimization_attempt": run.optimization_attempt,
                         "max_optimization_attempts": run.max_optimization_attempts,
                         "first_prompt": first_prompt,
+                        "upgraded_prompt_count": len(upgraded_prompts),
                         "upgraded_prompts_json": json.dumps(upgraded_prompts, ensure_ascii=False),
+                        "with_background_last_image_name": last_stage3.file_name if last_stage3 else "",
+                        "with_background_last_image_path": last_stage3.abs_path if last_stage3 else "",
+                        "without_background_last_image_name": last_stage4.file_name if last_stage4 else "",
+                        "without_background_last_image_path": last_stage4.abs_path if last_stage4 else "",
+                        "with_background_images_by_attempt_json": json.dumps(stage3_images_by_attempt, ensure_ascii=False),
+                        "without_background_images_by_attempt_json": json.dumps(stage4_images_by_attempt, ensure_ascii=False),
+                        "all_image_names_json": json.dumps([asset.file_name for asset in assets], ensure_ascii=False),
                         "stage_statuses_json": json.dumps(stage_statuses, ensure_ascii=False),
                         "assets_json": json.dumps(assets_export, ensure_ascii=False),
                         "error_detail": run.error_detail,
                     }
                 )
 
-    def _write_zip(self, path: Path, runs_data: list[tuple]) -> None:
+    def _write_zip(self, path: Path, runs_data: list[tuple], *, stage_name: str) -> None:
         with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             for run, _entry in runs_data:
                 _, _, _, assets, _ = self.repo.run_details(run.id)
-                for asset in assets:
-                    asset_path = Path(asset.abs_path)
-                    if asset_path.exists():
-                        archive.write(asset_path, arcname=f"{run.id}/{asset_path.name}")
+                selected = self._latest_asset_for_stage(assets, stage_name)
+                if selected is None:
+                    continue
+                asset_path = Path(selected.abs_path)
+                if asset_path.exists():
+                    archive.write(asset_path, arcname=f"{run.id}/{asset_path.name}")
+
+    @staticmethod
+    def _latest_asset_for_stage(assets: list[Asset], stage_name: str) -> Asset | None:
+        candidates = [asset for asset in assets if asset.stage_name == stage_name]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item.attempt)
 
     def _build_manifest(self, runs_data: list[tuple]) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
@@ -216,5 +272,11 @@ class ExportService:
 
         return {
             "schema_version": "v1",
+            "artifacts": {
+                "csv": "export.csv",
+                "white_bg_zip": "images_white_bg.zip",
+                "with_bg_zip": "images_with_bg_last_attempt.zip",
+                "manifest": "manifest.json",
+            },
             "records": rows,
         }

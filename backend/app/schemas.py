@@ -140,7 +140,12 @@ class ExportOut(BaseModel):
     filter_json: dict[str, Any]
     csv_path: str
     zip_path: str
+    with_bg_zip_path: str
     manifest_path: str
+    csv_download_url: str
+    white_bg_zip_download_url: str
+    with_bg_zip_download_url: str
+    manifest_download_url: str
     error_detail: str
     created_at: datetime
     updated_at: datetime

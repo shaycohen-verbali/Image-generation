@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { createExport, getExport } from '../lib/api'
+import { buildApiUrl, createExport, getExport } from '../lib/api'
 
 export default function ExportsPage() {
   const [statusFilter, setStatusFilter] = useState('')
@@ -47,7 +47,41 @@ export default function ExportsPage() {
         </div>
 
         {exportDetail && (
-          <pre>{JSON.stringify(exportDetail, null, 2)}</pre>
+          <>
+            <h3>Export {exportDetail.id}</h3>
+            <p>Status: <strong>{exportDetail.status}</strong></p>
+
+            <div className="inline-fields">
+              {exportDetail.csv_path ? (
+                <a href={buildApiUrl(exportDetail.csv_download_url)} target="_blank" rel="noreferrer">Download CSV</a>
+              ) : (
+                <span>CSV not ready</span>
+              )}
+              {exportDetail.zip_path ? (
+                <a href={buildApiUrl(exportDetail.white_bg_zip_download_url)} target="_blank" rel="noreferrer">
+                  Download ZIP (No Background)
+                </a>
+              ) : (
+                <span>No-background ZIP not ready</span>
+              )}
+              {exportDetail.with_bg_zip_path ? (
+                <a href={buildApiUrl(exportDetail.with_bg_zip_download_url)} target="_blank" rel="noreferrer">
+                  Download ZIP (With Background)
+                </a>
+              ) : (
+                <span>With-background ZIP not ready</span>
+              )}
+              {exportDetail.manifest_path ? (
+                <a href={buildApiUrl(exportDetail.manifest_download_url)} target="_blank" rel="noreferrer">
+                  Download Manifest
+                </a>
+              ) : (
+                <span>Manifest not ready</span>
+              )}
+            </div>
+
+            <pre>{JSON.stringify(exportDetail, null, 2)}</pre>
+          </>
         )}
       </article>
 

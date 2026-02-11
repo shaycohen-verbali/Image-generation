@@ -1,4 +1,12 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api/v1'
+export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api/v1'
+const API_ROOT = API_BASE.endsWith('/api/v1') ? API_BASE.slice(0, -7) : API_BASE
+
+export function buildApiUrl(path) {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  if (path.startsWith('/')) return `${API_ROOT}${path}`
+  return `${API_ROOT}/${path}`
+}
 
 async function parseResponse(response) {
   if (!response.ok) {
