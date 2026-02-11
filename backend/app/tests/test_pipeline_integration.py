@@ -151,7 +151,7 @@ def _create_run(
     )
     run = repo.create_runs(
         [entry.id],
-        quality_threshold=90,
+        quality_threshold=95,
         max_optimization_attempts=max_optimization_attempts,
     )[0]
     return run
@@ -170,7 +170,7 @@ def test_happy_path_all_stages(db_session):
 def test_stage2_retry_then_success(db_session):
     run = _create_run(db_session)
     mock_replicate = MockReplicate(stage2_failures_before_success=1)
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[92]), replicate_client=mock_replicate)
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate)
 
     result = runner.process_run(run.id)
 
@@ -181,7 +181,7 @@ def test_stage2_retry_then_success(db_session):
 def test_stage3_flux_fallback_to_imagen(db_session):
     run = _create_run(db_session)
     mock_replicate = MockReplicate(flux_fail_attempts={1})
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[93]), replicate_client=mock_replicate)
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate)
 
     result = runner.process_run(run.id)
 
@@ -208,13 +208,13 @@ def test_stage4_failure_exhausts_retries(db_session):
 
 def test_quality_loop_passes_on_second_attempt(db_session):
     run = _create_run(db_session, max_optimization_attempts=3)
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[80, 94]), replicate_client=MockReplicate())
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[80, 96]), replicate_client=MockReplicate())
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_pass"
     assert result.optimization_attempt == 2
-    assert result.quality_score == 94
+    assert result.quality_score == 96
 
 
 def test_quality_loop_reaches_fail_threshold(db_session):

@@ -4,6 +4,8 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models import Base, RuntimeConfig
 
+MIN_QUALITY_THRESHOLD = 95
+
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
@@ -26,6 +28,10 @@ def init_db() -> None:
                     openai_model_vision=settings.openai_model_vision,
                 )
             )
+            db.commit()
+        elif int(existing.quality_threshold) < MIN_QUALITY_THRESHOLD:
+            existing.quality_threshold = MIN_QUALITY_THRESHOLD
+            db.add(existing)
             db.commit()
 
 

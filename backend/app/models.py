@@ -44,7 +44,7 @@ class Run(Base):
     current_stage: Mapped[str] = mapped_column(String(64), default="queued", nullable=False)
     retry_from_stage: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    quality_threshold: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    quality_threshold: Mapped[int] = mapped_column(Integer, default=95, nullable=False)
     optimization_attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_optimization_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     technical_retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -150,7 +150,7 @@ class RuntimeConfig(Base):
     __tablename__ = "runtime_config"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    quality_threshold: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    quality_threshold: Mapped[int] = mapped_column(Integer, default=95, nullable=False)
     max_optimization_loops: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     max_api_retries: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     stage_retry_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)

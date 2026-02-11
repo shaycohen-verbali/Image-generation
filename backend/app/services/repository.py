@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from app.models import Asset, Entry, Export, Prompt, Run, RuntimeConfig, Score, StageResult
 from app.services.utils import deterministic_entry_id, source_row_hash
 
+MIN_QUALITY_THRESHOLD = 95
+
 
 def _dumps(value: dict[str, Any] | list[Any]) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True)
@@ -38,6 +40,7 @@ class Repository:
         for key, value in updates.items():
             if value is not None and hasattr(config, key):
                 setattr(config, key, value)
+        config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
         self.db.add(config)
         self.db.commit()
         self.db.refresh(config)
@@ -115,13 +118,14 @@ class Repository:
         quality_threshold: int,
         max_optimization_attempts: int,
     ) -> list[Run]:
+        threshold = max(MIN_QUALITY_THRESHOLD, int(quality_threshold))
         runs: list[Run] = []
         for entry_id in entry_ids:
             run = Run(
                 entry_id=entry_id,
                 status="queued",
                 current_stage="queued",
-                quality_threshold=quality_threshold,
+                quality_threshold=threshold,
                 max_optimization_attempts=max_optimization_attempts,
             )
             self.db.add(run)

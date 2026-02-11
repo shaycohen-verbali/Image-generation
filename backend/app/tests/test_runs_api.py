@@ -64,3 +64,28 @@ def test_run_detail_includes_review_warning_fields(db_session) -> None:
     payload = response.json()["run"]
     assert payload["review_warning"] is True
     assert payload["review_warning_reason"] == "Abstract word failed repeatedly."
+
+
+def test_create_runs_rejects_threshold_below_minimum(db_session) -> None:
+    repo = Repository(db_session)
+    entry = repo.create_entry(
+        {
+            "word": "apple",
+            "part_of_sentence": "noun",
+            "category": "food",
+            "context": "single apple",
+            "boy_or_girl": "girl",
+            "batch": "1",
+        }
+    )
+
+    client = _client_with_db(db_session)
+    response = client.post(
+        "/api/v1/runs",
+        json={
+            "entry_ids": [entry.id],
+            "quality_threshold": 90,
+        },
+    )
+
+    assert response.status_code == 422

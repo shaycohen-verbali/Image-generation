@@ -45,7 +45,7 @@ class EntryImportResponse(BaseModel):
 
 class RunsCreateRequest(BaseModel):
     entry_ids: list[str] = Field(min_length=1)
-    quality_threshold: int | None = None
+    quality_threshold: int | None = Field(default=None, ge=95)
     max_optimization_attempts: int | None = None
 
 
@@ -161,7 +161,7 @@ class RuntimeConfigOut(BaseModel):
 
 
 class RuntimeConfigUpdate(BaseModel):
-    quality_threshold: int | None = None
+    quality_threshold: int | None = Field(default=None, ge=95)
     max_optimization_loops: int | None = None
     max_api_retries: int | None = None
     stage_retry_limit: int | None = None

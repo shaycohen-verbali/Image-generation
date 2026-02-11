@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     replicate_api_token: str = Field(default="", alias="REPLICATE_API_TOKEN")
     replicate_cf_base_url: str = Field(default="", alias="REPLICATE_CF_BASE_URL")
 
-    quality_threshold: int = Field(default=90, alias="QUALITY_THRESHOLD")
+    quality_threshold: int = Field(default=95, ge=95, alias="QUALITY_THRESHOLD")
     max_optimization_loops: int = Field(default=3, alias="MAX_OPTIMIZATION_LOOPS")
     max_api_retries: int = Field(default=3, alias="MAX_API_RETRIES")
     stage_retry_limit: int = Field(default=3, alias="STAGE_RETRY_LIMIT")
