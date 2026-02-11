@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
@@ -7,6 +7,7 @@ from app.models import Base, RuntimeConfig
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_runs_columns()
     settings = get_settings()
     with SessionLocal() as db:
         existing = db.execute(select(RuntimeConfig).where(RuntimeConfig.id == 1)).scalar_one_or_none()
@@ -26,6 +27,19 @@ def init_db() -> None:
                 )
             )
             db.commit()
+
+
+def _ensure_runs_columns() -> None:
+    if not str(engine.url).startswith("sqlite"):
+        return
+
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(runs)")).fetchall()
+        existing = {row[1] for row in rows}
+        if "review_warning" not in existing:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN review_warning BOOLEAN NOT NULL DEFAULT 0"))
+        if "review_warning_reason" not in existing:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN review_warning_reason TEXT NOT NULL DEFAULT ''"))
 
 
 if __name__ == "__main__":

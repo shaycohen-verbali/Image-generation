@@ -402,6 +402,8 @@ class Repository:
         retry_stage = last_failed_stage.stage_name if last_failed_stage else "stage1_prompt"
         run.status = "retry_queued"
         run.retry_from_stage = retry_stage
+        run.review_warning = False
+        run.review_warning_reason = ""
         run.error_detail = ""
         self.db.add(run)
         self.db.commit()

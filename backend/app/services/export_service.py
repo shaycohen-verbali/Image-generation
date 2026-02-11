@@ -122,6 +122,8 @@ class ExportService:
                         "quality_score": run.quality_score,
                         "quality_threshold": run.quality_threshold,
                         "max_optimization_attempts": run.max_optimization_attempts,
+                        "review_warning": run.review_warning,
+                        "review_warning_reason": run.review_warning_reason,
                         "first_prompt": first_prompt,
                         "upgraded_prompts_json": json.dumps(upgraded_prompts, ensure_ascii=False),
                         "stage_statuses_json": json.dumps(stage_statuses, ensure_ascii=False),
@@ -152,6 +154,8 @@ class ExportService:
                         "quality_threshold": run.quality_threshold,
                         "optimization_attempt": run.optimization_attempt,
                         "max_optimization_attempts": run.max_optimization_attempts,
+                        "review_warning": run.review_warning,
+                        "review_warning_reason": run.review_warning_reason,
                         "error_detail": run.error_detail,
                     },
                     "entry": {

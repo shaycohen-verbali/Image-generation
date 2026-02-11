@@ -56,6 +56,12 @@ export default function EntryDetailPage() {
 
         {data && (
           <>
+            {data.run.review_warning ? (
+              <div className="warning-banner">
+                <strong>Review recommended:</strong> {data.run.review_warning_reason || 'This abstract concept may be hard to interpret.'}
+              </div>
+            ) : null}
+
             <h3>Run</h3>
             <pre>{JSON.stringify(data.run, null, 2)}</pre>
 

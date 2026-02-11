@@ -48,6 +48,8 @@ class Run(Base):
     optimization_attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_optimization_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     technical_retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    review_warning: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    review_warning_reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
     error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
