@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import SubmitPage from './pages/SubmitPage'
 import RunsPage from './pages/RunsPage'
 import EntryDetailPage from './pages/EntryDetailPage'
