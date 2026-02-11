@@ -78,6 +78,13 @@ body {
   gap: 12px;
 }
 
+.runs-layout {
+  display: grid;
+  grid-template-columns: minmax(480px, 1.1fr) minmax(360px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
 .card {
   border: 2px solid var(--line);
   border-radius: 16px;
@@ -150,6 +157,14 @@ td {
   padding: 8px;
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+
+.selected-row td {
+  background: #e8f4f2;
+}
+
 pre {
   white-space: pre-wrap;
   font-family: 'Courier New', monospace;
@@ -209,6 +224,10 @@ pre {
 }
 
 @media (max-width: 640px) {
+  .runs-layout {
+    grid-template-columns: 1fr;
+  }
+
   .app-shell {
     padding: 12px;
   }

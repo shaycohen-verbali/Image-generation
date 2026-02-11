@@ -107,6 +107,7 @@ class ExportService:
                 last_stage2_attempt = max(stage2_by_attempt.keys()) if stage2_by_attempt else None
                 last_stage2 = stage2_by_attempt.get(last_stage2_attempt) if last_stage2_attempt is not None else None
                 first_stage3 = stage3_by_attempt.get(1)
+                base_slug = self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category)
 
                 prompt2 = upgraded_prompts[0]["prompt_text"] if upgraded_prompts else ""
                 upgraded_prompt = upgraded_prompts[-1]["prompt_text"] if upgraded_prompts else ""
@@ -116,10 +117,10 @@ class ExportService:
                         need_person = prompt.needs_person
                         break
 
-                file_name_1 = self._unique_export_name(run.id, last_stage2) if last_stage2 else ""
-                file_name_2 = self._unique_export_name(run.id, first_stage3) if first_stage3 else ""
-                file_name_upgraded = self._unique_export_name(run.id, last_stage3) if last_stage3 else ""
-                file_name_without_background = self._unique_export_name(run.id, last_stage4) if last_stage4 else ""
+                file_name_1 = self._unique_export_name(base_slug, run.id, last_stage2) if last_stage2 else ""
+                file_name_2 = self._unique_export_name(base_slug, run.id, first_stage3) if first_stage3 else ""
+                file_name_upgraded = self._unique_export_name(base_slug, run.id, last_stage3) if last_stage3 else ""
+                file_name_without_background = self._unique_export_name(base_slug, run.id, last_stage4) if last_stage4 else ""
 
                 writer.writerow(
                     {
@@ -154,7 +155,8 @@ class ExportService:
                     continue
                 asset_path = Path(selected.abs_path)
                 if asset_path.exists():
-                    archive.write(asset_path, arcname=self._unique_export_name(run.id, selected))
+                    base_slug = self._base_asset_slug(_entry.word, _entry.part_of_sentence, _entry.category)
+                    archive.write(asset_path, arcname=self._unique_export_name(base_slug, run.id, selected))
 
     @staticmethod
     def _base_asset_slug(word: str, part_of_sentence: str, category: str) -> str:
@@ -170,11 +172,11 @@ class ExportService:
         return max(candidates, key=lambda item: item.attempt)
 
     @staticmethod
-    def _unique_export_name(run_id: str, asset: Asset | None) -> str:
+    def _unique_export_name(base_slug: str, run_id: str, asset: Asset | None) -> str:
         if asset is None:
             return ""
         safe_name = sanitize_filename(asset.file_name)
-        return f"{run_id}__{asset.id}__{safe_name}"
+        return f"{base_slug}__{run_id}__{asset.id}__{safe_name}"
 
     def _build_manifest(self, runs_data: list[tuple]) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []

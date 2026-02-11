@@ -1,13 +1,11 @@
 import React, { useState } from 'react'
 import SubmitPage from './pages/SubmitPage'
 import RunsPage from './pages/RunsPage'
-import EntryDetailPage from './pages/EntryDetailPage'
 import ExportsPage from './pages/ExportsPage'
 
 const tabs = [
   { id: 'submit', label: 'Submit' },
-  { id: 'runs', label: 'Runs' },
-  { id: 'detail', label: 'Entry Detail' },
+  { id: 'runs', label: 'Runs + Details' },
   { id: 'exports', label: 'Exports' },
 ]
 
@@ -38,7 +36,6 @@ export default function App() {
       <main className="page-wrap">
         {activeTab === 'submit' && <SubmitPage />}
         {activeTab === 'runs' && <RunsPage />}
-        {activeTab === 'detail' && <EntryDetailPage />}
         {activeTab === 'exports' && <ExportsPage />}
       </main>
     </div>

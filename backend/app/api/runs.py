@@ -29,6 +29,26 @@ def _json_dict(value: str) -> dict:
         return {}
 
 
+def _run_out(run, entry) -> RunOut:
+    return RunOut(
+        id=run.id,
+        entry_id=run.entry_id,
+        word=entry.word if entry else "",
+        part_of_sentence=entry.part_of_sentence if entry else "",
+        category=entry.category if entry else "",
+        status=run.status,
+        current_stage=run.current_stage,
+        quality_score=run.quality_score,
+        quality_threshold=run.quality_threshold,
+        optimization_attempt=run.optimization_attempt,
+        max_optimization_attempts=run.max_optimization_attempts,
+        technical_retry_count=run.technical_retry_count,
+        error_detail=run.error_detail,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+    )
+
+
 @router.post("", response_model=list[RunOut])
 def create_runs(payload: RunsCreateRequest, db: Session = Depends(db_dependency)) -> list[RunOut]:
     repo = Repository(db)
@@ -42,23 +62,11 @@ def create_runs(payload: RunsCreateRequest, db: Session = Depends(db_dependency)
         else config.max_optimization_loops,
     )
 
-    return [
-        RunOut(
-            id=run.id,
-            entry_id=run.entry_id,
-            status=run.status,
-            current_stage=run.current_stage,
-            quality_score=run.quality_score,
-            quality_threshold=run.quality_threshold,
-            optimization_attempt=run.optimization_attempt,
-            max_optimization_attempts=run.max_optimization_attempts,
-            technical_retry_count=run.technical_retry_count,
-            error_detail=run.error_detail,
-            created_at=run.created_at,
-            updated_at=run.updated_at,
-        )
-        for run in runs
-    ]
+    payload_rows: list[RunOut] = []
+    for run in runs:
+        entry = repo.get_entry(run.entry_id)
+        payload_rows.append(_run_out(run, entry))
+    return payload_rows
 
 
 @router.get("", response_model=list[RunOut])
@@ -71,23 +79,11 @@ def list_runs(
 ) -> list[RunOut]:
     repo = Repository(db)
     runs = repo.list_runs(status=status, entry_id=entry_id, min_score=min_score, max_score=max_score)
-    return [
-        RunOut(
-            id=run.id,
-            entry_id=run.entry_id,
-            status=run.status,
-            current_stage=run.current_stage,
-            quality_score=run.quality_score,
-            quality_threshold=run.quality_threshold,
-            optimization_attempt=run.optimization_attempt,
-            max_optimization_attempts=run.max_optimization_attempts,
-            technical_retry_count=run.technical_retry_count,
-            error_detail=run.error_detail,
-            created_at=run.created_at,
-            updated_at=run.updated_at,
-        )
-        for run in runs
-    ]
+    payload_rows: list[RunOut] = []
+    for run in runs:
+        entry = repo.get_entry(run.entry_id)
+        payload_rows.append(_run_out(run, entry))
+    return payload_rows
 
 
 @router.get("/{run_id}", response_model=RunDetailOut)
@@ -97,20 +93,8 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    run_payload = RunOut(
-        id=run.id,
-        entry_id=run.entry_id,
-        status=run.status,
-        current_stage=run.current_stage,
-        quality_score=run.quality_score,
-        quality_threshold=run.quality_threshold,
-        optimization_attempt=run.optimization_attempt,
-        max_optimization_attempts=run.max_optimization_attempts,
-        technical_retry_count=run.technical_retry_count,
-        error_detail=run.error_detail,
-        created_at=run.created_at,
-        updated_at=run.updated_at,
-    )
+    entry = repo.get_entry(run.entry_id)
+    run_payload = _run_out(run, entry)
 
     return RunDetailOut(
         run=run_payload,

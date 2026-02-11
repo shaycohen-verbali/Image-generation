@@ -52,6 +52,9 @@ class RunsCreateRequest(BaseModel):
 class RunOut(BaseModel):
     id: str
     entry_id: str
+    word: str = ""
+    part_of_sentence: str = ""
+    category: str = ""
     status: str
     current_stage: str
     quality_score: float | None
