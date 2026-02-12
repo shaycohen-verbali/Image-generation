@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getRun, listRuns, retryRun } from '../lib/api'
 
 const stagePriority = {
@@ -20,6 +20,11 @@ export default function RunsPage() {
   const [message, setMessage] = useState('')
   const [selectedRunId, setSelectedRunId] = useState('')
   const [detail, setDetail] = useState(null)
+  const selectedRunIdRef = useRef('')
+
+  useEffect(() => {
+    selectedRunIdRef.current = selectedRunId
+  }, [selectedRunId])
 
   const query = useMemo(() => {
     const next = {}
@@ -54,12 +59,14 @@ export default function RunsPage() {
       setRuns(data)
       setMessage(`Loaded ${data.length} runs`)
 
-      if (!selectedRunId && data.length > 0) {
+      const activeRunId = selectedRunIdRef.current
+      if (!activeRunId && data.length > 0) {
         setSelectedRunId(data[0].id)
+        selectedRunIdRef.current = data[0].id
         loadRunDetail(data[0].id)
-      } else if (selectedRunId) {
-        const exists = data.some((run) => run.id === selectedRunId)
-        if (exists) loadRunDetail(selectedRunId)
+      } else if (activeRunId) {
+        const exists = data.some((run) => run.id === activeRunId)
+        if (exists) loadRunDetail(activeRunId)
       }
     } catch (error) {
       setMessage(`Error: ${error.message}`)
@@ -91,7 +98,11 @@ export default function RunsPage() {
       })
     : []
 
-  const finalAsset = sortedAssets.find((asset) => asset.stage_name === 'stage4_white_bg')
+  const finalAsset = sortedAssets.reduce((latest, asset) => {
+    if (asset.stage_name !== 'stage4_white_bg') return latest
+    if (!latest) return asset
+    return (asset.attempt || 0) >= (latest.attempt || 0) ? asset : latest
+  }, null)
 
   return (
     <section className="runs-layout">
@@ -139,6 +150,7 @@ export default function RunsPage() {
                   className={run.id === selectedRunId ? 'selected-row' : 'clickable-row'}
                   onClick={() => {
                     setSelectedRunId(run.id)
+                    selectedRunIdRef.current = run.id
                     loadRunDetail(run.id)
                   }}
                 >

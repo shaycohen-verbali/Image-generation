@@ -160,8 +160,12 @@ class ExportService:
 
     @staticmethod
     def _base_asset_slug(word: str, part_of_sentence: str, category: str) -> str:
-        parts = [word.strip(), part_of_sentence.strip(), category.strip()]
-        merged = "_".join(part for part in parts if part)
+        parts = [
+            (word or "").strip().lower() or "unknown-word",
+            (part_of_sentence or "").strip().lower() or "unknown-pos",
+            (category or "").strip().lower() or "no-category",
+        ]
+        merged = "_".join(parts)
         return sanitize_filename(merged.lower())
 
     @staticmethod

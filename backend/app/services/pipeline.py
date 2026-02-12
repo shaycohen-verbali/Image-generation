@@ -109,6 +109,15 @@ class PipelineRunner:
             technical_retry_count=run.technical_retry_count + 1,
         )
 
+    @staticmethod
+    def _entry_slug(entry: Entry) -> str:
+        parts = [
+            (entry.word or "").strip().lower() or "unknown-word",
+            (entry.part_of_sentence or "").strip().lower() or "unknown-pos",
+            (entry.category or "").strip().lower() or "no-category",
+        ]
+        return sanitize_filename("_".join(parts))
+
     def _execute_with_stage_retry(self, limit: int, fn):
         error: Exception | None = None
         for _ in range(limit):
@@ -224,7 +233,7 @@ class PipelineRunner:
                 raise RuntimeError("No output URL from FLUX schnell")
 
             image_bytes = self.replicate.download_image(output_url)
-            filename = f"stage2_draft_{sanitize_filename(entry.word)}.jpg"
+            filename = f"stage2_draft_{self._entry_slug(entry)}.jpg"
             self._save_asset(
                 run_id=run.id,
                 stage_name="stage2_draft",
@@ -275,16 +284,6 @@ class PipelineRunner:
                 ),
             )
 
-            run = self.repo.update_run(run, current_stage="stage4_background", optimization_attempt=current_attempt)
-            self._execute_with_stage_retry(
-                retry_limit,
-                lambda: self._run_stage4_attempt(
-                    run=run,
-                    entry=entry,
-                    attempt=current_attempt,
-                ),
-            )
-
             run = self.repo.update_run(run, current_stage="quality_gate", optimization_attempt=current_attempt)
             score, passed, rubric = self._execute_with_stage_retry(
                 retry_limit,
@@ -296,6 +295,15 @@ class PipelineRunner:
             )
 
             if passed:
+                run = self.repo.update_run(run, current_stage="stage4_background", optimization_attempt=current_attempt)
+                self._execute_with_stage_retry(
+                    retry_limit,
+                    lambda: self._run_stage4_attempt(
+                        run=run,
+                        entry=entry,
+                        attempt=current_attempt,
+                    ),
+                )
                 run = self.repo.update_run(
                     run,
                     status="completed_pass",
@@ -335,7 +343,7 @@ class PipelineRunner:
         attempt: int,
         previous_score_explanation: str,
     ) -> None:
-        critique_source_asset = self._latest_asset(run.id, "stage4_white_bg") or self._latest_asset(run.id, "stage2_draft")
+        critique_source_asset = self._latest_asset(run.id, "stage3_upgraded") or self._latest_asset(run.id, "stage2_draft")
         if critique_source_asset is None:
             raise RuntimeError("No source asset available for stage 3")
         critique_path = Path(critique_source_asset.abs_path)
@@ -395,7 +403,7 @@ class PipelineRunner:
             raise RuntimeError("No output URL for stage3 upgraded image")
         image_bytes = self.replicate.download_image(output_url)
 
-        filename = f"stage3_upgraded_attempt_{attempt}.jpg"
+        filename = f"stage3_upgraded_{self._entry_slug(entry)}_attempt_{attempt}.jpg"
         self._save_asset(
             run_id=run.id,
             stage_name="stage3_upgraded",
@@ -460,7 +468,7 @@ class PipelineRunner:
             raise RuntimeError("No output URL for stage4")
 
         image_bytes = self.replicate.download_image(output_url)
-        filename = f"stage4_white_bg_attempt_{attempt}.jpg"
+        filename = f"stage4_white_bg_{self._entry_slug(entry)}_attempt_{attempt}.jpg"
         self._save_asset(
             run_id=run.id,
             stage_name="stage4_white_bg",
@@ -492,9 +500,9 @@ class PipelineRunner:
         )
 
     def _run_quality_gate_attempt(self, *, run: Run, entry: Entry, attempt: int) -> tuple[float, bool, dict[str, Any]]:
-        final_asset = self._latest_asset(run.id, "stage4_white_bg")
+        final_asset = self._latest_asset(run.id, "stage3_upgraded")
         if final_asset is None:
-            raise RuntimeError("Missing stage4 white background image")
+            raise RuntimeError("Missing stage3 upgraded image")
 
         start = perf_counter()
         config = self.repo.get_runtime_config()
