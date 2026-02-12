@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getRun, listRuns, retryRun } from '../lib/api'
+import AlgorithmStaticMap from '../components/AlgorithmStaticMap'
+import RunExecutionDiagram from '../components/RunExecutionDiagram'
 
 const stagePriority = {
   stage2_draft: 1,
@@ -15,6 +17,7 @@ function stageTitle(stageName) {
 }
 
 export default function RunsPage() {
+  const algoDiagramEnabled = import.meta.env.VITE_ALGO_DIAGRAM_ENABLED !== 'false'
   const [filters, setFilters] = useState({ status: '', word: '', part_of_sentence: '', category: '' })
   const [runs, setRuns] = useState([])
   const [message, setMessage] = useState('')
@@ -105,8 +108,10 @@ export default function RunsPage() {
   }, null)
 
   return (
-    <section className="runs-layout">
-      <article className="card">
+    <section className="runs-page-stack">
+      {algoDiagramEnabled ? <AlgorithmStaticMap /> : null}
+      <section className="runs-layout">
+        <article className="card">
         <h2>Runs</h2>
         <div className="inline-fields">
           <label>
@@ -177,12 +182,14 @@ export default function RunsPage() {
           </table>
         </div>
         <p>{message}</p>
-      </article>
+        </article>
 
-      <article className="card">
+        <article className="card">
         <h2>Run Detail</h2>
         {!detail ? (
           <p>Select a run row to see details.</p>
+        ) : algoDiagramEnabled ? (
+          <RunExecutionDiagram detail={detail} />
         ) : (
           <>
             <h3>Run</h3>
@@ -237,7 +244,8 @@ export default function RunsPage() {
             <pre>{JSON.stringify(detail.scores, null, 2)}</pre>
           </>
         )}
-      </article>
+        </article>
+      </section>
     </section>
   )
 }

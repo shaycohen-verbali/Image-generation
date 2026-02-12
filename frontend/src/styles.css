@@ -85,6 +85,11 @@ body {
   align-items: start;
 }
 
+.runs-page-stack {
+  display: grid;
+  gap: 12px;
+}
+
 .card {
   border: 2px solid var(--line);
   border-radius: 16px;
@@ -221,6 +226,249 @@ pre {
 
 .asset-meta a:hover {
   text-decoration: underline;
+}
+
+.algo-static-card {
+  background: linear-gradient(130deg, #fdf7ec 0%, #f4efe4 100%);
+}
+
+.algo-subtitle {
+  margin-top: 4px;
+}
+
+.algo-static-lane {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.algo-static-node {
+  min-width: 220px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+}
+
+.algo-static-node h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.algo-static-provider {
+  margin: 6px 0 8px;
+  color: #385767;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.algo-static-arrow {
+  align-self: center;
+  font-weight: 900;
+  color: #48606f;
+}
+
+.algo-branches {
+  margin-top: 10px;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.run-diagram-root {
+  display: grid;
+  gap: 12px;
+}
+
+.run-diagram-head p {
+  margin: 0;
+}
+
+.attempt-chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.attempt-chip {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-weight: 700;
+}
+
+.attempt-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.attempt-summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.attempt-summary {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: #fff;
+  font-size: 0.82rem;
+}
+
+.attempt-summary p {
+  margin: 0 0 4px;
+}
+
+.attempt-summary.active {
+  border-color: var(--accent);
+  background: #edf8f5;
+}
+
+.run-diagram-lane {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.run-diagram-node {
+  min-width: 180px;
+  text-align: left;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+  display: grid;
+  gap: 4px;
+}
+
+.run-diagram-node.selected {
+  outline: 3px solid #c6ebe4;
+}
+
+.run-diagram-arrow {
+  align-self: center;
+  font-weight: 900;
+  color: #48606f;
+}
+
+.node-label {
+  font-weight: 800;
+}
+
+.node-status {
+  font-size: 0.8rem;
+}
+
+.node-subtitle {
+  font-size: 0.78rem;
+}
+
+.run-diagram-loop-note {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #425560;
+}
+
+.run-node-detail {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.run-node-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-node-detail-head h3 {
+  margin: 0;
+}
+
+.status-pill {
+  border-radius: 999px;
+  font-size: 0.74rem;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+}
+
+.status-queued {
+  border-color: #a0afbb;
+  background: #e8edf2;
+}
+
+.status-running {
+  border-color: #326cff;
+  background: #dce7ff;
+  animation: pulse-running 1.4s ease-in-out infinite;
+}
+
+.status-ok {
+  border-color: #17784e;
+  background: #dcf4e8;
+}
+
+.status-error {
+  border-color: #8f1f1f;
+  background: #ffdede;
+}
+
+.status-skipped {
+  border-color: #965f07;
+  background: #fde7c2;
+}
+
+.run-node-image {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.run-node-image img {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.run-node-image p {
+  margin: 6px 0 4px;
+  font-size: 0.83rem;
+}
+
+.run-node-image a {
+  font-size: 0.84rem;
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.run-node-image a:hover {
+  text-decoration: underline;
+}
+
+@keyframes pulse-running {
+  0% {
+    box-shadow: 0 0 0 0 rgba(50, 108, 255, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(50, 108, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(50, 108, 255, 0);
+  }
 }
 
 @media (max-width: 640px) {
