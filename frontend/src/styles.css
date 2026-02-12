@@ -264,10 +264,35 @@ pre {
   font-size: 0.84rem;
 }
 
+.algo-static-api {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: #2b4956;
+}
+
 .algo-static-arrow {
   align-self: center;
   font-weight: 900;
   color: #48606f;
+}
+
+.algo-prompt-box {
+  font-size: 0.75rem;
+  margin: 4px 0 0;
+  background: #f6f2e8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.algo-loop-banner {
+  margin-top: 10px;
+  border: 2px dashed #d38d14;
+  background: #fff2da;
+  color: #7a4d00;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
 }
 
 .algo-branches {
