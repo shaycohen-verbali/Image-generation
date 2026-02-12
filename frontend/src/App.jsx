@@ -2,9 +2,11 @@ import React, { useState } from 'react'
 import SubmitPage from './pages/SubmitPage'
 import RunsPage from './pages/RunsPage'
 import ExportsPage from './pages/ExportsPage'
+import AlgorithmPage from './pages/AlgorithmPage'
 
 const tabs = [
   { id: 'submit', label: 'Submit' },
+  { id: 'algorithm', label: 'Algorithm' },
   { id: 'runs', label: 'Runs + Details' },
   { id: 'exports', label: 'Exports' },
 ]
@@ -35,6 +37,7 @@ export default function App() {
 
       <main className="page-wrap">
         {activeTab === 'submit' && <SubmitPage />}
+        {activeTab === 'algorithm' && <AlgorithmPage />}
         {activeTab === 'runs' && <RunsPage />}
         {activeTab === 'exports' && <ExportsPage />}
       </main>

@@ -362,10 +362,62 @@ pre {
   overflow: hidden;
 }
 
+.workflow-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: #f6f2e8;
+}
+
+.workflow-toolbar-title {
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #4e6370;
+  letter-spacing: 0.04em;
+}
+
+.workflow-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workflow-zoom-btn,
+.workflow-zoom-reset {
+  border: 1px solid #7e8f9b;
+  background: #fff;
+  border-radius: 7px;
+  padding: 3px 8px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  min-width: 30px;
+}
+
+.workflow-zoom-value {
+  min-width: 48px;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #30424d;
+}
+
 .workflow-scroller {
   overflow-x: auto;
-  padding: 12px;
-  background: linear-gradient(180deg, #fff 0%, #fffaf2 100%);
+  overflow-y: auto;
+  padding: 14px;
+  background:
+    linear-gradient(180deg, #fff 0%, #fffaf2 100%),
+    linear-gradient(90deg, rgba(146, 160, 171, 0.11) 1px, transparent 1px),
+    linear-gradient(rgba(146, 160, 171, 0.11) 1px, transparent 1px);
+  background-size: auto, 26px 26px, 26px 26px;
+}
+
+.workflow-viewport {
+  position: relative;
 }
 
 .workflow-canvas {
@@ -381,22 +433,22 @@ pre {
 
 .workflow-edge {
   fill: none;
-  stroke: #4d6370;
-  stroke-width: 2.5;
+  stroke: #425663;
+  stroke-width: 2.6;
 }
 
 .workflow-edge-loop {
-  stroke: #b46e06;
+  stroke: #9d6308;
   stroke-dasharray: 7 5;
 }
 
 .workflow-edge-label {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 800;
-  fill: #334c58;
+  fill: #273e4a;
   paint-order: stroke;
-  stroke: #fff;
-  stroke-width: 4;
+  stroke: #fffef9;
+  stroke-width: 5;
   stroke-linejoin: round;
 }
 
@@ -405,16 +457,16 @@ pre {
   z-index: 2;
   text-align: left;
   border: 2px solid #718797;
-  border-radius: 12px;
-  padding: 11px 11px 9px;
-  background: #fff;
+  border-radius: 13px;
+  padding: 12px 12px 10px;
+  background: #fffefb;
   display: grid;
-  gap: 5px;
-  box-shadow: 0 5px 10px rgba(31, 42, 56, 0.09);
+  gap: 6px;
+  box-shadow: 0 6px 14px rgba(31, 42, 56, 0.12);
 }
 
 .workflow-node.selected {
-  outline: 3px solid #c6ebe4;
+  outline: 3px solid #b3e5dc;
 }
 
 .workflow-node-port {
@@ -437,13 +489,14 @@ pre {
 
 .workflow-node-title {
   font-weight: 900;
-  font-size: 0.9rem;
+  font-size: 0.93rem;
   line-height: 1.2;
 }
 
 .workflow-node-subtitle {
-  font-size: 0.79rem;
+  font-size: 0.8rem;
   color: #425560;
+  line-height: 1.25;
 }
 
 .workflow-node-badge {
@@ -458,7 +511,7 @@ pre {
 
 .run-diagram-loop-note {
   margin: 0;
-  font-size: 0.84rem;
+  font-size: 0.85rem;
   color: #425560;
 }
 

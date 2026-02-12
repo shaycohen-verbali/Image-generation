@@ -1,153 +1,205 @@
 import React, { useMemo, useState } from 'react'
 import WorkflowCanvas from './WorkflowCanvas'
 
-const STATIC_STAGE_DETAILS = {
+const PHOTOREALISTIC_HINT =
+  'If category is one of: Drinks, animals, food, food: fruits, food: vegetables, food: Sweets & desserts, shapes, school supplies, transportation - use a photorealistic style.'
+
+const STAGE1_PROMPT_TEMPLATE = [
+  'Task: Create the first image prompt for the given word and decide if the prompt needs a person.',
+  'Return STRICT JSON with keys exactly:',
+  '{ "first prompt": "<string>", "need a person": "yes" | "no" }',
+  '',
+  'Context: <entry.context>',
+  'Word: <entry.word>',
+  'Part of speech: <entry.part_of_sentence>',
+  'Category: <entry.category>',
+  'If a person is present, use a: <entry.boy_or_girl>',
+  '',
+  PHOTOREALISTIC_HINT,
+].join('\n')
+
+const STAGE3_CRITIQUE_PROMPT_TEMPLATE =
+  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"..."}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>.'
+
+const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
+  'Create an upgraded image prompt for the given word. Return STRICT JSON:',
+  '{ "upgraded prompt": "<string>" }',
+  '',
+  'context for the image: <entry.context>',
+  'Old prompt: <previous_prompt>',
+  'challenges and improvements with the old image: challenges=<analysis.challenges>; recommendations=<analysis.recommendations + previous_score_feedback>',
+  'word: <entry.word>',
+  'part of sentence: <entry.part_of_sentence>',
+  'Category: <entry.category>',
+  'If a person is present, use a <entry.boy_or_girl> as the person.',
+  '',
+  'Do not use text in the image.',
+  "The word's category can add information in addition to its PoS.",
+  PHOTOREALISTIC_HINT,
+].join('\n')
+
+const QUALITY_GATE_PROMPT_TEMPLATE =
+  'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: {"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. Word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Pass threshold is <run.quality_threshold>.'
+
+const WHITE_BG_PROMPT_TEMPLATE = [
+  'remove the background - keep only the important elements of the image and make the background white.',
+  'The image\'s main message is to represent the concept "<entry.word>".',
+  'Do not add text in the image.',
+].join(' ')
+
+const STAGE_DETAILS = {
   stage1_prompt: {
-    apiCall: 'POST /openai/assistants/{assistant_id}/runs',
-    promptTemplate:
-      'Task: create first prompt JSON.\nInput: word, part_of_sentence, category, context, boy_or_girl.\nOutput JSON: { "first prompt": "...", "need a person": "yes|no" }',
-    inputs: ['word', 'part_of_sentence', 'category', 'context', 'boy_or_girl'],
-    expected: ['first prompt', 'need a person'],
-    retry: 'API retry + stage retry',
+    apiCall: 'OpenAI Assistants v2',
+    provider: 'OpenAI Assistant',
+    model: 'assistant configured in runtime',
+    inputs: ['word', 'part_of_sentence', 'category (optional)', 'context', 'boy_or_girl'],
+    outputs: ['first prompt', 'need a person'],
+    instruction: STAGE1_PROMPT_TEMPLATE,
     requestExample: {
-      word: 'apple',
-      part_of_sentence: 'noun',
-      category: 'food',
-      context: 'single fruit',
-      boy_or_girl: 'girl',
+      assistant_input: STAGE1_PROMPT_TEMPLATE,
     },
-    responseExample: {
-      'first prompt': 'A photorealistic single apple on white background...',
-      'need a person': 'no',
-    },
-    failureModes: ['assistant timeout', 'invalid JSON payload', 'missing first prompt'],
   },
   stage2_draft: {
-    apiCall: 'POST /replicate/models/black-forest-labs/flux-schnell/predictions',
-    promptTemplate: '',
-    inputs: ['prompt 1'],
-    expected: ['prediction status', 'output URL', 'draft image'],
-    retry: 'API retry + stage retry',
+    apiCall: 'Replicate via Cloudflare AI Gateway',
+    provider: 'black-forest-labs/flux-schnell',
+    model: 'black-forest-labs/flux-schnell',
+    inputs: ['prompt from Stage 1'],
+    outputs: ['draft image URL', 'stage2_draft asset'],
+    instruction: JSON.stringify(
+      {
+        input: {
+          prompt: '<stage1 first prompt>',
+          output_format: 'jpg',
+        },
+      },
+      null,
+      2,
+    ),
     requestExample: {
       input: {
-        prompt: '<prompt 1>',
+        prompt: '<stage1 first prompt>',
         output_format: 'jpg',
       },
     },
-    responseExample: {
-      status: 'succeeded',
-      id: 'pred_xxx',
-      output: ['https://.../out-0.jpg'],
-    },
-    failureModes: ['prediction failed', 'no output URL', 'download/write failure'],
   },
   stage3_critique: {
-    apiCall: 'POST /openai/chat/completions (vision critique)',
-    promptTemplate:
-      'Task: inspect previous image for AAC confusion.\nOutput JSON: { "challenges": "...", "recommendations": "..." }',
-    inputs: ['previous image', 'word', 'part_of_sentence', 'category'],
-    expected: ['challenges', 'recommendations'],
-    retry: 'API retry + stage retry',
+    apiCall: 'OpenAI Chat Completions (Vision)',
+    provider: 'OpenAI Vision',
+    model: 'gpt-4o-mini (configurable)',
+    inputs: ['stage2/stage3 source image', 'word', 'part_of_sentence', 'category'],
+    outputs: ['challenges', 'recommendations'],
+    instruction: STAGE3_CRITIQUE_PROMPT_TEMPLATE,
     requestExample: {
-      image: '<stage2 or previous stage3 image>',
-      concept: { word: 'apple', part_of_sentence: 'noun', category: 'food' },
+      content: [
+        { type: 'text', text: STAGE3_CRITIQUE_PROMPT_TEMPLATE },
+        { type: 'image_url', image_url: { url: '<data:image/...>' } },
+      ],
     },
-    responseExample: {
-      challenges: 'image is generic',
-      recommendations: 'increase salience and reduce distractors',
-    },
-    failureModes: ['vision timeout', 'invalid JSON fallback text'],
   },
   stage3_prompt_upgrade: {
-    apiCall: 'POST /openai/assistants/{assistant_id}/runs and POST /replicate/models/black-forest-labs/flux-1.1-pro/predictions',
-    promptTemplate:
-      'Task: create upgraded prompt JSON.\nInput: old prompt + vision critique + score feedback.\nOutput JSON: { "upgraded prompt": "..." }',
-    inputs: ['old prompt', 'critique', 'previous score explanation'],
-    expected: ['upgraded prompt', 'upgraded image'],
-    retry: 'API retry + stage retry',
+    apiCall: 'OpenAI Assistants v2',
+    provider: 'OpenAI Assistant',
+    model: 'assistant configured in runtime',
+    inputs: ['old prompt', 'critique', 'previous score feedback'],
+    outputs: ['upgraded prompt'],
+    instruction: STAGE3_UPGRADE_PROMPT_TEMPLATE,
     requestExample: {
-      old_prompt: '<stage1 or previous stage3 prompt>',
-      critique: { challenges: '...', recommendations: '...' },
-      score_feedback: 'if prior attempt failed',
+      assistant_input: STAGE3_UPGRADE_PROMPT_TEMPLATE,
     },
-    responseExample: {
-      assistant: { 'upgraded prompt': '...' },
-    },
-    failureModes: ['assistant no upgraded prompt', 'assistant invalid JSON'],
   },
   stage3_generate: {
-    apiCall: 'POST /replicate/models/black-forest-labs/flux-1.1-pro/predictions (fallback imagen-3-fast)',
-    promptTemplate: 'Use upgraded prompt from Stage 3.2.',
-    inputs: ['upgraded prompt'],
-    expected: ['upgraded image'],
-    retry: 'API retry + stage retry',
+    apiCall: 'Replicate via Cloudflare AI Gateway',
+    provider: 'black-forest-labs/flux-1.1-pro with google/imagen-3-fast fallback',
+    model: 'black-forest-labs/flux-1.1-pro -> google/imagen-3-fast (fallback)',
+    inputs: ['upgraded prompt from stage 3.2'],
+    outputs: ['stage3_upgraded image URL', 'stage3_upgraded asset'],
+    instruction: [
+      'Primary payload:',
+      JSON.stringify(
+        {
+          input: {
+            prompt: '<stage3 upgraded prompt>',
+            aspect_ratio: '4:3',
+            output_format: 'jpg',
+            output_quality: 80,
+            prompt_upsampling: false,
+            safety_tolerance: 2,
+            seed: 10000,
+          },
+        },
+        null,
+        2,
+      ),
+      '',
+      'Fallback payload:',
+      JSON.stringify(
+        {
+          input: {
+            prompt: '<stage3 upgraded prompt>',
+            num_outputs: 1,
+            aspect_ratio: '4:3',
+            output_format: 'jpg',
+            output_quality: 80,
+            prompt_upsampling: true,
+            safety_tolerance: 2,
+          },
+        },
+        null,
+        2,
+      ),
+    ].join('\n'),
     requestExample: {
-      prompt: '<upgraded prompt>',
-      model: 'black-forest-labs/flux-1.1-pro',
+      prompt_source: 'stage3 upgraded prompt',
+      fallback_enabled: true,
     },
-    responseExample: {
-      status: 'succeeded',
-      id: 'pred_stage3',
-      output: ['https://.../stage3.jpg'],
-    },
-    failureModes: ['flux-pro fail', 'imagen fallback fail', 'no output URL'],
   },
   quality_gate: {
-    apiCall: 'POST /openai/chat/completions (vision scoring)',
-    promptTemplate:
-      'Task: score upgraded image against AAC clarity rubric.\nOutput JSON: { score, explanation, failure_tags }',
-    inputs: ['stage3 upgraded image', 'word/POS/category', 'quality threshold'],
-    expected: ['score', 'explanation', 'failure_tags', 'pass_fail'],
-    retry: 'API retry + stage retry',
+    apiCall: 'OpenAI Chat Completions (Vision)',
+    provider: 'OpenAI Vision',
+    model: 'gpt-4o-mini (configurable)',
+    inputs: ['stage3 upgraded image', 'word', 'part_of_sentence', 'category', 'threshold'],
+    outputs: ['score', 'explanation', 'failure_tags', 'pass/fail'],
+    instruction: QUALITY_GATE_PROMPT_TEMPLATE,
     requestExample: {
-      image: '<stage3 upgraded asset>',
-      threshold: 95,
-      rubric: ['clarity', 'concept match', 'no text'],
+      content: [
+        { type: 'text', text: QUALITY_GATE_PROMPT_TEMPLATE },
+        { type: 'image_url', image_url: { url: '<data:image/...>' } },
+      ],
     },
-    responseExample: {
-      score: 92,
-      explanation: 'good but still ambiguous',
-      failure_tags: ['ambiguity'],
-    },
-    failureModes: ['invalid rubric JSON', 'vision timeout', 'score parse fallback'],
   },
   stage4_background: {
-    apiCall: 'POST /replicate/models/google/nano-banana/predictions',
-    promptTemplate:
-      'Prompt: remove background, keep main concept, solid white background, no text.',
+    apiCall: 'Replicate via Cloudflare AI Gateway',
+    provider: 'google/nano-banana',
+    model: 'google/nano-banana',
     inputs: ['passing stage3 image'],
-    expected: ['white background image'],
-    retry: 'API retry + stage retry',
+    outputs: ['white background image URL', 'stage4_white_bg asset'],
+    instruction: WHITE_BG_PROMPT_TEMPLATE,
     requestExample: {
-      prompt: 'remove background...',
-      image_input: ['<stage3 image>'],
-      output_format: 'jpg',
+      input: {
+        prompt: WHITE_BG_PROMPT_TEMPLATE,
+        image_input: ['<data:image/...>'],
+        aspect_ratio: 'match_input_image',
+        output_format: 'jpg',
+      },
     },
-    responseExample: {
-      status: 'succeeded',
-      output: ['https://.../white_bg.jpg'],
-    },
-    failureModes: ['nano-banana fail', 'no output URL', 'download/write failure'],
   },
   completed_pass: {
-    apiCall: 'Internal state transition only',
-    promptTemplate: '',
-    inputs: ['run.status == completed_pass'],
-    expected: ['final white background asset'],
-    retry: 'N/A',
+    apiCall: 'internal status transition',
+    provider: 'system',
+    model: 'N/A',
+    inputs: ['quality_gate pass + stage4 success'],
+    outputs: ['completed_pass'],
+    instruction: 'No AI instruction. System updates run.status=completed_pass.',
     requestExample: { status: 'completed_pass' },
-    responseExample: { export_ready: true },
-    failureModes: ['N/A'],
   },
   completed_fail: {
-    apiCall: 'Internal state transition only',
-    promptTemplate: '',
-    inputs: ['run.status == completed_fail_threshold'],
-    expected: ['no passing attempt'],
-    retry: 'N/A',
+    apiCall: 'internal status transition',
+    provider: 'system',
+    model: 'N/A',
+    inputs: ['quality_gate fail and attempts exhausted'],
+    outputs: ['completed_fail_threshold'],
+    instruction: 'No AI instruction. System updates run.status=completed_fail_threshold.',
     requestExample: { status: 'completed_fail_threshold' },
-    responseExample: { export_ready: true, note: 'below threshold' },
-    failureModes: ['N/A'],
   },
 }
 
@@ -156,84 +208,65 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
 
   const nodes = useMemo(
     () => [
-      { id: 'stage1_prompt', label: 'Stage 1 Prompt', subtitle: 'OpenAI Assistant', status: 'queued', x: 40, y: 185 },
-      { id: 'stage2_draft', label: 'Stage 2 Draft', subtitle: 'flux-schnell', status: 'queued', x: 320, y: 185 },
-      { id: 'stage3_critique', label: 'Stage 3.1 Critique', subtitle: 'OpenAI Vision', status: 'queued', x: 670, y: 40 },
-      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: 'OpenAI Assistant', status: 'queued', x: 670, y: 185 },
-      { id: 'stage3_generate', label: 'Stage 3.3 Generate', subtitle: 'flux-pro / imagen', status: 'queued', x: 670, y: 330 },
-      { id: 'quality_gate', label: 'Quality Gate', subtitle: 'gpt-4o-mini score', status: 'queued', x: 1000, y: 185 },
-      { id: 'stage4_background', label: 'Stage 4 White BG', subtitle: 'nano-banana', status: 'queued', x: 1330, y: 95 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'final export ready', status: 'ok', x: 1620, y: 95 },
-      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'threshold not met', status: 'error', x: 1330, y: 310 },
+      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: 'OpenAI Assistant', status: 'queued', x: 40, y: 235 },
+      { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 380, y: 235 },
+      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'gpt-4o-mini', status: 'queued', x: 760, y: 45 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: 'OpenAI Assistant', status: 'queued', x: 760, y: 235 },
+      { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'flux-pro / imagen', status: 'queued', x: 760, y: 425 },
+      { id: 'quality_gate', label: 'Quality Gate', subtitle: 'gpt-4o-mini score', status: 'queued', x: 1160, y: 235 },
+      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana', status: 'queued', x: 1540, y: 120 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 1910, y: 120 },
+      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
     ],
     [],
   )
 
   const edges = useMemo(
     () => [
-      { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt', fromPort: 'right', toPort: 'left' },
-      { from: 'stage2_draft', to: 'stage3_critique', label: 'start A1', fromPort: 'right', toPort: 'left' },
-      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1', fromPort: 'right', toPort: 'left' },
+      { from: 'stage2_draft', to: 'stage3_critique', label: 'attempt A1', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'challenges + recommendations', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
-      { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
-      { from: 'quality_gate', to: 'stage4_background', label: 'pass', fromPort: 'top', toPort: 'left' },
-      { from: 'stage4_background', to: 'completed_pass', label: 'final', fromPort: 'right', toPort: 'left' },
-      { from: 'quality_gate', to: 'completed_fail', label: 'exhausted', type: 'branch', fromPort: 'bottom', toPort: 'left' },
+      { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
+      { from: 'quality_gate', to: 'stage4_background', label: 'pass (>= threshold)', fromPort: 'top', toPort: 'left' },
+      { from: 'stage4_background', to: 'completed_pass', label: 'final image', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'completed_fail', label: 'attempts exhausted', type: 'branch', fromPort: 'bottom', toPort: 'left' },
     ],
     [],
   )
 
-  const selected = STATIC_STAGE_DETAILS[selectedNodeId] || STATIC_STAGE_DETAILS.stage1_prompt
+  const selected = STAGE_DETAILS[selectedNodeId] || STAGE_DETAILS.stage1_prompt
 
   return (
     <article className="card algo-static-card">
-      <h2>Algorithm Map</h2>
-      <p className="algo-subtitle">n8n-style node flow with explicit pass/fail branches and retry loop.</p>
-      <p className="algo-assistant-name"><strong>Assistant:</strong> {assistantName || 'Prompt generator -JSON output'}</p>
+      <h2>Algorithm Architecture (Static)</h2>
+      <p className="algo-subtitle">Full block-level map with the exact instruction text used by each AI call.</p>
+      <p className="algo-assistant-name">
+        <strong>Assistant Name:</strong> {assistantName || 'Prompt generator -JSON output'}
+      </p>
 
-      <WorkflowCanvas nodes={nodes} edges={edges} width={1870} height={510} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} />
+      <WorkflowCanvas
+        nodes={nodes}
+        edges={edges}
+        width={2200}
+        height={640}
+        selectedNodeId={selectedNodeId}
+        onSelectNode={setSelectedNodeId}
+      />
 
       <div className="algo-static-detail">
-        <h3>Selected Node Contract</h3>
-        <p><strong>API call:</strong> {selected.apiCall}</p>
+        <h3>Selected Block: {nodes.find((node) => node.id === selectedNodeId)?.label || 'N/A'}</h3>
+        <p><strong>Provider/API:</strong> {selected.apiCall}</p>
+        <p><strong>Model:</strong> {selected.model}</p>
         <p><strong>Inputs:</strong> {selected.inputs.join(', ')}</p>
-        <p><strong>Expected:</strong> {selected.expected.join(', ')}</p>
-        <p><strong>Retry:</strong> {selected.retry}</p>
-        {selected.promptTemplate ? (
-          <>
-            <p><strong>Prompt sent:</strong></p>
-            <pre className="algo-prompt-box">{selected.promptTemplate}</pre>
-          </>
-        ) : (
-          <p><strong>Prompt sent:</strong> N/A</p>
-        )}
+        <p><strong>Outputs:</strong> {selected.outputs.join(', ')}</p>
+        <p><strong>Exact AI instruction:</strong></p>
+        <pre className="algo-prompt-box">{selected.instruction}</pre>
         <details>
-          <summary>Request example</summary>
+          <summary>Provider request shape</summary>
           <pre className="algo-prompt-box">{JSON.stringify(selected.requestExample || {}, null, 2)}</pre>
         </details>
-        <details>
-          <summary>Response example</summary>
-          <pre className="algo-prompt-box">{JSON.stringify(selected.responseExample || {}, null, 2)}</pre>
-        </details>
-        <p><strong>Failure modes:</strong> {(selected.failureModes || []).join(', ') || 'N/A'}</p>
-      </div>
-
-      <div className="algo-branches">
-        <p><strong>Loop:</strong> `quality_gate fail` -> `stage3_critique` (next attempt).</p>
-        <p><strong>Pass path:</strong> `quality_gate pass` -> `stage4_background` -> `completed_pass`.</p>
-        <p><strong>Fail path:</strong> `quality_gate fail and no attempts left` -> `completed_fail`.</p>
-      </div>
-
-      <div className="algo-doc-grid">
-        <div className="algo-doc-card">
-          <h4>Documentation: Stage 1 Prompt Template</h4>
-          <pre className="algo-prompt-box prompt-doc-box">{STATIC_STAGE_DETAILS.stage1_prompt.promptTemplate}</pre>
-        </div>
-        <div className="algo-doc-card">
-          <h4>Documentation: Stage 3.2 Prompt Template</h4>
-          <pre className="algo-prompt-box prompt-doc-box">{STATIC_STAGE_DETAILS.stage3_prompt_upgrade.promptTemplate}</pre>
-        </div>
       </div>
     </article>
   )

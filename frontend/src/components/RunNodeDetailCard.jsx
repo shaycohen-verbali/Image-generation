@@ -43,6 +43,16 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
         </div>
 
         <div className="run-node-section">
+          <h4>AI Instruction</h4>
+          <p><strong>Source:</strong> {node.aiInstructionSource || 'N/A'}</p>
+          {node.aiInstruction ? (
+            <pre className="prompt-doc-box">{node.aiInstruction}</pre>
+          ) : (
+            <p>No instruction text recorded for this block.</p>
+          )}
+        </div>
+
+        <div className="run-node-section">
           <h4>Prompt Lineage</h4>
           <p><strong>Prompt source:</strong> {node.promptSource || 'N/A'}</p>
           <p><strong>Need person:</strong> {node.promptNeedsPerson || 'N/A'}</p>

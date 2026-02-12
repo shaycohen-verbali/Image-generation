@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getConfig, getRun, listRuns, retryRun } from '../lib/api'
-import AlgorithmStaticMap from '../components/AlgorithmStaticMap'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 
 const stagePriority = {
@@ -128,7 +127,6 @@ export default function RunsPage() {
 
   return (
     <section className="runs-page-stack">
-      {algoDiagramEnabled ? <AlgorithmStaticMap assistantName={assistantName} /> : null}
       <section className="runs-layout">
         <article className="card">
         <h2>Runs</h2>

@@ -1,3 +1,6 @@
+const PHOTOREALISTIC_HINT =
+  'If category is one of: Drinks, animals, food, food: fruits, food: vegetables, food: Sweets & desserts, shapes, school supplies, transportation - use a photorealistic style.'
+
 const STAGE_DEFINITIONS = [
   {
     id: 'stage1_prompt',
@@ -90,6 +93,11 @@ function safeObject(value) {
   return value
 }
 
+function safeText(value) {
+  if (value === undefined || value === null) return ''
+  return String(value)
+}
+
 function asStageStatus(value) {
   const status = String(value || '').toLowerCase()
   if (status === 'ok' || status === 'completed' || status === 'succeeded') return 'ok'
@@ -125,19 +133,6 @@ function stageDef(stageId) {
   return STAGE_DEFINITIONS.find((stage) => stage.id === stageId)
 }
 
-function readRequestKeys(stageResult) {
-  return Object.keys(safeObject(stageResult?.request_json))
-}
-
-function readResponseKeys(stageResult) {
-  return Object.keys(safeObject(stageResult?.response_json))
-}
-
-function safeText(value) {
-  if (value === undefined || value === null) return ''
-  return String(value)
-}
-
 function buildAttemptSummaries(detail, stageIndex, scoreIndex) {
   return getAvailableAttempts(detail).map((attempt) => {
     const stage3 = stageIndex.get(makeKey('stage3_upgrade', attempt))
@@ -155,19 +150,10 @@ function buildAttemptSummaries(detail, stageIndex, scoreIndex) {
   })
 }
 
-function nodeStatus({
-  stageId,
-  stageResult,
-  run,
-  attempt,
-  score,
-}) {
+function nodeStatus({ stageId, stageResult, run, attempt, score }) {
   const currentAttempt = Math.max(1, Number(run.optimization_attempt || 1))
   const isCurrentBase = run.status === 'running' && run.current_stage === stageId
-  const isCurrentAttemptStage =
-    run.status === 'running' &&
-    run.current_stage === stageId &&
-    attempt === currentAttempt
+  const isCurrentAttemptStage = run.status === 'running' && run.current_stage === stageId && attempt === currentAttempt
 
   if (stageId === 'stage1_prompt' || stageId === 'stage2_draft') {
     if (isCurrentBase) return 'running'
@@ -209,6 +195,167 @@ function nodeSubtitle(stageId, run, score, attempt) {
     return `Score ${score.score_0_100}${score.pass_fail ? ' (pass)' : ' (fail)'}`
   }
   return ''
+}
+
+function parseStage1Context(stage1Instruction, run) {
+  const lines = safeText(stage1Instruction)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  function after(prefix) {
+    const line = lines.find((value) => value.toLowerCase().startsWith(prefix.toLowerCase()))
+    if (!line) return ''
+    return line.slice(prefix.length).trim()
+  }
+
+  return {
+    context: after('Context:') || '',
+    word: after('Word:') || safeText(run.word),
+    partOfSentence: after('Part of speech:') || safeText(run.part_of_sentence),
+    category: after('Category:') || safeText(run.category),
+    boyOrGirl: after('If a person is present, use a:') || '',
+  }
+}
+
+function stage1Template(ctx) {
+  return [
+    'Task: Create the first image prompt for the given word and decide if the prompt needs a person.',
+    'Return STRICT JSON with keys exactly:',
+    '{ "first prompt": "<string>", "need a person": "yes" | "no" }',
+    '',
+    `Context: ${ctx.context}`,
+    `Word: ${ctx.word}`,
+    `Part of speech: ${ctx.partOfSentence}`,
+    `Category: ${ctx.category}`,
+    `If a person is present, use a: ${ctx.boyOrGirl}`,
+    '',
+    PHOTOREALISTIC_HINT,
+  ].join('\n')
+}
+
+function critiqueTemplate(ctx) {
+  return (
+    'You are an expert AAC visual designer for children. ' +
+    'Analyze the image for concept clarity. Return STRICT JSON with keys ' +
+    '{"challenges":"...", "recommendations":"..."}. ' +
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+  )
+}
+
+function qualityTemplate(ctx, threshold) {
+  return (
+    'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: ' +
+    '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. ' +
+    `Word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}. ` +
+    `Pass threshold is ${threshold}.`
+  )
+}
+
+function whiteBgTemplate(word) {
+  return (
+    'remove the background - keep only the important elements of the image and make the background white. ' +
+    `The image's main message is to represent the concept "${word}". ` +
+    'Do not add text in the image.'
+  )
+}
+
+function aiInstructionForStage({
+  stageId,
+  run,
+  stage1Context,
+  stage1Result,
+  stage2Result,
+  stage1Prompt,
+  stage3Prompt,
+  stage3UpgradeRequest,
+}) {
+  if (stageId === 'stage1_prompt') {
+    const stored = safeText(safeObject(stage1Result?.request_json).prompt)
+    return {
+      text: stored || stage1Template(stage1Context),
+      source: stored ? 'stored request_json.prompt' : 'backend prompt template',
+    }
+  }
+
+  if (stageId === 'stage2_draft') {
+    const storedPrompt = safeText(safeObject(stage2Result?.request_json).prompt) || safeText(stage1Prompt?.prompt_text)
+    return {
+      text: storedPrompt
+        ? JSON.stringify({ input: { prompt: storedPrompt, output_format: 'jpg' } }, null, 2)
+        : JSON.stringify({ input: { prompt: '<stage1 first prompt>', output_format: 'jpg' } }, null, 2),
+      source: storedPrompt ? 'stored request_json.prompt' : 'derived from stage prompt lineage',
+    }
+  }
+
+  if (stageId === 'stage3_critique') {
+    return {
+      text: critiqueTemplate(stage1Context),
+      source: 'backend prompt template (OpenAIClient.analyze_image)',
+    }
+  }
+
+  if (stageId === 'stage3_prompt_upgrade') {
+    return {
+      text: safeText(stage3UpgradeRequest),
+      source: stage3UpgradeRequest ? 'stored request_json.upgrade_prompt_request' : 'missing from payload',
+    }
+  }
+
+  if (stageId === 'stage3_generate') {
+    const prompt = safeText(stage3Prompt?.prompt_text)
+    const payload = {
+      primary_model: 'black-forest-labs/flux-1.1-pro',
+      primary_input: {
+        prompt: prompt || '<stage3 upgraded prompt>',
+        aspect_ratio: '4:3',
+        output_format: 'jpg',
+        output_quality: 80,
+        prompt_upsampling: false,
+        safety_tolerance: 2,
+        seed: 10000,
+      },
+      fallback_model: 'google/imagen-3-fast',
+      fallback_input: {
+        prompt: prompt || '<stage3 upgraded prompt>',
+        num_outputs: 1,
+        aspect_ratio: '4:3',
+        output_format: 'jpg',
+        output_quality: 80,
+        prompt_upsampling: true,
+        safety_tolerance: 2,
+      },
+    }
+    return {
+      text: JSON.stringify(payload, null, 2),
+      source: prompt ? 'stored upgraded prompt + backend model payloads' : 'backend model payload templates',
+    }
+  }
+
+  if (stageId === 'quality_gate') {
+    return {
+      text: qualityTemplate(stage1Context, Number(run.quality_threshold || 95)),
+      source: 'backend prompt template (OpenAIClient.score_image)',
+    }
+  }
+
+  if (stageId === 'stage4_background') {
+    const prompt = whiteBgTemplate(stage1Context.word || safeText(run.word))
+    const payload = {
+      input: {
+        prompt,
+        image_input: ['<stage3 upgraded image as data URI>'],
+        aspect_ratio: 'match_input_image',
+        output_format: 'jpg',
+      },
+    }
+    return {
+      text: JSON.stringify(payload, null, 2),
+      source: 'backend prompt template (ReplicateClient.nano_banana_white_bg)',
+    }
+  }
+
+  return { text: 'No AI instruction for this system-only block.', source: 'system transition' }
 }
 
 export function getAvailableAttempts(detail) {
@@ -278,8 +425,11 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage3Analysis = safeObject(stage3Response.analysis)
   const stage3Assistant = safeObject(stage3Response.assistant)
   const stage3Generation = safeObject(stage3Response.generation)
-  const stage3UpgradeRequest = safeObject(stage3Request.upgrade_prompt_request)
+  const stage3UpgradeRequest = safeText(stage3Request.upgrade_prompt_request)
   const stage3GenerationModel = safeText(stage3Response.generation_model)
+
+  const stage1Instruction = safeText(safeObject(stage1Result?.request_json).prompt)
+  const stage1Context = parseStage1Context(stage1Instruction, run)
 
   const nodeData = [
     {
@@ -290,6 +440,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
       model: '',
       score: null,
       attempt: 0,
+      requestPayload: safeObject(stage1Result?.request_json),
+      responsePayload: safeObject(stage1Result?.response_json),
     },
     {
       id: 'stage2_draft',
@@ -299,12 +451,14 @@ export function buildRunDiagram(detail, selectedAttempt) {
       model: stage2Asset?.model_name || '',
       score: null,
       attempt: 0,
+      requestPayload: safeObject(stage2Result?.request_json),
+      responsePayload: safeObject(stage2Result?.response_json),
     },
     {
       id: 'stage3_critique',
       stageResult: stage3Result,
       promptRecord: stage3Prompt || null,
-      requestPayload: stage3UpgradeRequest,
+      requestPayload: {},
       responsePayload: stage3Analysis,
       asset: stage2Asset || null,
       model: 'gpt-4o-mini',
@@ -315,7 +469,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       id: 'stage3_prompt_upgrade',
       stageResult: stage3Result,
       promptRecord: stage3Prompt || null,
-      requestPayload: stage3UpgradeRequest,
+      requestPayload: { upgrade_prompt_request: stage3UpgradeRequest },
       responsePayload: stage3Assistant,
       asset: null,
       model: 'OpenAI Assistant',
@@ -337,6 +491,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
       id: 'quality_gate',
       stageResult: qualityResult,
       promptRecord: stage3Prompt || null,
+      requestPayload: safeObject(qualityResult?.request_json),
+      responsePayload: safeObject(qualityResult?.response_json),
       asset: stage3Asset || null,
       model: 'gpt-4o-mini',
       score: score || null,
@@ -346,6 +502,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
       id: 'stage4_background',
       stageResult: stage4Result,
       promptRecord: stage3Prompt || null,
+      requestPayload: safeObject(stage4Result?.request_json),
+      responsePayload: safeObject(stage4Result?.response_json),
       asset: stage4Asset || null,
       model: stage4Asset?.model_name || '',
       score: score || null,
@@ -355,6 +513,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
       id: 'completed',
       stageResult: null,
       promptRecord: null,
+      requestPayload: {},
+      responsePayload: {},
       asset: stage4Asset || stage3Asset || null,
       model: '',
       score: score || null,
@@ -371,6 +531,18 @@ export function buildRunDiagram(detail, selectedAttempt) {
       attempt,
       score: item.score,
     })
+
+    const aiInstruction = aiInstructionForStage({
+      stageId: item.id,
+      run,
+      stage1Context,
+      stage1Result,
+      stage2Result,
+      stage1Prompt,
+      stage3Prompt,
+      stage3UpgradeRequest,
+    })
+
     return {
       id: item.id,
       label: contract.label,
@@ -394,6 +566,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
       asset: item.asset,
       score: item.score,
       scoreRubric: safeObject(item.score?.rubric_json),
+      aiInstruction: safeText(aiInstruction.text),
+      aiInstructionSource: safeText(aiInstruction.source),
       requestJson: safeObject(item.requestPayload || item.stageResult?.request_json),
       responseJson: safeObject(item.responsePayload || item.stageResult?.response_json),
       requestKeys: Object.keys(safeObject(item.requestPayload || item.stageResult?.request_json)),

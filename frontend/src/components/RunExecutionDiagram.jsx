@@ -35,14 +35,14 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
     () =>
       diagram.nodes.map((node) => {
         const position = {
-          stage1_prompt: { x: 40, y: 185 },
-          stage2_draft: { x: 320, y: 185 },
-          stage3_critique: { x: 670, y: 40 },
-          stage3_prompt_upgrade: { x: 670, y: 185 },
-          stage3_generate: { x: 670, y: 330 },
-          quality_gate: { x: 1000, y: 185 },
-          stage4_background: { x: 1330, y: 95 },
-          completed: { x: 1620, y: 95 },
+          stage1_prompt: { x: 40, y: 235 },
+          stage2_draft: { x: 380, y: 235 },
+          stage3_critique: { x: 760, y: 45 },
+          stage3_prompt_upgrade: { x: 760, y: 235 },
+          stage3_generate: { x: 760, y: 425 },
+          quality_gate: { x: 1160, y: 235 },
+          stage4_background: { x: 1540, y: 120 },
+          completed: { x: 1910, y: 120 },
         }[node.id] || { x: 40, y: 185 }
 
         const badge =
@@ -99,13 +99,13 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <WorkflowCanvas
         nodes={canvasNodes}
         edges={diagram.edges}
-        width={1870}
-        height={510}
+        width={2200}
+        height={640}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
       />
 
-      <p className="run-diagram-loop-note">Loop active when quality fails and attempts remain. Pass branch proceeds to white background.</p>
+      <p className="run-diagram-loop-note">Loop is active when quality fails and attempts remain. Use +/- zoom controls above the diagram for readability.</p>
 
       <RunNodeDetailCard node={selectedNode} assistantName={assistantName} />
     </div>
