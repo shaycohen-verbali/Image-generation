@@ -9,6 +9,18 @@ const STATIC_STAGE_DETAILS = {
     inputs: ['word', 'part_of_sentence', 'category', 'context', 'boy_or_girl'],
     expected: ['first prompt', 'need a person'],
     retry: 'API retry + stage retry',
+    requestExample: {
+      word: 'apple',
+      part_of_sentence: 'noun',
+      category: 'food',
+      context: 'single fruit',
+      boy_or_girl: 'girl',
+    },
+    responseExample: {
+      'first prompt': 'A photorealistic single apple on white background...',
+      'need a person': 'no',
+    },
+    failureModes: ['assistant timeout', 'invalid JSON payload', 'missing first prompt'],
   },
   stage2_draft: {
     apiCall: 'POST /replicate/models/black-forest-labs/flux-schnell/predictions',
@@ -16,6 +28,18 @@ const STATIC_STAGE_DETAILS = {
     inputs: ['prompt 1'],
     expected: ['prediction status', 'output URL', 'draft image'],
     retry: 'API retry + stage retry',
+    requestExample: {
+      input: {
+        prompt: '<prompt 1>',
+        output_format: 'jpg',
+      },
+    },
+    responseExample: {
+      status: 'succeeded',
+      id: 'pred_xxx',
+      output: ['https://.../out-0.jpg'],
+    },
+    failureModes: ['prediction failed', 'no output URL', 'download/write failure'],
   },
   stage3_upgrade: {
     apiCall: 'POST /openai/assistants/{assistant_id}/runs and POST /replicate/models/black-forest-labs/flux-1.1-pro/predictions',
@@ -24,6 +48,16 @@ const STATIC_STAGE_DETAILS = {
     inputs: ['old prompt', 'critique', 'previous score explanation'],
     expected: ['upgraded prompt', 'upgraded image'],
     retry: 'API retry + stage retry',
+    requestExample: {
+      old_prompt: '<stage1 or previous stage3 prompt>',
+      critique: { challenges: '...', recommendations: '...' },
+      score_feedback: 'if prior attempt failed',
+    },
+    responseExample: {
+      assistant: { 'upgraded prompt': '...' },
+      generation: { status: 'succeeded', id: 'pred_stage3' },
+    },
+    failureModes: ['assistant no upgraded prompt', 'flux-pro fail', 'fallback fail'],
   },
   quality_gate: {
     apiCall: 'POST /openai/chat/completions (vision scoring)',
@@ -32,6 +66,17 @@ const STATIC_STAGE_DETAILS = {
     inputs: ['stage3 upgraded image', 'word/POS/category', 'quality threshold'],
     expected: ['score', 'explanation', 'failure_tags', 'pass_fail'],
     retry: 'API retry + stage retry',
+    requestExample: {
+      image: '<stage3 upgraded asset>',
+      threshold: 95,
+      rubric: ['clarity', 'concept match', 'no text'],
+    },
+    responseExample: {
+      score: 92,
+      explanation: 'good but still ambiguous',
+      failure_tags: ['ambiguity'],
+    },
+    failureModes: ['invalid rubric JSON', 'vision timeout', 'score parse fallback'],
   },
   stage4_background: {
     apiCall: 'POST /replicate/models/google/nano-banana/predictions',
@@ -40,6 +85,16 @@ const STATIC_STAGE_DETAILS = {
     inputs: ['passing stage3 image'],
     expected: ['white background image'],
     retry: 'API retry + stage retry',
+    requestExample: {
+      prompt: 'remove background...',
+      image_input: ['<stage3 image>'],
+      output_format: 'jpg',
+    },
+    responseExample: {
+      status: 'succeeded',
+      output: ['https://.../white_bg.jpg'],
+    },
+    failureModes: ['nano-banana fail', 'no output URL', 'download/write failure'],
   },
   completed_pass: {
     apiCall: 'Internal state transition only',
@@ -47,6 +102,9 @@ const STATIC_STAGE_DETAILS = {
     inputs: ['run.status == completed_pass'],
     expected: ['final white background asset'],
     retry: 'N/A',
+    requestExample: { status: 'completed_pass' },
+    responseExample: { export_ready: true },
+    failureModes: ['N/A'],
   },
   completed_fail: {
     apiCall: 'Internal state transition only',
@@ -54,6 +112,9 @@ const STATIC_STAGE_DETAILS = {
     inputs: ['run.status == completed_fail_threshold'],
     expected: ['no passing attempt'],
     retry: 'N/A',
+    requestExample: { status: 'completed_fail_threshold' },
+    responseExample: { export_ready: true, note: 'below threshold' },
+    failureModes: ['N/A'],
   },
 }
 
@@ -109,6 +170,15 @@ export default function AlgorithmStaticMap() {
         ) : (
           <p><strong>Prompt sent:</strong> N/A</p>
         )}
+        <details>
+          <summary>Request example</summary>
+          <pre className="algo-prompt-box">{JSON.stringify(selected.requestExample || {}, null, 2)}</pre>
+        </details>
+        <details>
+          <summary>Response example</summary>
+          <pre className="algo-prompt-box">{JSON.stringify(selected.responseExample || {}, null, 2)}</pre>
+        </details>
+        <p><strong>Failure modes:</strong> {(selected.failureModes || []).join(', ') || 'N/A'}</p>
       </div>
 
       <div className="algo-branches">

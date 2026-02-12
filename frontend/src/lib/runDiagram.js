@@ -115,6 +115,11 @@ function readResponseKeys(stageResult) {
   return Object.keys(safeObject(stageResult?.response_json))
 }
 
+function safeText(value) {
+  if (value === undefined || value === null) return ''
+  return String(value)
+}
+
 function buildAttemptSummaries(detail, stageIndex, scoreIndex) {
   return getAvailableAttempts(detail).map((attempt) => {
     const stage3 = stageIndex.get(makeKey('stage3_upgrade', attempt))
@@ -248,7 +253,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
     {
       id: 'stage1_prompt',
       stageResult: stage1Result,
-      prompt: stage1Prompt?.prompt_text || '',
+      promptRecord: stage1Prompt || null,
       asset: null,
       model: '',
       score: null,
@@ -257,7 +262,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
     {
       id: 'stage2_draft',
       stageResult: stage2Result,
-      prompt: stage1Prompt?.prompt_text || '',
+      promptRecord: stage1Prompt || null,
       asset: stage2Asset || null,
       model: stage2Asset?.model_name || '',
       score: null,
@@ -266,7 +271,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
     {
       id: 'stage3_upgrade',
       stageResult: stage3Result,
-      prompt: stage3Prompt?.prompt_text || '',
+      promptRecord: stage3Prompt || null,
       asset: stage3Asset || null,
       model: stage3Asset?.model_name || '',
       score: null,
@@ -275,7 +280,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
     {
       id: 'quality_gate',
       stageResult: qualityResult,
-      prompt: stage3Prompt?.prompt_text || '',
+      promptRecord: stage3Prompt || null,
       asset: stage3Asset || null,
       model: 'gpt-4o-mini',
       score: score || null,
@@ -284,7 +289,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
     {
       id: 'stage4_background',
       stageResult: stage4Result,
-      prompt: stage3Prompt?.prompt_text || '',
+      promptRecord: stage3Prompt || null,
       asset: stage4Asset || null,
       model: stage4Asset?.model_name || '',
       score: score || null,
@@ -293,7 +298,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
     {
       id: 'completed',
       stageResult: null,
-      prompt: '',
+      promptRecord: null,
       asset: stage4Asset || stage3Asset || null,
       model: '',
       score: score || null,
@@ -321,10 +326,18 @@ export function buildRunDiagram(detail, selectedAttempt) {
       expected: contract.expected,
       retryPolicy: contract.retryPolicy,
       attempt: item.attempt,
-      promptText: item.prompt,
+      stageStatus: safeText(item.stageResult?.status),
+      stageCreatedAt: safeText(item.stageResult?.created_at),
+      stageErrorDetail: safeText(item.stageResult?.error_detail),
+      promptText: safeText(item.promptRecord?.prompt_text),
+      promptSource: safeText(item.promptRecord?.source),
+      promptNeedsPerson: safeText(item.promptRecord?.needs_person),
+      promptCreatedAt: safeText(item.promptRecord?.created_at),
+      promptRaw: safeObject(item.promptRecord?.raw_response_json),
       model: item.model,
       asset: item.asset,
       score: item.score,
+      scoreRubric: safeObject(item.score?.rubric_json),
       requestJson: safeObject(item.stageResult?.request_json),
       responseJson: safeObject(item.stageResult?.response_json),
       requestKeys: readRequestKeys(item.stageResult),
