@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getRun, listRuns, retryRun } from '../lib/api'
+import { getConfig, getRun, listRuns, retryRun } from '../lib/api'
 import AlgorithmStaticMap from '../components/AlgorithmStaticMap'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 
@@ -23,6 +23,7 @@ export default function RunsPage() {
   const [message, setMessage] = useState('')
   const [selectedRunId, setSelectedRunId] = useState('')
   const [detail, setDetail] = useState(null)
+  const [assistantName, setAssistantName] = useState('')
   const selectedRunIdRef = useRef('')
 
   useEffect(() => {
@@ -77,6 +78,24 @@ export default function RunsPage() {
   }
 
   useEffect(() => {
+    let mounted = true
+    const loadConfig = async () => {
+      try {
+        const config = await getConfig()
+        if (mounted && config?.openai_assistant_name) {
+          setAssistantName(config.openai_assistant_name)
+        }
+      } catch (_error) {
+        // Keep fallback value.
+      }
+    }
+    loadConfig()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  useEffect(() => {
     refresh()
     const timer = setInterval(refresh, 3000)
     return () => clearInterval(timer)
@@ -109,7 +128,7 @@ export default function RunsPage() {
 
   return (
     <section className="runs-page-stack">
-      {algoDiagramEnabled ? <AlgorithmStaticMap /> : null}
+      {algoDiagramEnabled ? <AlgorithmStaticMap assistantName={assistantName} /> : null}
       <section className="runs-layout">
         <article className="card">
         <h2>Runs</h2>
@@ -189,7 +208,7 @@ export default function RunsPage() {
         {!detail ? (
           <p>Select a run row to see details.</p>
         ) : algoDiagramEnabled ? (
-          <RunExecutionDiagram detail={detail} />
+          <RunExecutionDiagram detail={detail} assistantName={assistantName} />
         ) : (
           <>
             <h3>Run</h3>

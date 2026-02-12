@@ -16,11 +16,27 @@ const STAGE_DEFINITIONS = [
     retryPolicy: 'API retry + stage retry',
   },
   {
-    id: 'stage3_upgrade',
-    label: 'Stage 3 Upgrade',
-    provider: 'OpenAI + Replicate: flux-pro / imagen fallback',
-    inputs: ['previous image', 'previous prompt', 'critique'],
-    expected: ['upgraded prompt', 'upgraded image'],
+    id: 'stage3_critique',
+    label: 'Stage 3.1 Critique',
+    provider: 'OpenAI Vision',
+    inputs: ['previous image', 'word/POS/category'],
+    expected: ['challenges', 'recommendations'],
+    retryPolicy: 'API retry + stage retry',
+  },
+  {
+    id: 'stage3_prompt_upgrade',
+    label: 'Stage 3.2 Prompt Upgrade',
+    provider: 'OpenAI Assistant',
+    inputs: ['old prompt', 'critique', 'previous score feedback'],
+    expected: ['upgraded prompt'],
+    retryPolicy: 'API retry + stage retry',
+  },
+  {
+    id: 'stage3_generate',
+    label: 'Stage 3.3 Image Generate',
+    provider: 'Replicate: flux-pro / imagen fallback',
+    inputs: ['upgraded prompt'],
+    expected: ['upgraded image'],
     retryPolicy: 'API retry + stage retry',
   },
   {
@@ -51,9 +67,11 @@ const STAGE_DEFINITIONS = [
 
 const FLOW_EDGES = [
   { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1' },
-  { from: 'stage2_draft', to: 'stage3_upgrade', label: 'start attempt A1' },
-  { from: 'stage3_upgrade', to: 'quality_gate', label: 'score upgraded image' },
-  { from: 'quality_gate', to: 'stage3_upgrade', label: 'fail + attempts remain', type: 'loop' },
+  { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt A1' },
+  { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique output' },
+  { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt' },
+  { from: 'stage3_generate', to: 'quality_gate', label: 'score upgraded image' },
+  { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop' },
   { from: 'quality_gate', to: 'stage4_background', label: 'pass' },
   { from: 'stage4_background', to: 'completed', label: 'final white-bg output' },
   { from: 'quality_gate', to: 'completed', label: 'fail + attempts exhausted', type: 'branch' },
@@ -156,6 +174,13 @@ function nodeStatus({
     return asStageStatus(stageResult?.status)
   }
 
+  if (stageId === 'stage3_critique' || stageId === 'stage3_prompt_upgrade' || stageId === 'stage3_generate') {
+    if (run.status === 'running' && run.current_stage === 'stage3_upgrade' && attempt === currentAttempt && !stageResult) {
+      return 'running'
+    }
+    return asStageStatus(stageResult?.status)
+  }
+
   if (stageId === 'stage4_background') {
     if (isCurrentAttemptStage) return 'running'
     if (stageResult) return asStageStatus(stageResult.status)
@@ -248,6 +273,13 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage4Asset = assetIndex.get(makeKey('stage4_white_bg', attempt))
 
   const score = scoreIndex.get(attempt)
+  const stage3Response = safeObject(stage3Result?.response_json)
+  const stage3Request = safeObject(stage3Result?.request_json)
+  const stage3Analysis = safeObject(stage3Response.analysis)
+  const stage3Assistant = safeObject(stage3Response.assistant)
+  const stage3Generation = safeObject(stage3Response.generation)
+  const stage3UpgradeRequest = safeObject(stage3Request.upgrade_prompt_request)
+  const stage3GenerationModel = safeText(stage3Response.generation_model)
 
   const nodeData = [
     {
@@ -269,11 +301,35 @@ export function buildRunDiagram(detail, selectedAttempt) {
       attempt: 0,
     },
     {
-      id: 'stage3_upgrade',
+      id: 'stage3_critique',
       stageResult: stage3Result,
       promptRecord: stage3Prompt || null,
+      requestPayload: stage3UpgradeRequest,
+      responsePayload: stage3Analysis,
+      asset: stage2Asset || null,
+      model: 'gpt-4o-mini',
+      score: null,
+      attempt,
+    },
+    {
+      id: 'stage3_prompt_upgrade',
+      stageResult: stage3Result,
+      promptRecord: stage3Prompt || null,
+      requestPayload: stage3UpgradeRequest,
+      responsePayload: stage3Assistant,
+      asset: null,
+      model: 'OpenAI Assistant',
+      score: null,
+      attempt,
+    },
+    {
+      id: 'stage3_generate',
+      stageResult: stage3Result,
+      promptRecord: stage3Prompt || null,
+      requestPayload: { prompt: safeText(stage3Prompt?.prompt_text), model: stage3GenerationModel },
+      responsePayload: stage3Generation,
       asset: stage3Asset || null,
-      model: stage3Asset?.model_name || '',
+      model: stage3Asset?.model_name || stage3GenerationModel,
       score: null,
       attempt,
     },
@@ -338,10 +394,10 @@ export function buildRunDiagram(detail, selectedAttempt) {
       asset: item.asset,
       score: item.score,
       scoreRubric: safeObject(item.score?.rubric_json),
-      requestJson: safeObject(item.stageResult?.request_json),
-      responseJson: safeObject(item.stageResult?.response_json),
-      requestKeys: readRequestKeys(item.stageResult),
-      responseKeys: readResponseKeys(item.stageResult),
+      requestJson: safeObject(item.requestPayload || item.stageResult?.request_json),
+      responseJson: safeObject(item.responsePayload || item.stageResult?.response_json),
+      requestKeys: Object.keys(safeObject(item.requestPayload || item.stageResult?.request_json)),
+      responseKeys: Object.keys(safeObject(item.responsePayload || item.stageResult?.response_json)),
     }
   })
 

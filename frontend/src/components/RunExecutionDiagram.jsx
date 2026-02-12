@@ -9,11 +9,11 @@ function defaultAttempt(detail, attempts) {
   return attempts[attempts.length - 1] || 1
 }
 
-export default function RunExecutionDiagram({ detail }) {
+export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const attempts = useMemo(() => getAvailableAttempts(detail), [detail?.run?.id, detail?.run?.updated_at, detail])
   const [selectedAttempt, setSelectedAttempt] = useState(defaultAttempt(detail, attempts))
   const diagram = useMemo(() => buildRunDiagram(detail, selectedAttempt), [detail, selectedAttempt])
-  const [selectedNodeId, setSelectedNodeId] = useState('stage3_upgrade')
+  const [selectedNodeId, setSelectedNodeId] = useState('stage3_generate')
 
   useEffect(() => {
     const next = defaultAttempt(detail, attempts)
@@ -37,14 +37,20 @@ export default function RunExecutionDiagram({ detail }) {
         const position = {
           stage1_prompt: { x: 30, y: 120 },
           stage2_draft: { x: 250, y: 120 },
-          stage3_upgrade: { x: 470, y: 120 },
+          stage3_critique: { x: 470, y: 40 },
+          stage3_prompt_upgrade: { x: 470, y: 120 },
+          stage3_generate: { x: 470, y: 200 },
           quality_gate: { x: 690, y: 120 },
           stage4_background: { x: 910, y: 40 },
           completed: { x: 1130, y: 40 },
         }[node.id] || { x: 30, y: 120 }
 
         const badge =
-          node.id === 'stage3_upgrade' || node.id === 'quality_gate' || node.id === 'stage4_background'
+          node.id === 'stage3_critique' ||
+          node.id === 'stage3_prompt_upgrade' ||
+          node.id === 'stage3_generate' ||
+          node.id === 'quality_gate' ||
+          node.id === 'stage4_background'
             ? `A${selectedAttempt}`
             : ''
 
@@ -94,14 +100,14 @@ export default function RunExecutionDiagram({ detail }) {
         nodes={canvasNodes}
         edges={diagram.edges}
         width={1360}
-        height={310}
+        height={360}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
       />
 
       <p className="run-diagram-loop-note">Loop active when quality fails and attempts remain. Pass branch proceeds to white background.</p>
 
-      <RunNodeDetailCard node={selectedNode} />
+      <RunNodeDetailCard node={selectedNode} assistantName={assistantName} />
     </div>
   )
 }

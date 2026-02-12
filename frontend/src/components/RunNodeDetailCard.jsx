@@ -7,7 +7,7 @@ function shortHash(value) {
   return `${text.slice(0, 8)}...${text.slice(-8)}`
 }
 
-export default function RunNodeDetailCard({ node }) {
+export default function RunNodeDetailCard({ node, assistantName = '' }) {
   const [showRaw, setShowRaw] = useState(false)
   const [showRawPrompt, setShowRawPrompt] = useState(false)
   const [showRawScore, setShowRawScore] = useState(false)
@@ -34,6 +34,9 @@ export default function RunNodeDetailCard({ node }) {
           {typeof node.attempt === 'number' && node.attempt > 0 ? <p><strong>Attempt:</strong> A{node.attempt}</p> : null}
           <p><strong>Provider:</strong> {node.provider}</p>
           <p><strong>Model:</strong> {node.model || 'N/A'}</p>
+          {node.id === 'stage1_prompt' || node.id === 'stage3_prompt_upgrade' ? (
+            <p><strong>Assistant:</strong> {assistantName || 'Prompt generator -JSON output'}</p>
+          ) : null}
           <p><strong>Stage status:</strong> {node.stageStatus || node.status}</p>
           <p><strong>Recorded at:</strong> {node.stageCreatedAt || 'N/A'}</p>
           {node.stageErrorDetail ? <p><strong>Error detail:</strong> {node.stageErrorDetail}</p> : null}
@@ -44,7 +47,14 @@ export default function RunNodeDetailCard({ node }) {
           <p><strong>Prompt source:</strong> {node.promptSource || 'N/A'}</p>
           <p><strong>Need person:</strong> {node.promptNeedsPerson || 'N/A'}</p>
           <p><strong>Prompt created:</strong> {node.promptCreatedAt || 'N/A'}</p>
-          {node.promptText ? <p><strong>Prompt text:</strong> {node.promptText}</p> : <p><strong>Prompt text:</strong> N/A</p>}
+          {node.promptText ? (
+            <>
+              <p><strong>Prompt text:</strong></p>
+              <pre className="prompt-doc-box">{node.promptText}</pre>
+            </>
+          ) : (
+            <p><strong>Prompt text:</strong> N/A</p>
+          )}
           <button onClick={() => setShowRawPrompt((value) => !value)}>
             {showRawPrompt ? 'Hide prompt raw JSON' : 'View prompt raw JSON'}
           </button>

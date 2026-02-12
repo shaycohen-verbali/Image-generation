@@ -236,6 +236,12 @@ pre {
   margin-top: 4px;
 }
 
+.algo-assistant-name {
+  margin: 0 0 10px;
+  font-size: 0.84rem;
+  color: #3f5664;
+}
+
 .algo-prompt-box {
   font-size: 0.75rem;
   margin: 4px 0 0;
@@ -261,6 +267,31 @@ pre {
 
 .algo-static-detail p {
   margin: 0 0 6px;
+}
+
+.algo-doc-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+}
+
+.algo-doc-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+}
+
+.algo-doc-card h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+}
+
+.prompt-doc-box {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .algo-branches {
