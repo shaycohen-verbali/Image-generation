@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import RunNodeDetailCard from './RunNodeDetailCard'
+import WorkflowCanvas from './WorkflowCanvas'
 import { buildRunDiagram, getAvailableAttempts } from '../lib/runDiagram'
 
 function defaultAttempt(detail, attempts) {
@@ -30,6 +31,31 @@ export default function RunExecutionDiagram({ detail }) {
   }
 
   const selectedNode = diagram.nodes.find((node) => node.id === selectedNodeId) || diagram.nodes[0] || null
+  const canvasNodes = useMemo(
+    () =>
+      diagram.nodes.map((node) => {
+        const position = {
+          stage1_prompt: { x: 30, y: 120 },
+          stage2_draft: { x: 250, y: 120 },
+          stage3_upgrade: { x: 470, y: 120 },
+          quality_gate: { x: 690, y: 120 },
+          stage4_background: { x: 910, y: 40 },
+          completed: { x: 1130, y: 40 },
+        }[node.id] || { x: 30, y: 120 }
+
+        const badge =
+          node.id === 'stage3_upgrade' || node.id === 'quality_gate' || node.id === 'stage4_background'
+            ? `A${selectedAttempt}`
+            : ''
+
+        return {
+          ...node,
+          ...position,
+          badge,
+        }
+      }),
+    [diagram.nodes, selectedAttempt],
+  )
 
   return (
     <div className="run-diagram-root">
@@ -64,27 +90,16 @@ export default function RunExecutionDiagram({ detail }) {
         ))}
       </div>
 
-      <div className="run-diagram-lane">
-        {diagram.nodes.map((node, index) => (
-          <React.Fragment key={node.id}>
-            <button
-              className={
-                node.id === selectedNodeId
-                  ? `run-diagram-node selected status-${node.status}`
-                  : `run-diagram-node status-${node.status}`
-              }
-              onClick={() => setSelectedNodeId(node.id)}
-            >
-              <span className="node-label">{node.label}</span>
-              <span className="node-status">{node.statusLabel}</span>
-              {node.subtitle ? <span className="node-subtitle">{node.subtitle}</span> : null}
-            </button>
-            {index < diagram.nodes.length - 1 ? <span className="run-diagram-arrow">-&gt;</span> : null}
-          </React.Fragment>
-        ))}
-      </div>
+      <WorkflowCanvas
+        nodes={canvasNodes}
+        edges={diagram.edges}
+        width={1360}
+        height={310}
+        selectedNodeId={selectedNodeId}
+        onSelectNode={setSelectedNodeId}
+      />
 
-      <p className="run-diagram-loop-note">Loop: Quality fail -> Stage 3 upgrade (next attempt)</p>
+      <p className="run-diagram-loop-note">Loop active when quality fails and attempts remain. Pass branch proceeds to white background.</p>
 
       <RunNodeDetailCard node={selectedNode} />
     </div>

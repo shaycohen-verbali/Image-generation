@@ -236,46 +236,6 @@ pre {
   margin-top: 4px;
 }
 
-.algo-static-lane {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-}
-
-.algo-static-node {
-  min-width: 220px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  padding: 10px;
-}
-
-.algo-static-node h3 {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.algo-static-provider {
-  margin: 6px 0 8px;
-  color: #385767;
-  font-weight: 700;
-  font-size: 0.84rem;
-}
-
-.algo-static-api {
-  margin: 0 0 8px;
-  font-size: 0.82rem;
-  color: #2b4956;
-}
-
-.algo-static-arrow {
-  align-self: center;
-  font-weight: 900;
-  color: #48606f;
-}
-
 .algo-prompt-box {
   font-size: 0.75rem;
   margin: 4px 0 0;
@@ -285,14 +245,22 @@ pre {
   padding: 8px;
 }
 
-.algo-loop-banner {
+.algo-static-detail {
   margin-top: 10px;
-  border: 2px dashed #d38d14;
-  background: #fff2da;
-  color: #7a4d00;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 0.86rem;
+}
+
+.algo-static-detail h3 {
+  margin: 0 0 8px;
+}
+
+.algo-static-detail p {
+  margin: 0 0 6px;
 }
 
 .algo-branches {
@@ -356,45 +324,99 @@ pre {
   background: #edf8f5;
 }
 
-.run-diagram-lane {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 6px;
+.workflow-wrap {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
 }
 
-.run-diagram-node {
-  min-width: 180px;
+.workflow-scroller {
+  overflow-x: auto;
+}
+
+.workflow-canvas {
+  position: relative;
+  min-height: 280px;
+}
+
+.workflow-svg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.workflow-edge {
+  fill: none;
+  stroke: #4d6370;
+  stroke-width: 2.5;
+}
+
+.workflow-edge-loop {
+  stroke: #b46e06;
+  stroke-dasharray: 7 5;
+}
+
+.workflow-edge-label {
+  font-size: 11px;
+  font-weight: 800;
+  fill: #334c58;
+}
+
+.workflow-node {
+  position: absolute;
+  z-index: 2;
   text-align: left;
-  border: 2px solid var(--line);
+  border: 2px solid #718797;
   border-radius: 12px;
-  padding: 10px;
+  padding: 10px 10px 8px;
   background: #fff;
   display: grid;
-  gap: 4px;
+  gap: 5px;
+  box-shadow: 0 5px 10px rgba(31, 42, 56, 0.09);
 }
 
-.run-diagram-node.selected {
+.workflow-node.selected {
   outline: 3px solid #c6ebe4;
 }
 
-.run-diagram-arrow {
-  align-self: center;
+.workflow-node-port {
+  position: absolute;
+  top: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #415765;
+  border: 2px solid #fff;
+}
+
+.workflow-node-port.port-left {
+  left: -7px;
+}
+
+.workflow-node-port.port-right {
+  right: -7px;
+}
+
+.workflow-node-title {
   font-weight: 900;
-  color: #48606f;
+  font-size: 0.86rem;
+  line-height: 1.2;
 }
 
-.node-label {
-  font-weight: 800;
+.workflow-node-subtitle {
+  font-size: 0.76rem;
+  color: #425560;
 }
 
-.node-status {
-  font-size: 0.8rem;
-}
-
-.node-subtitle {
-  font-size: 0.78rem;
+.workflow-node-badge {
+  justify-self: start;
+  font-size: 0.72rem;
+  font-weight: 900;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: #f6f2e8;
 }
 
 .run-diagram-loop-note {
@@ -454,6 +476,32 @@ pre {
 .status-skipped {
   border-color: #965f07;
   background: #fde7c2;
+}
+
+.workflow-node.status-queued {
+  border-color: #9aa8b3;
+  background: #edf2f5;
+}
+
+.workflow-node.status-running {
+  border-color: #326cff;
+  background: #e4ecff;
+  animation: pulse-running 1.4s ease-in-out infinite;
+}
+
+.workflow-node.status-ok {
+  border-color: #17784e;
+  background: #e5f7ec;
+}
+
+.workflow-node.status-error {
+  border-color: #8f1f1f;
+  background: #ffe2e2;
+}
+
+.workflow-node.status-skipped {
+  border-color: #965f07;
+  background: #ffefcc;
 }
 
 .run-node-image {
