@@ -156,30 +156,30 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
 
   const nodes = useMemo(
     () => [
-      { id: 'stage1_prompt', label: 'Stage 1 Prompt', subtitle: 'OpenAI Assistant', status: 'queued', x: 30, y: 120 },
-      { id: 'stage2_draft', label: 'Stage 2 Draft', subtitle: 'flux-schnell', status: 'queued', x: 250, y: 120 },
-      { id: 'stage3_critique', label: 'Stage 3.1 Critique', subtitle: 'OpenAI Vision', status: 'queued', x: 470, y: 30 },
-      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: 'OpenAI Assistant', status: 'queued', x: 470, y: 120 },
-      { id: 'stage3_generate', label: 'Stage 3.3 Generate', subtitle: 'flux-pro / imagen', status: 'queued', x: 470, y: 210 },
-      { id: 'quality_gate', label: 'Quality Gate', subtitle: 'gpt-4o-mini score', status: 'queued', x: 690, y: 120 },
-      { id: 'stage4_background', label: 'Stage 4 White BG', subtitle: 'nano-banana', status: 'queued', x: 910, y: 40 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'final export ready', status: 'ok', x: 1130, y: 40 },
-      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'threshold not met', status: 'error', x: 910, y: 210 },
+      { id: 'stage1_prompt', label: 'Stage 1 Prompt', subtitle: 'OpenAI Assistant', status: 'queued', x: 40, y: 185 },
+      { id: 'stage2_draft', label: 'Stage 2 Draft', subtitle: 'flux-schnell', status: 'queued', x: 320, y: 185 },
+      { id: 'stage3_critique', label: 'Stage 3.1 Critique', subtitle: 'OpenAI Vision', status: 'queued', x: 670, y: 40 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: 'OpenAI Assistant', status: 'queued', x: 670, y: 185 },
+      { id: 'stage3_generate', label: 'Stage 3.3 Generate', subtitle: 'flux-pro / imagen', status: 'queued', x: 670, y: 330 },
+      { id: 'quality_gate', label: 'Quality Gate', subtitle: 'gpt-4o-mini score', status: 'queued', x: 1000, y: 185 },
+      { id: 'stage4_background', label: 'Stage 4 White BG', subtitle: 'nano-banana', status: 'queued', x: 1330, y: 95 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'final export ready', status: 'ok', x: 1620, y: 95 },
+      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'threshold not met', status: 'error', x: 1330, y: 310 },
     ],
     [],
   )
 
   const edges = useMemo(
     () => [
-      { from: 'stage1_prompt', to: 'stage2_draft', label: 'first prompt' },
-      { from: 'stage2_draft', to: 'stage3_critique', label: 'attempt A1 starts' },
-      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique result' },
-      { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt' },
-      { from: 'stage3_generate', to: 'quality_gate', label: 'score this upgraded image' },
-      { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop' },
-      { from: 'quality_gate', to: 'stage4_background', label: 'pass >= threshold' },
-      { from: 'stage4_background', to: 'completed_pass', label: 'final white-bg image' },
-      { from: 'quality_gate', to: 'completed_fail', label: 'attempts exhausted', type: 'branch' },
+      { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt', fromPort: 'right', toPort: 'left' },
+      { from: 'stage2_draft', to: 'stage3_critique', label: 'start A1', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
+      { from: 'quality_gate', to: 'stage4_background', label: 'pass', fromPort: 'top', toPort: 'left' },
+      { from: 'stage4_background', to: 'completed_pass', label: 'final', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'completed_fail', label: 'exhausted', type: 'branch', fromPort: 'bottom', toPort: 'left' },
     ],
     [],
   )
@@ -192,7 +192,7 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
       <p className="algo-subtitle">n8n-style node flow with explicit pass/fail branches and retry loop.</p>
       <p className="algo-assistant-name"><strong>Assistant:</strong> {assistantName || 'Prompt generator -JSON output'}</p>
 
-      <WorkflowCanvas nodes={nodes} edges={edges} width={1360} height={370} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} />
+      <WorkflowCanvas nodes={nodes} edges={edges} width={1870} height={510} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} />
 
       <div className="algo-static-detail">
         <h3>Selected Node Contract</h3>

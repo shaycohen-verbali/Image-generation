@@ -364,6 +364,8 @@ pre {
 
 .workflow-scroller {
   overflow-x: auto;
+  padding: 12px;
+  background: linear-gradient(180deg, #fff 0%, #fffaf2 100%);
 }
 
 .workflow-canvas {
@@ -389,9 +391,13 @@ pre {
 }
 
 .workflow-edge-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   fill: #334c58;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 4;
+  stroke-linejoin: round;
 }
 
 .workflow-node {
@@ -400,7 +406,7 @@ pre {
   text-align: left;
   border: 2px solid #718797;
   border-radius: 12px;
-  padding: 10px 10px 8px;
+  padding: 11px 11px 9px;
   background: #fff;
   display: grid;
   gap: 5px;
@@ -431,12 +437,12 @@ pre {
 
 .workflow-node-title {
   font-weight: 900;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
   line-height: 1.2;
 }
 
 .workflow-node-subtitle {
-  font-size: 0.76rem;
+  font-size: 0.79rem;
   color: #425560;
 }
 

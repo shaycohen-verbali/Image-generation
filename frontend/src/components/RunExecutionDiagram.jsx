@@ -35,15 +35,15 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
     () =>
       diagram.nodes.map((node) => {
         const position = {
-          stage1_prompt: { x: 30, y: 120 },
-          stage2_draft: { x: 250, y: 120 },
-          stage3_critique: { x: 470, y: 40 },
-          stage3_prompt_upgrade: { x: 470, y: 120 },
-          stage3_generate: { x: 470, y: 200 },
-          quality_gate: { x: 690, y: 120 },
-          stage4_background: { x: 910, y: 40 },
-          completed: { x: 1130, y: 40 },
-        }[node.id] || { x: 30, y: 120 }
+          stage1_prompt: { x: 40, y: 185 },
+          stage2_draft: { x: 320, y: 185 },
+          stage3_critique: { x: 670, y: 40 },
+          stage3_prompt_upgrade: { x: 670, y: 185 },
+          stage3_generate: { x: 670, y: 330 },
+          quality_gate: { x: 1000, y: 185 },
+          stage4_background: { x: 1330, y: 95 },
+          completed: { x: 1620, y: 95 },
+        }[node.id] || { x: 40, y: 185 }
 
         const badge =
           node.id === 'stage3_critique' ||
@@ -99,8 +99,8 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <WorkflowCanvas
         nodes={canvasNodes}
         edges={diagram.edges}
-        width={1360}
-        height={360}
+        width={1870}
+        height={510}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
       />

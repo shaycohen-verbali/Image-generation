@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
-const NODE_WIDTH = 190
-const NODE_HEIGHT = 92
+const NODE_WIDTH = 220
+const NODE_HEIGHT = 104
 
 function nodeById(nodes) {
   const index = new Map()
@@ -19,37 +19,59 @@ function point(node, side) {
 function edgePath(edge, fromNode, toNode) {
   if (!fromNode || !toNode) return ''
 
+  const fromSide = edge.fromPort || 'right'
+  const toSide = edge.toPort || 'left'
+  const start = point(fromNode, fromSide)
+  const end = point(toNode, toSide)
+
   if (edge.type === 'loop') {
-    const start = point(fromNode, 'top')
-    const end = point(toNode, 'top')
-    const lift = 86
-    return `M ${start.x} ${start.y} C ${start.x} ${start.y - lift}, ${end.x} ${end.y - lift}, ${end.x} ${end.y}`
+    const lift = 72
+    const sideOffset = 130
+    return `M ${start.x} ${start.y} C ${start.x - sideOffset} ${start.y - lift}, ${end.x - sideOffset} ${end.y - lift}, ${end.x} ${end.y}`
   }
 
-  const start = point(fromNode, 'right')
-  const end = point(toNode, 'left')
   const horizontalGap = Math.abs(end.x - start.x)
+  const verticalGap = Math.abs(end.y - start.y)
   const needsElbow = Math.abs(end.y - start.y) > 8 || horizontalGap < 60
+
+  if ((fromSide === 'bottom' && toSide === 'top') || (fromSide === 'top' && toSide === 'bottom')) {
+    const midY = start.y + (end.y - start.y) / 2
+    return `M ${start.x} ${start.y} L ${start.x} ${midY} L ${end.x} ${midY} L ${end.x} ${end.y}`
+  }
+
+  if ((fromSide === 'top' && toSide === 'left') || (fromSide === 'bottom' && toSide === 'left')) {
+    const midY = start.y + (end.y - start.y) / 2
+    return `M ${start.x} ${start.y} L ${start.x} ${midY} L ${end.x} ${midY} L ${end.x} ${end.y}`
+  }
+
+  if ((fromSide === 'right' && toSide === 'top') || (fromSide === 'right' && toSide === 'bottom')) {
+    const midX = start.x + Math.max(34, horizontalGap / 2)
+    return `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`
+  }
 
   if (!needsElbow) {
     return `M ${start.x} ${start.y} L ${end.x} ${end.y}`
   }
 
-  const midX = start.x + Math.max(34, horizontalGap / 2)
+  const midX = start.x + Math.max(40, horizontalGap / 2)
   return `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`
 }
 
 function labelPoint(edge, fromNode, toNode) {
   if (!fromNode || !toNode) return { x: 0, y: 0 }
+  const fromSide = edge.fromPort || 'right'
+  const toSide = edge.toPort || 'left'
+  const start = point(fromNode, fromSide)
+  const end = point(toNode, toSide)
   if (edge.type === 'loop') {
     return {
-      x: (fromNode.x + toNode.x + NODE_WIDTH) / 2,
-      y: Math.min(fromNode.y, toNode.y) - 72,
+      x: Math.min(start.x, end.x) - 90,
+      y: Math.min(start.y, end.y) - 54,
     }
   }
   return {
-    x: (fromNode.x + toNode.x + NODE_WIDTH) / 2,
-    y: (fromNode.y + toNode.y + NODE_HEIGHT) / 2 - 10,
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2 - 8,
   }
 }
 
@@ -87,11 +109,7 @@ export default function WorkflowCanvas({
                     d={path}
                     markerEnd="url(#wf-arrow)"
                   />
-                  {edge.label ? (
-                    <text x={label.x} y={label.y} className="workflow-edge-label">
-                      {edge.label}
-                    </text>
-                  ) : null}
+                  {edge.label ? <text x={label.x} y={label.y} className="workflow-edge-label">{edge.label}</text> : null}
                 </g>
               )
             })}
