@@ -58,6 +58,25 @@ function stage4StatusText({ run, selectedSummary }) {
   return `Background removal runs only after a passing quality score (>= ${threshold}).`
 }
 
+const assetStageOrder = {
+  stage2_draft: 1,
+  stage3_upgraded: 2,
+  stage4_white_bg: 3,
+}
+
+function stageImageLabel(stageName) {
+  if (stageName === 'stage2_draft') return 'Stage 2 Draft'
+  if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
+  if (stageName === 'stage4_white_bg') return 'Stage 4 White Background'
+  return stageName || 'Image'
+}
+
+function attemptLabel(asset) {
+  if (asset.stage_name === 'stage2_draft') return 'Base draft'
+  if (typeof asset.attempt === 'number' && asset.attempt > 0) return `Attempt ${asset.attempt}`
+  return 'Attempt -'
+}
+
 function defaultAttempt(detail, attempts) {
   const current = Number(detail?.run?.optimization_attempt || 0)
   if (current > 0 && attempts.includes(current)) return current
@@ -89,6 +108,19 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const currentAttempt = Number(detail.run.optimization_attempt || 0)
   const maxAttempts = Number(detail.run.max_optimization_attempts || 0) + 1
   const selectedSummary = diagram.attemptSummaries.find((summary) => summary.attempt === selectedAttempt)
+  const allRunAssets = useMemo(
+    () =>
+      [...(detail.assets || [])].sort((left, right) => {
+        const leftAttempt = Number(left.attempt || 0)
+        const rightAttempt = Number(right.attempt || 0)
+        if (leftAttempt !== rightAttempt) return leftAttempt - rightAttempt
+        const leftOrder = assetStageOrder[left.stage_name] || 99
+        const rightOrder = assetStageOrder[right.stage_name] || 99
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder
+        return String(left.created_at || '').localeCompare(String(right.created_at || ''))
+      }),
+    [detail.assets],
+  )
   const canvasNodes = useMemo(
     () =>
       diagram.nodes.map((node) => {
@@ -178,6 +210,39 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <p className="run-diagram-loop-note">If quality fails and attempts remain, the system loops to the next attempt automatically. Use zoom +/- if needed.</p>
 
       <RunNodeDetailCard node={selectedNode} assistantName={assistantName} />
+
+      <div className="run-all-images-section">
+        <div className="run-all-images-header">
+          <h3>All Images Created In This Run</h3>
+          <p>{allRunAssets.length} image{allRunAssets.length === 1 ? '' : 's'} saved across all attempts</p>
+        </div>
+        {allRunAssets.length === 0 ? (
+          <p>No images available yet.</p>
+        ) : (
+          <div className="asset-grid">
+            {allRunAssets.map((asset) => (
+              <div key={asset.id} className="asset-card run-asset-card">
+                <h4>{stageImageLabel(asset.stage_name)}</h4>
+                {asset.origin_url ? (
+                  <img className="asset-image" src={asset.origin_url} alt={`${asset.stage_name} ${attemptLabel(asset)}`} />
+                ) : (
+                  <p className="asset-meta-empty">Image URL unavailable.</p>
+                )}
+                <div className="asset-meta">
+                  <p><strong>{attemptLabel(asset)}</strong></p>
+                  <p>{asset.file_name || '-'}</p>
+                  <p>{asset.model_name || '-'}</p>
+                  {asset.origin_url ? (
+                    <a href={asset.origin_url} target="_blank" rel="noreferrer">
+                      Open Full Image
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
