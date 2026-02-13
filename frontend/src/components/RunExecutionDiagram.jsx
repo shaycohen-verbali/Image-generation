@@ -3,6 +3,37 @@ import RunNodeDetailCard from './RunNodeDetailCard'
 import WorkflowCanvas from './WorkflowCanvas'
 import { buildRunDiagram, getAvailableAttempts } from '../lib/runDiagram'
 
+function humanStatus(status) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'ok') return 'Done'
+  if (value === 'running') return 'In progress'
+  if (value === 'queued') return 'Waiting'
+  if (value === 'skipped') return 'Skipped'
+  if (value === 'error') return 'Failed'
+  return status || '-'
+}
+
+function prettyStage(stage) {
+  if (stage === 'queued') return 'Waiting to start'
+  if (stage === 'stage1_prompt') return 'Stage 1: First prompt'
+  if (stage === 'stage2_draft') return 'Stage 2: Draft image'
+  if (stage === 'stage3_upgrade') return 'Stage 3: Improve + generate'
+  if (stage === 'quality_gate') return 'Quality check'
+  if (stage === 'stage4_background') return 'Stage 4: White background'
+  if (stage === 'completed') return 'Completed'
+  return stage || '-'
+}
+
+function prettyRunStatus(status) {
+  if (status === 'completed_pass') return 'Completed (Pass)'
+  if (status === 'completed_fail_threshold') return 'Completed (Below threshold)'
+  if (status === 'failed_technical') return 'Failed (Technical)'
+  if (status === 'running') return 'Running'
+  if (status === 'queued') return 'Queued'
+  if (status === 'retry_queued') return 'Queued for retry'
+  return status || '-'
+}
+
 function defaultAttempt(detail, attempts) {
   const current = Number(detail?.run?.optimization_attempt || 0)
   if (current > 0 && attempts.includes(current)) return current
@@ -31,6 +62,8 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   }
 
   const selectedNode = diagram.nodes.find((node) => node.id === selectedNodeId) || diagram.nodes[0] || null
+  const currentAttempt = Number(detail.run.optimization_attempt || 0)
+  const maxAttempts = Number(detail.run.max_optimization_attempts || 0) + 1
   const canvasNodes = useMemo(
     () =>
       diagram.nodes.map((node) => {
@@ -51,7 +84,7 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
           node.id === 'stage3_generate' ||
           node.id === 'quality_gate' ||
           node.id === 'stage4_background'
-            ? `A${selectedAttempt}`
+            ? `Attempt ${selectedAttempt}`
             : ''
 
         return {
@@ -68,8 +101,16 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <div className="run-diagram-head">
         <h3>Live Execution Diagram</h3>
         <p>
-          Status: <strong>{detail.run.status}</strong> | Current stage: <strong>{detail.run.current_stage}</strong>
+          <strong>What is happening now:</strong> {prettyRunStatus(detail.run.status)}. Current step: {prettyStage(detail.run.current_stage)}.
         </p>
+        <p>
+          <strong>Attempt progress:</strong> {currentAttempt > 0 ? currentAttempt : 1} / {maxAttempts} (selected: Attempt {selectedAttempt})
+        </p>
+      </div>
+
+      <div className="run-help-card">
+        <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
+        <p>Attempt flow: Stage 3 improve -> Quality check -> if pass then Stage 4 white background.</p>
       </div>
 
       <div className="attempt-chip-row">
@@ -79,7 +120,7 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
             className={attempt === selectedAttempt ? 'attempt-chip active' : 'attempt-chip'}
             onClick={() => setSelectedAttempt(attempt)}
           >
-            A{attempt}
+            Attempt {attempt}
           </button>
         ))}
       </div>
@@ -87,10 +128,10 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <div className="attempt-summary-row">
         {diagram.attemptSummaries.map((summary) => (
           <div key={summary.attempt} className={summary.attempt === selectedAttempt ? 'attempt-summary active' : 'attempt-summary'}>
-            <p><strong>A{summary.attempt}</strong></p>
-            <p>Stage3: {summary.stage3Status}</p>
-            <p>Quality: {summary.qualityStatus}</p>
-            <p>Stage4: {summary.stage4Status}</p>
+            <p><strong>Attempt {summary.attempt}</strong></p>
+            <p>Image improvement: {humanStatus(summary.stage3Status)}</p>
+            <p>Quality check: {humanStatus(summary.qualityStatus)}</p>
+            <p>White background: {humanStatus(summary.stage4Status)}</p>
             <p>Score: {summary.score ?? '-'}</p>
           </div>
         ))}
@@ -105,7 +146,7 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
         onSelectNode={setSelectedNodeId}
       />
 
-      <p className="run-diagram-loop-note">Loop is active when quality fails and attempts remain. Use +/- zoom controls above the diagram for readability.</p>
+      <p className="run-diagram-loop-note">If quality fails and attempts remain, the system loops to the next attempt automatically. Use zoom +/- if needed.</p>
 
       <RunNodeDetailCard node={selectedNode} assistantName={assistantName} />
     </div>

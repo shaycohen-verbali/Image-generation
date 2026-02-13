@@ -70,7 +70,7 @@ const STAGE_DEFINITIONS = [
 
 const FLOW_EDGES = [
   { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt', fromPort: 'right', toPort: 'left' },
-  { from: 'stage2_draft', to: 'stage3_critique', label: 'start A1', fromPort: 'right', toPort: 'left' },
+  { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
   { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },

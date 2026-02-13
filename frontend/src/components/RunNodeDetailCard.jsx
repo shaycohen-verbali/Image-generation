@@ -31,7 +31,7 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
         <div className="run-node-section">
           <h4>Execution</h4>
           {node.subtitle ? <p><strong>Summary:</strong> {node.subtitle}</p> : null}
-          {typeof node.attempt === 'number' && node.attempt > 0 ? <p><strong>Attempt:</strong> A{node.attempt}</p> : null}
+          {typeof node.attempt === 'number' && node.attempt > 0 ? <p><strong>Attempt:</strong> Attempt {node.attempt}</p> : null}
           <p><strong>Provider:</strong> {node.provider}</p>
           <p><strong>Model:</strong> {node.model || 'N/A'}</p>
           {node.id === 'stage1_prompt' || node.id === 'stage3_prompt_upgrade' ? (

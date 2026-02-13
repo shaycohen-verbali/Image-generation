@@ -224,7 +224,7 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
   const edges = useMemo(
     () => [
       { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1', fromPort: 'right', toPort: 'left' },
-      { from: 'stage2_draft', to: 'stage3_critique', label: 'attempt A1', fromPort: 'right', toPort: 'left' },
+      { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'challenges + recommendations', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
