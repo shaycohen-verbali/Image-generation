@@ -373,6 +373,11 @@ pre {
   margin-bottom: 0;
 }
 
+.stage4-help-card {
+  border-color: #dfd3b5;
+  background: #fff8eb;
+}
+
 .workflow-wrap {
   border: 1px solid var(--line);
   border-radius: 12px;

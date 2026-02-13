@@ -34,6 +34,30 @@ function prettyRunStatus(status) {
   return status || '-'
 }
 
+function stage4StatusText({ run, selectedSummary }) {
+  const threshold = Number(run.quality_threshold || 95)
+  const stage4 = selectedSummary?.stage4Status
+  if (stage4 === 'ok') {
+    return `Background removal completed for this attempt.`
+  }
+  if (run.status === 'completed_fail_threshold') {
+    return `Background removal was skipped because no attempt reached the quality threshold (${threshold}).`
+  }
+  if (run.status === 'running' && run.current_stage !== 'stage4_background' && run.current_stage !== 'completed') {
+    return `Background removal has not started yet. It runs only after a passing quality score (>= ${threshold}).`
+  }
+  if (run.status === 'failed_technical' && run.current_stage === 'stage4_background') {
+    return `Background removal failed technically on this run.`
+  }
+  if (stage4 === 'skipped' || stage4 === 'queued') {
+    return `Background removal is waiting for a pass on quality score (>= ${threshold}).`
+  }
+  if (stage4 === 'error') {
+    return `Background removal failed for this attempt.`
+  }
+  return `Background removal runs only after a passing quality score (>= ${threshold}).`
+}
+
 function defaultAttempt(detail, attempts) {
   const current = Number(detail?.run?.optimization_attempt || 0)
   if (current > 0 && attempts.includes(current)) return current
@@ -64,6 +88,7 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const selectedNode = diagram.nodes.find((node) => node.id === selectedNodeId) || diagram.nodes[0] || null
   const currentAttempt = Number(detail.run.optimization_attempt || 0)
   const maxAttempts = Number(detail.run.max_optimization_attempts || 0) + 1
+  const selectedSummary = diagram.attemptSummaries.find((summary) => summary.attempt === selectedAttempt)
   const canvasNodes = useMemo(
     () =>
       diagram.nodes.map((node) => {
@@ -111,6 +136,10 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <div className="run-help-card">
         <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
         <p>Attempt flow: Stage 3 improve -> Quality check -> if pass then Stage 4 white background.</p>
+      </div>
+
+      <div className="run-help-card stage4-help-card">
+        <p><strong>Stage 4 (Background Removal):</strong> {stage4StatusText({ run: detail.run, selectedSummary })}</p>
       </div>
 
       <div className="attempt-chip-row">
