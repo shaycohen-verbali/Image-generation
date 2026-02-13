@@ -158,7 +158,7 @@ const STAGE_DETAILS = {
     provider: 'OpenAI Vision',
     model: 'gpt-4o-mini (configurable)',
     inputs: ['stage3 upgraded image', 'word', 'part_of_sentence', 'category', 'threshold'],
-    outputs: ['score', 'explanation', 'failure_tags', 'pass/fail'],
+    outputs: ['score', 'explanation', 'failure_tags', 'winner selection input'],
     instruction: QUALITY_GATE_PROMPT_TEMPLATE,
     requestExample: {
       content: [
@@ -171,7 +171,7 @@ const STAGE_DETAILS = {
     apiCall: 'Replicate via Cloudflare AI Gateway',
     provider: 'google/nano-banana',
     model: 'google/nano-banana',
-    inputs: ['passing stage3 image'],
+    inputs: ['highest-score winner image from stage3 attempts'],
     outputs: ['white background image URL', 'stage4_white_bg asset'],
     instruction: WHITE_BG_PROMPT_TEMPLATE,
     requestExample: {
@@ -229,9 +229,9 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
       { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
-      { from: 'quality_gate', to: 'stage4_background', label: 'pass (>= threshold)', fromPort: 'top', toPort: 'left' },
+      { from: 'quality_gate', to: 'stage4_background', label: 'after final scoring: winner selected', fromPort: 'top', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_pass', label: 'final image', fromPort: 'right', toPort: 'left' },
-      { from: 'quality_gate', to: 'completed_fail', label: 'attempts exhausted', type: 'branch', fromPort: 'bottom', toPort: 'left' },
+      { from: 'stage4_background', to: 'completed_fail', label: 'score below threshold', type: 'branch', fromPort: 'bottom', toPort: 'left' },
     ],
     [],
   )

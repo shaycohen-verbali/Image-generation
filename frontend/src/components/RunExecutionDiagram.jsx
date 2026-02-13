@@ -34,28 +34,27 @@ function prettyRunStatus(status) {
   return status || '-'
 }
 
-function stage4StatusText({ run, selectedSummary }) {
-  const threshold = Number(run.quality_threshold || 95)
+function stage4StatusText({ run, selectedSummary, winnerStage4Attempt }) {
+  if (typeof winnerStage4Attempt === 'number' && winnerStage4Attempt > 0) {
+    return `Background removal completed on winner attempt ${winnerStage4Attempt}.`
+  }
   const stage4 = selectedSummary?.stage4Status
   if (stage4 === 'ok') {
     return `Background removal completed for this attempt.`
   }
-  if (run.status === 'completed_fail_threshold') {
-    return `Background removal was skipped because no attempt reached the quality threshold (${threshold}).`
-  }
   if (run.status === 'running' && run.current_stage !== 'stage4_background' && run.current_stage !== 'completed') {
-    return `Background removal has not started yet. It runs only after a passing quality score (>= ${threshold}).`
+    return `Background removal has not started yet. It runs after scoring selects the winner attempt.`
   }
   if (run.status === 'failed_technical' && run.current_stage === 'stage4_background') {
     return `Background removal failed technically on this run.`
   }
   if (stage4 === 'skipped' || stage4 === 'queued') {
-    return `Background removal is waiting for a pass on quality score (>= ${threshold}).`
+    return `Background removal is waiting for winner selection.`
   }
   if (stage4 === 'error') {
     return `Background removal failed for this attempt.`
   }
-  return `Background removal runs only after a passing quality score (>= ${threshold}).`
+  return `Background removal runs after the winner attempt is selected.`
 }
 
 const assetStageOrder = {
@@ -121,6 +120,21 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       }),
     [detail.assets],
   )
+  const winnerStage4Asset = useMemo(
+    () =>
+      allRunAssets
+        .filter((asset) => asset.stage_name === 'stage4_white_bg')
+        .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null,
+    [allRunAssets],
+  )
+  const filteredRunAssets = useMemo(
+    () =>
+      allRunAssets.filter((asset) => {
+        if (asset.stage_name === 'stage2_draft') return true
+        return Number(asset.attempt || 0) === selectedAttempt
+      }),
+    [allRunAssets, selectedAttempt],
+  )
   const canvasNodes = useMemo(
     () =>
       diagram.nodes.map((node) => {
@@ -167,11 +181,18 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
 
       <div className="run-help-card">
         <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
-        <p>Attempt flow: Stage 3 improve -> Quality check -> if pass then Stage 4 white background.</p>
+        <p>Attempt flow: Stage 3 improve -> Quality checks for all attempts -> pick highest score winner -> Stage 4 white background.</p>
       </div>
 
       <div className="run-help-card stage4-help-card">
-        <p><strong>Stage 4 (Background Removal):</strong> {stage4StatusText({ run: detail.run, selectedSummary })}</p>
+        <p>
+          <strong>Stage 4 (Background Removal):</strong>{' '}
+          {stage4StatusText({
+            run: detail.run,
+            selectedSummary,
+            winnerStage4Attempt: winnerStage4Asset ? Number(winnerStage4Asset.attempt || 0) : null,
+          })}
+        </p>
       </div>
 
       <div className="attempt-chip-row">
@@ -198,29 +219,23 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
         ))}
       </div>
 
-      <WorkflowCanvas
-        nodes={canvasNodes}
-        edges={diagram.edges}
-        width={2200}
-        height={640}
-        selectedNodeId={selectedNodeId}
-        onSelectNode={setSelectedNodeId}
-      />
-
-      <p className="run-diagram-loop-note">If quality fails and attempts remain, the system loops to the next attempt automatically. Use zoom +/- if needed.</p>
-
-      <RunNodeDetailCard node={selectedNode} assistantName={assistantName} />
-
       <div className="run-all-images-section">
         <div className="run-all-images-header">
-          <h3>All Images Created In This Run</h3>
-          <p>{allRunAssets.length} image{allRunAssets.length === 1 ? '' : 's'} saved across all attempts</p>
+          <h3>Images (Filtered by Attempt)</h3>
+          <p>
+            Showing Attempt {selectedAttempt} images + Base draft. Total shown: {filteredRunAssets.length}
+          </p>
+          {winnerStage4Asset ? (
+            <p>
+              Winner attempt: <strong>{winnerStage4Asset.attempt}</strong> (white background image generated)
+            </p>
+          ) : null}
         </div>
-        {allRunAssets.length === 0 ? (
-          <p>No images available yet.</p>
+        {filteredRunAssets.length === 0 ? (
+          <p>No images available for this attempt yet.</p>
         ) : (
           <div className="asset-grid">
-            {allRunAssets.map((asset) => (
+            {filteredRunAssets.map((asset) => (
               <div key={asset.id} className="asset-card run-asset-card">
                 <h4>{stageImageLabel(asset.stage_name)}</h4>
                 {asset.origin_url ? (
@@ -243,6 +258,19 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
           </div>
         )}
       </div>
+
+      <WorkflowCanvas
+        nodes={canvasNodes}
+        edges={diagram.edges}
+        width={2200}
+        height={640}
+        selectedNodeId={selectedNodeId}
+        onSelectNode={setSelectedNodeId}
+      />
+
+      <p className="run-diagram-loop-note">If quality fails and attempts remain, the system loops to the next attempt automatically. Use zoom +/- if needed.</p>
+
+      <RunNodeDetailCard node={selectedNode} assistantName={assistantName} />
     </div>
   )
 }

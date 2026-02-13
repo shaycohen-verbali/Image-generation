@@ -104,13 +104,19 @@ class ExportService:
                 last_stage4_attempt = max(stage4_by_attempt.keys()) if stage4_by_attempt else None
                 last_stage3 = stage3_by_attempt.get(last_stage3_attempt) if last_stage3_attempt is not None else None
                 last_stage4 = stage4_by_attempt.get(last_stage4_attempt) if last_stage4_attempt is not None else None
+                winner_attempt = int(run.optimization_attempt or 0)
+                winner_stage3 = stage3_by_attempt.get(winner_attempt) if winner_attempt > 0 else None
+                winner_stage4 = stage4_by_attempt.get(winner_attempt) if winner_attempt > 0 else None
                 last_stage2_attempt = max(stage2_by_attempt.keys()) if stage2_by_attempt else None
                 last_stage2 = stage2_by_attempt.get(last_stage2_attempt) if last_stage2_attempt is not None else None
                 first_stage3 = stage3_by_attempt.get(1)
-                base_slug = self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category)
+                base_slug = self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category, entry.boy_or_girl)
 
                 prompt2 = upgraded_prompts[0]["prompt_text"] if upgraded_prompts else ""
-                upgraded_prompt = upgraded_prompts[-1]["prompt_text"] if upgraded_prompts else ""
+                upgraded_prompt = ""
+                if upgraded_prompts:
+                    winner_prompt = next((item for item in upgraded_prompts if int(item.get("attempt", 0)) == winner_attempt), None)
+                    upgraded_prompt = winner_prompt["prompt_text"] if winner_prompt else upgraded_prompts[-1]["prompt_text"]
                 need_person = ""
                 for prompt in prompts:
                     if prompt.stage_name == "stage1_prompt":
@@ -119,8 +125,10 @@ class ExportService:
 
                 file_name_1 = self._unique_export_name(base_slug, run.id, last_stage2) if last_stage2 else ""
                 file_name_2 = self._unique_export_name(base_slug, run.id, first_stage3) if first_stage3 else ""
-                file_name_upgraded = self._unique_export_name(base_slug, run.id, last_stage3) if last_stage3 else ""
-                file_name_without_background = self._unique_export_name(base_slug, run.id, last_stage4) if last_stage4 else ""
+                selected_stage3 = winner_stage3 or last_stage3
+                selected_stage4 = winner_stage4 or last_stage4
+                file_name_upgraded = self._unique_export_name(base_slug, run.id, selected_stage3) if selected_stage3 else ""
+                file_name_without_background = self._unique_export_name(base_slug, run.id, selected_stage4) if selected_stage4 else ""
 
                 writer.writerow(
                     {
@@ -128,7 +136,7 @@ class ExportService:
                         "part of sentence": entry.part_of_sentence,
                         "category": entry.category,
                         "synonyms": "",
-                        "Base_Asset_Slug – your filename key": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category),
+                        "Base_Asset_Slug – your filename key": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category, entry.boy_or_girl),
                         "context": entry.context,
                         "need a person": need_person,
                         "prompt 1": first_prompt,
@@ -139,9 +147,9 @@ class ExportService:
                         "image 2": first_stage3.abs_path if first_stage3 else "",
                         "upgraded prompt": upgraded_prompt,
                         "file name upgraded": file_name_upgraded,
-                        "upgraded image 2": last_stage3.abs_path if last_stage3 else "",
+                        "upgraded image 2": selected_stage3.abs_path if selected_stage3 else "",
                         "file name without background": file_name_without_background,
-                        "image without background": last_stage4.abs_path if last_stage4 else "",
+                        "image without background": selected_stage4.abs_path if selected_stage4 else "",
                         "boy or girl": entry.boy_or_girl,
                     }
                 )
@@ -150,29 +158,35 @@ class ExportService:
         with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             for run, _entry in runs_data:
                 _, _, _, assets, _ = self.repo.run_details(run.id)
-                selected = self._latest_asset_for_stage(assets, stage_name)
+                preferred_attempt = int(run.optimization_attempt or 0) if stage_name in {"stage3_upgraded", "stage4_white_bg"} else 0
+                selected = self._latest_asset_for_stage(assets, stage_name, preferred_attempt=preferred_attempt)
                 if selected is None:
                     continue
                 asset_path = Path(selected.abs_path)
                 if asset_path.exists():
-                    base_slug = self._base_asset_slug(_entry.word, _entry.part_of_sentence, _entry.category)
+                    base_slug = self._base_asset_slug(_entry.word, _entry.part_of_sentence, _entry.category, _entry.boy_or_girl)
                     archive.write(asset_path, arcname=self._unique_export_name(base_slug, run.id, selected))
 
     @staticmethod
-    def _base_asset_slug(word: str, part_of_sentence: str, category: str) -> str:
+    def _base_asset_slug(word: str, part_of_sentence: str, category: str, boy_or_girl: str = "") -> str:
         parts = [
             (word or "").strip().lower() or "unknown-word",
             (part_of_sentence or "").strip().lower() or "unknown-pos",
             (category or "").strip().lower() or "no-category",
+            (boy_or_girl or "").strip().lower() or "unspecified-person",
         ]
         merged = "_".join(parts)
         return sanitize_filename(merged.lower())
 
     @staticmethod
-    def _latest_asset_for_stage(assets: list[Asset], stage_name: str) -> Asset | None:
+    def _latest_asset_for_stage(assets: list[Asset], stage_name: str, preferred_attempt: int = 0) -> Asset | None:
         candidates = [asset for asset in assets if asset.stage_name == stage_name]
         if not candidates:
             return None
+        if preferred_attempt > 0:
+            exact = [asset for asset in candidates if int(asset.attempt) == preferred_attempt]
+            if exact:
+                return max(exact, key=lambda item: item.attempt)
         return max(candidates, key=lambda item: item.attempt)
 
     @staticmethod

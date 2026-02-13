@@ -75,9 +75,8 @@ const FLOW_EDGES = [
   { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
-  { from: 'quality_gate', to: 'stage4_background', label: 'pass', fromPort: 'top', toPort: 'left' },
+  { from: 'quality_gate', to: 'stage4_background', label: 'winner selected', fromPort: 'top', toPort: 'left' },
   { from: 'stage4_background', to: 'completed', label: 'final', fromPort: 'right', toPort: 'left' },
-  { from: 'quality_gate', to: 'completed', label: 'exhausted', type: 'branch', fromPort: 'bottom', toPort: 'left' },
 ]
 
 const STATUS_LABELS = {
@@ -134,16 +133,23 @@ function stageDef(stageId) {
 }
 
 function buildAttemptSummaries(detail, stageIndex, scoreIndex) {
+  const run = safeObject(detail.run)
+  const winnerAttempt = Number(run.optimization_attempt || 0)
+  const completed = String(run.status || '').startsWith('completed_')
   return getAvailableAttempts(detail).map((attempt) => {
     const stage3 = stageIndex.get(makeKey('stage3_upgrade', attempt))
     const quality = stageIndex.get(makeKey('quality_gate', attempt))
     const stage4 = stageIndex.get(makeKey('stage4_background', attempt))
     const score = scoreIndex.get(attempt)
+    let stage4Status = asStageStatus(stage4?.status)
+    if (completed && !stage4 && winnerAttempt > 0 && attempt !== winnerAttempt) {
+      stage4Status = 'skipped'
+    }
     return {
       attempt,
       stage3Status: asStageStatus(stage3?.status),
       qualityStatus: asStageStatus(quality?.status),
-      stage4Status: asStageStatus(stage4?.status),
+      stage4Status,
       score: score?.score_0_100 ?? null,
       passFail: typeof score?.pass_fail === 'boolean' ? score.pass_fail : null,
     }
@@ -168,6 +174,9 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
   }
 
   if (stageId === 'stage4_background') {
+    const winnerAttempt = Number(run.optimization_attempt || 0)
+    const isCompleted = String(run.status || '').startsWith('completed_')
+    if (isCompleted && winnerAttempt > 0 && attempt !== winnerAttempt && !stageResult) return 'skipped'
     if (isCurrentAttemptStage) return 'running'
     if (stageResult) return asStageStatus(stageResult.status)
     if (score && score.pass_fail === false) return 'skipped'
