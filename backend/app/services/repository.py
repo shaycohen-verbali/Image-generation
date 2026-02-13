@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Export, Prompt, Run, RuntimeConfig, Score, StageResult
+from app.services.model_catalog import normalize_stage3_generation_model, normalize_vision_model
 from app.services.utils import deterministic_entry_id, source_row_hash
 
 MIN_QUALITY_THRESHOLD = 95
@@ -42,6 +43,16 @@ class Repository:
         for key, value in updates.items():
             if value is not None and hasattr(config, key):
                 setattr(config, key, value)
+        if updates.get("openai_model_vision") is not None:
+            legacy_model = normalize_vision_model(config.openai_model_vision)
+            if updates.get("stage3_critique_model") is None:
+                config.stage3_critique_model = legacy_model
+            if updates.get("quality_gate_model") is None:
+                config.quality_gate_model = legacy_model
+        config.stage3_critique_model = normalize_vision_model(config.stage3_critique_model)
+        config.stage3_generate_model = normalize_stage3_generation_model(config.stage3_generate_model)
+        config.quality_gate_model = normalize_vision_model(config.quality_gate_model)
+        config.openai_model_vision = config.stage3_critique_model
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
         config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))
         self.db.add(config)

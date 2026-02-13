@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     openai_assistant_id: str = Field(default="", alias="OPENAI_ASSISTANT_ID")
     openai_assistant_name: str = Field(default="Prompt generator -JSON output", alias="OPENAI_ASSISTANT_NAME")
     openai_model_vision: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL_VISION")
+    stage3_critique_model: str = Field(default="gpt-4o-mini", alias="STAGE3_CRITIQUE_MODEL")
+    stage3_generate_model: str = Field(default="flux-1.1-pro", alias="STAGE3_GENERATE_MODEL")
+    quality_gate_model: str = Field(default="gpt-4o-mini", alias="QUALITY_GATE_MODEL")
+    google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
 
     replicate_api_token: str = Field(default="", alias="REPLICATE_API_TOKEN")
     replicate_cf_base_url: str = Field(default="", alias="REPLICATE_CF_BASE_URL")

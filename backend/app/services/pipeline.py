@@ -369,6 +369,8 @@ class PipelineRunner:
         if critique_source_asset is None:
             raise RuntimeError("No source asset available for stage 3")
         critique_path = Path(critique_source_asset.abs_path)
+        runtime_config = self.repo.get_runtime_config()
+        critique_model = runtime_config.stage3_critique_model
 
         start = perf_counter()
         analysis, analysis_raw = self.openai.analyze_image(
@@ -376,7 +378,7 @@ class PipelineRunner:
             entry.word,
             entry.part_of_sentence,
             entry.category,
-            model=self.repo.get_runtime_config().openai_model_vision,
+            model=critique_model,
         )
 
         previous_prompt = self._latest_prompt(run.id, "stage3_upgrade") or self._latest_prompt(run.id, "stage1_prompt")
@@ -409,16 +411,15 @@ class PipelineRunner:
             raw_response_json={"parsed": parsed, "raw": raw, "analysis": analysis, "analysis_raw": analysis_raw},
         )
 
-        flux_result = self.replicate.flux_pro(upgraded_prompt)
-        model_name = "black-forest-labs/flux-1.1-pro"
+        selected_stage3_model = runtime_config.stage3_generate_model
+        flux_result, model_name = self.replicate.generate_stage3(selected_stage3_model, upgraded_prompt)
         if flux_result.get("status") != "succeeded":
-            fallback_enabled = self.repo.get_runtime_config().flux_imagen_fallback_enabled
-            if not fallback_enabled:
-                raise RuntimeError(f"FLUX Pro failed and fallback disabled: {flux_result.get('status')}")
-            flux_result = self.replicate.imagen_fallback(upgraded_prompt)
-            model_name = "google/imagen-3-fast"
+            fallback_enabled = runtime_config.flux_imagen_fallback_enabled
+            if selected_stage3_model != "flux-1.1-pro" or not fallback_enabled:
+                raise RuntimeError(f"Stage3 generation failed with {selected_stage3_model}: {flux_result.get('status')}")
+            flux_result, model_name = self.replicate.generate_stage3("imagen-3", upgraded_prompt)
             if flux_result.get("status") != "succeeded":
-                raise RuntimeError(f"Fallback failed: {flux_result.get('status')}")
+                raise RuntimeError(f"Stage3 fallback failed: {flux_result.get('status')}")
 
         output_url = self.replicate.extract_output_url(flux_result)
         if not output_url:
@@ -441,12 +442,17 @@ class PipelineRunner:
             stage_name="stage3_upgrade",
             attempt=attempt,
             status="ok",
-            request_json={"upgrade_prompt_request": upgrade_request},
+            request_json={
+                "upgrade_prompt_request": upgrade_request,
+                "critique_model_selected": critique_model,
+                "generation_model_selected": selected_stage3_model,
+            },
             response_json={
                 "analysis": analysis,
                 "assistant": {"parsed": parsed, "raw": raw},
                 "generation": flux_result,
                 "generation_model": model_name,
+                "generation_model_selected": selected_stage3_model,
             },
         )
 
@@ -538,7 +544,7 @@ class PipelineRunner:
             part_of_sentence=entry.part_of_sentence,
             category=entry.category,
             threshold=run.quality_threshold,
-            model=config.openai_model_vision,
+            model=config.quality_gate_model,
         )
         score = float(rubric.get("score", 0))
         passed = score >= run.quality_threshold
@@ -557,7 +563,11 @@ class PipelineRunner:
             stage_name="quality_gate",
             attempt=attempt,
             status="ok",
-            request_json={"asset": final_asset.abs_path, "threshold": run.quality_threshold},
+            request_json={
+                "asset": final_asset.abs_path,
+                "threshold": run.quality_threshold,
+                "quality_model_selected": config.quality_gate_model,
+            },
             response_json={"rubric": rubric, "raw": raw},
         )
 

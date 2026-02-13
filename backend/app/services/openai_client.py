@@ -5,14 +5,17 @@ import mimetypes
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import requests
 
 from app.core.config import get_settings
+from app.services.model_catalog import is_gemini_model, normalize_vision_model
 from app.services.retry import with_backoff
 from app.services.utils import parse_json_relaxed
 
 OPENAI_BASE_URL = "https://api.openai.com/v1"
+GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 
 class OpenAIClient:
@@ -35,6 +38,28 @@ class OpenAIClient:
                 url,
                 headers=self._headers(assistants_v2=assistants_v2),
                 params=params,
+                json=json_body,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        return with_backoff(
+            _call,
+            retries=self.settings.max_api_retries,
+            retryable=(requests.RequestException,),
+        )
+
+    def _request_gemini(self, method: str, url: str, *, json_body: dict[str, Any] | None = None, timeout: int = 180) -> dict[str, Any]:
+        if not self.settings.google_api_key:
+            raise RuntimeError("GOOGLE_API_KEY is required when using Gemini models")
+
+        def _call() -> dict[str, Any]:
+            response = requests.request(
+                method,
+                url,
+                headers={"Content-Type": "application/json"},
+                params={"key": self.settings.google_api_key},
                 json=json_body,
                 timeout=timeout,
             )
@@ -128,23 +153,51 @@ class OpenAIClient:
         return self._assistant_json(user_text=user_text, assistant_id=assistant_id)
 
     @staticmethod
-    def _to_data_uri(path: Path) -> str:
+    def _read_image(path: Path) -> tuple[str, str]:
         mime, _ = mimetypes.guess_type(path.as_posix())
         if not mime:
             mime = "image/jpeg"
-        payload = base64.b64encode(path.read_bytes()).decode("utf-8")
-        return f"data:{mime};base64,{payload}"
+        b64 = base64.b64encode(path.read_bytes()).decode("utf-8")
+        return mime, b64
 
-    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        image_data_uri = self._to_data_uri(image_path)
-        prompt = (
-            "You are an expert AAC visual designer for children. "
-            "Analyze the image for concept clarity. Return STRICT JSON with keys "
-            '{"challenges":"...", "recommendations":"..."}. '
-            f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}."
-        )
+    def _vision_json(
+        self,
+        *,
+        image_path: Path,
+        prompt: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        normalized_model = normalize_vision_model(model)
+        mime, b64 = self._read_image(image_path)
+
+        if is_gemini_model(normalized_model):
+            model_path = quote(normalized_model, safe="")
+            url = f"{GOOGLE_BASE_URL}/models/{model_path}:generateContent"
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"text": prompt},
+                            {"inline_data": {"mime_type": mime, "data": b64}},
+                        ],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "responseMimeType": "application/json",
+                },
+            }
+            response = self._request_gemini("POST", url, json_body=payload)
+            candidates = response.get("candidates", [])
+            parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+            content = "\n".join(str(part.get("text", "")) for part in parts if part.get("text")).strip()
+            return parse_json_relaxed(content), {"provider": "google", "model": normalized_model, "raw_response": response, "raw_text": content}
+
+        image_data_uri = f"data:{mime};base64,{b64}"
         payload = {
-            "model": model,
+            "model": normalized_model,
             "messages": [
                 {
                     "role": "user",
@@ -154,11 +207,20 @@ class OpenAIClient:
                     ],
                 }
             ],
-            "temperature": 0.2,
+            "temperature": temperature,
         }
         response = self._request("POST", f"{OPENAI_BASE_URL}/chat/completions", json_body=payload)
         content = response["choices"][0]["message"]["content"]
-        return parse_json_relaxed(content), {"raw_response": response, "raw_text": content}
+        return parse_json_relaxed(content), {"provider": "openai", "model": normalized_model, "raw_response": response, "raw_text": content}
+
+    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        prompt = (
+            "You are an expert AAC visual designer for children. "
+            "Analyze the image for concept clarity. Return STRICT JSON with keys "
+            '{"challenges":"...", "recommendations":"..."}. '
+            f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}."
+        )
+        return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.2)
 
     def score_image(
         self,
@@ -170,29 +232,13 @@ class OpenAIClient:
         threshold: int,
         model: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        image_data_uri = self._to_data_uri(image_path)
         prompt = (
             "Score the AAC concept image quality for a child user. Return STRICT JSON with fields: "
             '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. '
             f"Word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
             f"Pass threshold is {threshold}."
         )
-        payload = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_data_uri}},
-                    ],
-                }
-            ],
-            "temperature": 0.1,
-        }
-        response = self._request("POST", f"{OPENAI_BASE_URL}/chat/completions", json_body=payload)
-        content = response["choices"][0]["message"]["content"]
-        parsed = parse_json_relaxed(content)
+        parsed, raw = self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.1)
         if "score" not in parsed:
             parsed["score"] = 0
-        return parsed, {"raw_response": response, "raw_text": content}
+        return parsed, raw

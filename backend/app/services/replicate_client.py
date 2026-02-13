@@ -9,6 +9,7 @@ from typing import Any
 import requests
 
 from app.core.config import get_settings
+from app.services.model_catalog import normalize_stage3_generation_model
 from app.services.retry import with_backoff
 
 
@@ -90,7 +91,74 @@ class ReplicateClient:
         )
 
     def imagen_fallback(self, prompt: str) -> dict[str, Any]:
-        return self._run_prediction(
+        return self.generate_stage3("imagen-3", prompt)[0]
+
+    def generate_stage3(self, model_choice: str, prompt: str) -> tuple[dict[str, Any], str]:
+        model_key = normalize_stage3_generation_model(model_choice)
+        model_path, payload = self._stage3_request(model_key, prompt)
+        return self._run_prediction(model_path, payload), model_path
+
+    def _stage3_request(self, model_key: str, prompt: str) -> tuple[str, dict[str, Any]]:
+        if model_key == "flux-1.1-pro":
+            return (
+                "black-forest-labs/flux-1.1-pro",
+                {
+                    "prompt": prompt,
+                    "aspect_ratio": "4:3",
+                    "output_format": "jpg",
+                    "output_quality": 80,
+                    "prompt_upsampling": False,
+                    "safety_tolerance": 2,
+                    "seed": 10000,
+                },
+            )
+        if model_key == "imagen-3":
+            return (
+                "google/imagen-3-fast",
+                {
+                    "prompt": prompt,
+                    "num_outputs": 1,
+                    "aspect_ratio": "4:3",
+                    "output_format": "jpg",
+                    "output_quality": 80,
+                    "prompt_upsampling": True,
+                    "safety_tolerance": 2,
+                },
+            )
+        if model_key == "imagen-4":
+            return (
+                "google/imagen-4",
+                {
+                    "prompt": prompt,
+                    "num_outputs": 1,
+                    "aspect_ratio": "4:3",
+                    "output_format": "jpg",
+                    "output_quality": 80,
+                    "prompt_upsampling": True,
+                    "safety_tolerance": 2,
+                },
+            )
+        if model_key == "nano-banana":
+            return (
+                "google/nano-banana",
+                {
+                    "prompt": prompt,
+                    "aspect_ratio": "4:3",
+                    "output_format": "jpg",
+                },
+            )
+        if model_key == "nano-banana-pro":
+            return (
+                "google/nano-banana-pro",
+                {
+                    "prompt": prompt,
+                    "aspect_ratio": "4:3",
+                    "output_format": "jpg",
+                },
+            )
+
+        # Defensive fallback
+        return (
             "google/imagen-3-fast",
             {
                 "prompt": prompt,

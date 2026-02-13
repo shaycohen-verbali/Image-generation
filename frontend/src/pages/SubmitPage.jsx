@@ -14,6 +14,9 @@ export default function SubmitPage() {
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
   const [workerCount, setWorkerCount] = useState(10)
+  const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
+  const [stage3GenerateModel, setStage3GenerateModel] = useState('flux-1.1-pro')
+  const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
 
   useEffect(() => {
     let mounted = true
@@ -22,6 +25,15 @@ export default function SubmitPage() {
         const config = await getConfig()
         if (mounted && config?.max_parallel_runs) {
           setWorkerCount(config.max_parallel_runs)
+        }
+        if (mounted && (config?.stage3_critique_model || config?.openai_model_vision)) {
+          setStage3CritiqueModel(config.stage3_critique_model || config.openai_model_vision)
+        }
+        if (mounted && config?.stage3_generate_model) {
+          setStage3GenerateModel(config.stage3_generate_model)
+        }
+        if (mounted && (config?.quality_gate_model || config?.openai_model_vision)) {
+          setQualityGateModel(config.quality_gate_model || config.openai_model_vision)
         }
       } catch (_error) {
         // Keep default UI value when config endpoint is unavailable.
@@ -104,6 +116,23 @@ export default function SubmitPage() {
     }
   }
 
+  const onSaveModelConfig = async () => {
+    setMessage('Saving model configuration...')
+    try {
+      const updated = await updateConfig({
+        stage3_critique_model: stage3CritiqueModel,
+        stage3_generate_model: stage3GenerateModel,
+        quality_gate_model: qualityGateModel,
+      })
+      setStage3CritiqueModel(updated.stage3_critique_model)
+      setStage3GenerateModel(updated.stage3_generate_model)
+      setQualityGateModel(updated.quality_gate_model)
+      setMessage('Saved model configuration')
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
   return (
     <section className="card-grid">
       <article className="card">
@@ -169,6 +198,40 @@ export default function SubmitPage() {
             />
           </label>
           <button type="button" onClick={onSaveWorkerConfig}>Save Workers</button>
+        </div>
+      </article>
+
+      <article className="card">
+        <h2>Model Selection</h2>
+        <p>Choose models for Stage 3 critique, Stage 3 upgraded image, and Quality Gate scoring.</p>
+        <div className="form-grid">
+          <label>
+            Stage 3.1 Vision Critique
+            <select value={stage3CritiqueModel} onChange={(e) => setStage3CritiqueModel(e.target.value)}>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gemini-3-flash">Gemini-3-flash</option>
+              <option value="gemini-3-pro">Gemini-3-pro</option>
+            </select>
+          </label>
+          <label>
+            Stage 3.3 Upgraded Image
+            <select value={stage3GenerateModel} onChange={(e) => setStage3GenerateModel(e.target.value)}>
+              <option value="flux-1.1-pro">Flux 1.1 Pro</option>
+              <option value="imagen-3">Imagen 3</option>
+              <option value="imagen-4">Imagen 4</option>
+              <option value="nano-banana">Nano Banana</option>
+              <option value="nano-banana-pro">Nano Banana Pro</option>
+            </select>
+          </label>
+          <label>
+            Quality Gate
+            <select value={qualityGateModel} onChange={(e) => setQualityGateModel(e.target.value)}>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gemini-3-flash">Gemini-3-flash</option>
+              <option value="gemini-3-pro">Gemini-3-pro</option>
+            </select>
+          </label>
+          <button type="button" onClick={onSaveModelConfig}>Save Models</button>
         </div>
       </article>
     </section>

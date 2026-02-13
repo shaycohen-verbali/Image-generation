@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -165,6 +165,9 @@ class RuntimeConfigOut(BaseModel):
     openai_assistant_id: str
     openai_assistant_name: str
     openai_model_vision: str
+    stage3_critique_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
+    stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-pro"]
+    quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
 
 
 class RuntimeConfigUpdate(BaseModel):
@@ -178,3 +181,6 @@ class RuntimeConfigUpdate(BaseModel):
     openai_assistant_id: str | None = None
     openai_assistant_name: str | None = None
     openai_model_vision: str | None = None
+    stage3_critique_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None
+    stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-pro"] | None = None
+    quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None

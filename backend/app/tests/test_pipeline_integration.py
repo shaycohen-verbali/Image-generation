@@ -63,15 +63,19 @@ class MockReplicate:
             return {"status": "failed", "id": "pred_s2_failed"}
         return {"status": "succeeded", "id": "pred_s2", "output": "http://mock/stage2.jpg"}
 
-    def flux_pro(self, prompt: str):
-        self.stage3_calls += 1
-        if self.stage3_calls in self.flux_fail_attempts:
-            return {"status": "failed", "id": f"pred_s3_failed_{self.stage3_calls}"}
-        return {"status": "succeeded", "id": f"pred_s3_{self.stage3_calls}", "output": "http://mock/stage3.jpg"}
+    def generate_stage3(self, model_choice: str, prompt: str):
+        if model_choice == "flux-1.1-pro":
+            self.stage3_calls += 1
+            if self.stage3_calls in self.flux_fail_attempts:
+                return {"status": "failed", "id": f"pred_s3_failed_{self.stage3_calls}"}, "black-forest-labs/flux-1.1-pro"
+            return {"status": "succeeded", "id": f"pred_s3_{self.stage3_calls}", "output": "http://mock/stage3.jpg"}, "black-forest-labs/flux-1.1-pro"
 
-    def imagen_fallback(self, prompt: str):
-        self.imagen_calls += 1
-        return {"status": "succeeded", "id": f"pred_imagen_{self.imagen_calls}", "output": "http://mock/stage3_fallback.jpg"}
+        if model_choice == "imagen-3":
+            self.imagen_calls += 1
+            return {"status": "succeeded", "id": f"pred_imagen_{self.imagen_calls}", "output": "http://mock/stage3_fallback.jpg"}, "google/imagen-3-fast"
+
+        self.stage3_calls += 1
+        return {"status": "succeeded", "id": f"pred_s3_{self.stage3_calls}", "output": "http://mock/stage3.jpg"}, model_choice
 
     def nano_banana_white_bg(self, image_path: Path, word: str):
         self.stage4_calls += 1

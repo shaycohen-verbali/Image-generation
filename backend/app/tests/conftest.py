@@ -39,6 +39,9 @@ def db_session(tmp_path: Path):
                 flux_imagen_fallback_enabled=True,
                 openai_assistant_id="asst_test",
                 openai_assistant_name="Prompt generator -JSON output",
+                stage3_critique_model="gpt-4o-mini",
+                stage3_generate_model="flux-1.1-pro",
+                quality_gate_model="gpt-4o-mini",
                 openai_model_vision="gpt-4o-mini",
             )
         )

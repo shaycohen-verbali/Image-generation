@@ -3,6 +3,7 @@ from sqlalchemy import select, text
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models import Base, RuntimeConfig
+from app.services.model_catalog import normalize_stage3_generation_model, normalize_vision_model
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
@@ -28,7 +29,10 @@ def init_db() -> None:
                     flux_imagen_fallback_enabled=settings.flux_imagen_fallback_enabled,
                     openai_assistant_id=settings.openai_assistant_id,
                     openai_assistant_name=settings.openai_assistant_name,
-                    openai_model_vision=settings.openai_model_vision,
+                    stage3_critique_model=normalize_vision_model(settings.stage3_critique_model or settings.openai_model_vision),
+                    stage3_generate_model=normalize_stage3_generation_model(settings.stage3_generate_model),
+                    quality_gate_model=normalize_vision_model(settings.quality_gate_model or settings.openai_model_vision),
+                    openai_model_vision=normalize_vision_model(settings.openai_model_vision),
                 )
             )
             db.commit()
@@ -37,6 +41,10 @@ def init_db() -> None:
                 existing.quality_threshold = MIN_QUALITY_THRESHOLD
             if int(existing.max_parallel_runs) < MIN_PARALLEL_RUNS:
                 existing.max_parallel_runs = DEFAULT_PARALLEL_RUNS
+            existing.stage3_critique_model = normalize_vision_model(existing.stage3_critique_model or existing.openai_model_vision)
+            existing.stage3_generate_model = normalize_stage3_generation_model(existing.stage3_generate_model)
+            existing.quality_gate_model = normalize_vision_model(existing.quality_gate_model or existing.openai_model_vision)
+            existing.openai_model_vision = normalize_vision_model(existing.openai_model_vision)
             db.add(existing)
             db.commit()
 
@@ -49,6 +57,12 @@ def _ensure_runtime_config_columns() -> None:
         existing = {row[1] for row in rows}
         if "max_parallel_runs" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 10"))
+        if "stage3_critique_model" not in existing:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+        if "stage3_generate_model" not in existing:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'flux-1.1-pro'"))
+        if "quality_gate_model" not in existing:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
 
 
 if __name__ == "__main__":

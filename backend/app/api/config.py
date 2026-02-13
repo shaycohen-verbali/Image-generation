@@ -22,6 +22,9 @@ def _to_schema(config) -> RuntimeConfigOut:
         openai_assistant_id=config.openai_assistant_id,
         openai_assistant_name=config.openai_assistant_name,
         openai_model_vision=config.openai_model_vision,
+        stage3_critique_model=config.stage3_critique_model,
+        stage3_generate_model=config.stage3_generate_model,
+        quality_gate_model=config.quality_gate_model,
     )
 
 
