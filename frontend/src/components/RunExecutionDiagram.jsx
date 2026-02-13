@@ -63,6 +63,12 @@ const assetStageOrder = {
   stage4_white_bg: 3,
 }
 
+const IMAGE_FILTER = {
+  DRAFT: 'draft',
+  ATTEMPT: 'attempt',
+  REMOVE_BACKGROUND: 'remove_background',
+}
+
 function stageImageLabel(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
@@ -85,6 +91,7 @@ function defaultAttempt(detail, attempts) {
 export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const attempts = useMemo(() => getAvailableAttempts(detail), [detail?.run?.id, detail?.run?.updated_at, detail])
   const [selectedAttempt, setSelectedAttempt] = useState(defaultAttempt(detail, attempts))
+  const [imageFilter, setImageFilter] = useState(IMAGE_FILTER.ATTEMPT)
   const diagram = useMemo(() => buildRunDiagram(detail, selectedAttempt), [detail, selectedAttempt])
   const [selectedNodeId, setSelectedNodeId] = useState('stage3_generate')
 
@@ -99,6 +106,10 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
     }
   }, [diagram.nodes, selectedNodeId])
 
+  useEffect(() => {
+    setImageFilter(IMAGE_FILTER.ATTEMPT)
+  }, [detail?.run?.id])
+
   if (!detail) {
     return <p>Select a run row to see live execution.</p>
   }
@@ -107,6 +118,21 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const currentAttempt = Number(detail.run.optimization_attempt || 0)
   const maxAttempts = Number(detail.run.max_optimization_attempts || 0) + 1
   const selectedSummary = diagram.attemptSummaries.find((summary) => summary.attempt === selectedAttempt)
+  const threshold = Number(detail.run.quality_threshold || 95)
+  const selectedAttemptScore = selectedSummary?.score ?? null
+  const imageCreationFailed = useMemo(() => {
+    if (detail.run.status === 'failed_technical') return true
+    return (detail.stages || []).some((stage) => {
+      if (!['stage2_draft', 'stage3_upgrade', 'stage4_background'].includes(stage.stage_name)) return false
+      const status = String(stage.status || '').toLowerCase()
+      return status.includes('error') || status.includes('fail')
+    })
+  }, [detail.run.status, detail.stages])
+  const scoreTooLow = useMemo(() => {
+    if (detail.run.status === 'completed_fail_threshold') return true
+    if (selectedAttemptScore == null) return false
+    return Number(selectedAttemptScore) < threshold
+  }, [detail.run.status, selectedAttemptScore, threshold])
   const allRunAssets = useMemo(
     () =>
       [...(detail.assets || [])].sort((left, right) => {
@@ -128,12 +154,19 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
     [allRunAssets],
   )
   const filteredRunAssets = useMemo(
-    () =>
-      allRunAssets.filter((asset) => {
+    () => {
+      if (imageFilter === IMAGE_FILTER.DRAFT) {
+        return allRunAssets.filter((asset) => asset.stage_name === 'stage2_draft')
+      }
+      if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
+        return allRunAssets.filter((asset) => asset.stage_name === 'stage4_white_bg')
+      }
+      return allRunAssets.filter((asset) => {
         if (asset.stage_name === 'stage2_draft') return true
         return Number(asset.attempt || 0) === selectedAttempt
-      }),
-    [allRunAssets, selectedAttempt],
+      })
+    },
+    [allRunAssets, selectedAttempt, imageFilter],
   )
   const canvasNodes = useMemo(
     () =>
@@ -195,16 +228,36 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
         </p>
       </div>
 
+      <div className="run-flag-row">
+        {imageCreationFailed ? <span className="run-flag run-flag-error">Flag: image creation failed in this run</span> : null}
+        {scoreTooLow ? <span className="run-flag run-flag-warn">Flag: score is below threshold ({threshold})</span> : null}
+      </div>
+
       <div className="attempt-chip-row">
+        <button
+          className={imageFilter === IMAGE_FILTER.DRAFT ? 'attempt-chip active' : 'attempt-chip'}
+          onClick={() => setImageFilter(IMAGE_FILTER.DRAFT)}
+        >
+          Draft
+        </button>
         {attempts.map((attempt) => (
           <button
             key={attempt}
-            className={attempt === selectedAttempt ? 'attempt-chip active' : 'attempt-chip'}
-            onClick={() => setSelectedAttempt(attempt)}
+            className={attempt === selectedAttempt && imageFilter === IMAGE_FILTER.ATTEMPT ? 'attempt-chip active' : 'attempt-chip'}
+            onClick={() => {
+              setSelectedAttempt(attempt)
+              setImageFilter(IMAGE_FILTER.ATTEMPT)
+            }}
           >
             Attempt {attempt}
           </button>
         ))}
+        <button
+          className={imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND ? 'attempt-chip active' : 'attempt-chip'}
+          onClick={() => setImageFilter(IMAGE_FILTER.REMOVE_BACKGROUND)}
+        >
+          Remove Background
+        </button>
       </div>
 
       <div className="attempt-summary-row">
@@ -222,9 +275,13 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <div className="run-all-images-section">
         <div className="run-all-images-header">
           <h3>Images (Filtered by Attempt)</h3>
-          <p>
-            Showing Attempt {selectedAttempt} images + Base draft. Total shown: {filteredRunAssets.length}
-          </p>
+          {imageFilter === IMAGE_FILTER.DRAFT ? <p>Showing only Stage 2 Draft images. Total shown: {filteredRunAssets.length}</p> : null}
+          {imageFilter === IMAGE_FILTER.ATTEMPT ? (
+            <p>Showing Attempt {selectedAttempt} images + Base draft. Total shown: {filteredRunAssets.length}</p>
+          ) : null}
+          {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND ? (
+            <p>Showing only Stage 4 remove-background images. Total shown: {filteredRunAssets.length}</p>
+          ) : null}
           {winnerStage4Asset ? (
             <p>
               Winner attempt: <strong>{winnerStage4Asset.attempt}</strong> (white background image generated)
@@ -232,7 +289,11 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
           ) : null}
         </div>
         {filteredRunAssets.length === 0 ? (
-          <p>No images available for this attempt yet.</p>
+          <p>
+            {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND
+              ? 'No remove-background image yet.'
+              : 'No images available for this filter yet.'}
+          </p>
         ) : (
           <div className="asset-grid">
             {filteredRunAssets.map((asset) => (

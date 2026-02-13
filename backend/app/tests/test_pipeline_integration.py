@@ -203,3 +203,17 @@ def test_winner_attempt_is_highest_score_and_used_for_stage4(db_session):
     assert result.optimization_attempt == 2
     assert result.quality_score == 92
     assert mock_replicate.stage4_calls == 1
+
+
+def test_threshold_pass_stops_additional_attempts(db_session):
+    run = _create_run(db_session, max_optimization_attempts=3)
+    mock_replicate = MockReplicate()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[96, 99, 99, 99]), replicate_client=mock_replicate)
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    assert result.optimization_attempt == 1
+    assert result.quality_score == 96
+    assert mock_replicate.stage3_calls == 1
+    assert mock_replicate.stage4_calls == 1

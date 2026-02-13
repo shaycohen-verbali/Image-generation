@@ -378,6 +378,34 @@ pre {
   background: #fff8eb;
 }
 
+.run-flag-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.run-flag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.run-flag-error {
+  border-color: #9f2d2d;
+  background: #ffe5e5;
+  color: #7d1f1f;
+}
+
+.run-flag-warn {
+  border-color: #9f6a0a;
+  background: #fff0d4;
+  color: #7a4f08;
+}
+
 .workflow-wrap {
   border: 1px solid var(--line);
   border-radius: 12px;

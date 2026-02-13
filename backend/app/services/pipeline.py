@@ -312,6 +312,10 @@ class PipelineRunner:
                 best_attempt = current_attempt
                 best_rubric = rubric
 
+            # Stop early once threshold is reached; no need to generate N+1 attempts.
+            if score >= run.quality_threshold:
+                break
+
             previous_score_explanation = str(rubric.get("explanation", ""))
             if current_attempt >= total_attempt_budget:
                 break
