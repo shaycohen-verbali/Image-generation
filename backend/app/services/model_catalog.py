@@ -15,6 +15,7 @@ SUPPORTED_STAGE3_GENERATION_MODELS = {
     "imagen-3",
     "imagen-4",
     "nano-banana",
+    "nano-banana-2",
     "nano-banana-pro",
 }
 

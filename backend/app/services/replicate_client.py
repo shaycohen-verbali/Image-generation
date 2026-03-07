@@ -147,6 +147,15 @@ class ReplicateClient:
                     "output_format": "jpg",
                 },
             )
+        if model_key == "nano-banana-2":
+            return (
+                "google/nano-banana-2",
+                {
+                    "prompt": prompt,
+                    "aspect_ratio": "4:3",
+                    "output_format": "jpg",
+                },
+            )
         if model_key == "nano-banana-pro":
             return (
                 "google/nano-banana-pro",

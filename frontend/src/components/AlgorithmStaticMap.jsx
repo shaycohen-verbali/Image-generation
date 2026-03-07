@@ -110,7 +110,7 @@ const STAGE_DETAILS = {
   stage3_generate: {
     apiCall: 'Replicate via Cloudflare AI Gateway',
     provider: 'Replicate model selected in runtime config',
-    model: 'flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-pro',
+    model: 'flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-2 | nano-banana-pro',
     inputs: ['upgraded prompt from stage 3.2'],
     outputs: ['stage3_upgraded image URL', 'stage3_upgraded asset'],
     instruction: [

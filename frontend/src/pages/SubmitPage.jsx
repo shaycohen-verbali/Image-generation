@@ -220,6 +220,7 @@ export default function SubmitPage() {
               <option value="imagen-3">Imagen 3</option>
               <option value="imagen-4">Imagen 4</option>
               <option value="nano-banana">Nano Banana</option>
+              <option value="nano-banana-2">Nano Banana 2</option>
               <option value="nano-banana-pro">Nano Banana Pro</option>
             </select>
           </label>
