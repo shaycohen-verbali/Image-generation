@@ -375,6 +375,35 @@ pre {
   margin-bottom: 0;
 }
 
+.run-debug-card {
+  border: 1px solid #b7cfe3;
+  background: #f3f8fd;
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.run-debug-card h4 {
+  margin: 0 0 4px;
+}
+
+.run-debug-card p {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.run-debug-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.run-debug-copy-message {
+  font-weight: 800;
+  color: #24556b;
+}
+
 .stage4-help-card {
   border-color: #dfd3b5;
   background: #fff8eb;

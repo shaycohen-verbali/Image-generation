@@ -11,6 +11,18 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
   const [showRaw, setShowRaw] = useState(false)
   const [showRawPrompt, setShowRawPrompt] = useState(false)
   const [showRawScore, setShowRawScore] = useState(false)
+  const [copyMessage, setCopyMessage] = useState('')
+
+  async function copyJson(label, value) {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(value, null, 2))
+      setCopyMessage(`${label} copied`)
+      window.setTimeout(() => setCopyMessage(''), 1800)
+    } catch (_error) {
+      setCopyMessage(`Could not copy ${label.toLowerCase()}`)
+      window.setTimeout(() => setCopyMessage(''), 1800)
+    }
+  }
 
   if (!node) {
     return (
@@ -25,6 +37,53 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
       <div className="run-node-detail-head">
         <h3>{node.label}</h3>
         <span className={`status-pill status-${node.status}`}>{node.statusLabel}</span>
+      </div>
+
+      <div className="run-debug-card">
+        <div>
+          <h4>Debug JSON</h4>
+          <p>Use these buttons to copy the exact payload stored for this selected block.</p>
+        </div>
+        <div className="run-debug-actions">
+          <button type="button" onClick={() => copyJson('Block JSON', {
+            stage_result: {
+              request_json: node.requestJson,
+              response_json: node.responseJson,
+              error_detail: node.stageErrorDetail || '',
+              status: node.stageStatus || node.status,
+              created_at: node.stageCreatedAt || '',
+            },
+            prompt: node.promptRaw || {},
+            score: node.scoreRubric || {},
+            asset: node.asset || null,
+          })}>
+            Copy selected block JSON
+          </button>
+          <button type="button" onClick={() => setShowRaw((value) => !value)}>
+            {showRaw ? 'Hide selected block JSON' : 'Show selected block JSON'}
+          </button>
+        </div>
+        {copyMessage ? <p className="run-debug-copy-message">{copyMessage}</p> : null}
+        {showRaw ? (
+          <pre>
+            {JSON.stringify(
+              {
+                stage_result: {
+                  request_json: node.requestJson,
+                  response_json: node.responseJson,
+                  error_detail: node.stageErrorDetail || '',
+                  status: node.stageStatus || node.status,
+                  created_at: node.stageCreatedAt || '',
+                },
+                prompt: node.promptRaw || {},
+                score: node.scoreRubric || {},
+                asset: node.asset || null,
+              },
+              null,
+              2,
+            )}
+          </pre>
+        ) : null}
       </div>
 
       <div className="run-node-grid">
@@ -75,19 +134,12 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           <h4>Request / Response</h4>
           <p><strong>Request keys:</strong> {node.requestKeys.length > 0 ? node.requestKeys.join(', ') : 'none'}</p>
           <p><strong>Response keys:</strong> {node.responseKeys.length > 0 ? node.responseKeys.join(', ') : 'none'}</p>
-          <button onClick={() => setShowRaw((value) => !value)}>{showRaw ? 'Hide stage raw JSON' : 'View stage raw JSON'}</button>
-          {showRaw ? (
-            <pre>
-              {JSON.stringify(
-                {
-                  request_json: node.requestJson,
-                  response_json: node.responseJson,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          ) : null}
+          <button type="button" onClick={() => copyJson('Stage request/response JSON', {
+            request_json: node.requestJson,
+            response_json: node.responseJson,
+          })}>
+            Copy stage request/response JSON
+          </button>
         </div>
 
         <div className="run-node-section">

@@ -88,12 +88,36 @@ function defaultAttempt(detail, attempts) {
   return attempts[attempts.length - 1] || 1
 }
 
+function currentNodeId(detail) {
+  const stage = String(detail?.run?.current_stage || '')
+  if (stage === 'stage1_prompt') return 'stage1_prompt'
+  if (stage === 'stage2_draft') return 'stage2_draft'
+  if (stage === 'stage3_upgrade') return 'stage3_generate'
+  if (stage === 'quality_gate') return 'quality_gate'
+  if (stage === 'stage4_background') return 'stage4_background'
+  if (stage === 'completed') return 'completed'
+  return ''
+}
+
 export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const attempts = useMemo(() => getAvailableAttempts(detail), [detail?.run?.id, detail?.run?.updated_at, detail])
   const [selectedAttempt, setSelectedAttempt] = useState(defaultAttempt(detail, attempts))
   const [imageFilter, setImageFilter] = useState(IMAGE_FILTER.ATTEMPT)
   const diagram = useMemo(() => buildRunDiagram(detail, selectedAttempt), [detail, selectedAttempt])
-  const [selectedNodeId, setSelectedNodeId] = useState('stage3_generate')
+  const [selectedNodeId, setSelectedNodeId] = useState(currentNodeId(detail) || 'stage3_generate')
+  const [showRunJson, setShowRunJson] = useState(false)
+  const [copyMessage, setCopyMessage] = useState('')
+
+  async function copyJson(label, value) {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(value, null, 2))
+      setCopyMessage(`${label} copied`)
+      window.setTimeout(() => setCopyMessage(''), 1800)
+    } catch (_error) {
+      setCopyMessage(`Could not copy ${label.toLowerCase()}`)
+      window.setTimeout(() => setCopyMessage(''), 1800)
+    }
+  }
 
   useEffect(() => {
     const next = defaultAttempt(detail, attempts)
@@ -105,6 +129,13 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       setSelectedNodeId(diagram.nodes[0]?.id || '')
     }
   }, [diagram.nodes, selectedNodeId])
+
+  useEffect(() => {
+    const nextNodeId = currentNodeId(detail)
+    if (nextNodeId) {
+      setSelectedNodeId(nextNodeId)
+    }
+  }, [detail?.run?.id, detail?.run?.updated_at, detail?.run?.current_stage, detail?.run?.status])
 
   useEffect(() => {
     setImageFilter(IMAGE_FILTER.ATTEMPT)
@@ -215,6 +246,23 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <div className="run-help-card">
         <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
         <p>Attempt flow: Stage 3 improve -> Quality checks for all attempts -> pick highest score winner -> Stage 4 white background.</p>
+      </div>
+
+      <div className="run-debug-card">
+        <div>
+          <h4>Raw JSON</h4>
+          <p>Use this when something fails. It includes the run, stages, prompts, assets, and scores exactly as stored.</p>
+        </div>
+        <div className="run-debug-actions">
+          <button type="button" onClick={() => copyJson('Full run JSON', detail)}>
+            Copy full run JSON
+          </button>
+          <button type="button" onClick={() => setShowRunJson((value) => !value)}>
+            {showRunJson ? 'Hide full run JSON' : 'Show full run JSON'}
+          </button>
+        </div>
+        {copyMessage ? <p className="run-debug-copy-message">{copyMessage}</p> : null}
+        {showRunJson ? <pre>{JSON.stringify(detail, null, 2)}</pre> : null}
       </div>
 
       <div className="run-help-card stage4-help-card">
