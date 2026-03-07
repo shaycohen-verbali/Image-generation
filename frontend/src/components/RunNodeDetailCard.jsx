@@ -32,6 +32,8 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
     )
   }
 
+  const usesResponsesApi = String(node.model || '').toLowerCase().includes('responses api')
+
   return (
     <div className="run-node-detail">
       <div className="run-node-detail-head">
@@ -94,7 +96,7 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           <p><strong>Provider:</strong> {node.provider}</p>
           <p><strong>Model:</strong> {node.model || 'N/A'}</p>
           {node.id === 'stage1_prompt' || node.id === 'stage3_prompt_upgrade' ? (
-            node.model === 'responses_api' ? (
+            usesResponsesApi ? (
               <p><strong>Prompt engineer:</strong> Responses API</p>
             ) : (
               <p><strong>Assistant:</strong> {assistantName || 'Prompt generator -JSON output'}</p>

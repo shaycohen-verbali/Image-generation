@@ -4,12 +4,16 @@ import { getConfig } from '../lib/api'
 
 export default function AlgorithmPage() {
   const [assistantName, setAssistantName] = useState('')
+  const [config, setConfig] = useState(null)
 
   useEffect(() => {
     let mounted = true
     const loadConfig = async () => {
       try {
         const config = await getConfig()
+        if (mounted) {
+          setConfig(config)
+        }
         if (mounted && config?.openai_assistant_name) {
           setAssistantName(config.openai_assistant_name)
         }
@@ -25,7 +29,7 @@ export default function AlgorithmPage() {
 
   return (
     <section className="runs-page-stack">
-      <AlgorithmStaticMap assistantName={assistantName} />
+      <AlgorithmStaticMap assistantName={assistantName} config={config} />
     </section>
   )
 }

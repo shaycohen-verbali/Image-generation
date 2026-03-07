@@ -97,6 +97,14 @@ function safeText(value) {
   return String(value)
 }
 
+function promptEngineerLabel(mode, responsesModel) {
+  const normalizedMode = safeText(mode).toLowerCase()
+  if (normalizedMode === 'responses_api') {
+    return responsesModel ? `Responses API (${responsesModel})` : 'Responses API'
+  }
+  return 'OpenAI Assistant'
+}
+
 function asStageStatus(value) {
   const status = String(value || '').toLowerCase()
   if (status === 'ok' || status === 'completed' || status === 'succeeded') return 'ok'
@@ -440,6 +448,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage1Request = safeObject(stage1Result?.request_json)
   const stage1PromptEngineerMode = safeText(stage1Request.prompt_engineer_mode) || safeText(safeObject(stage1Prompt?.raw_response_json).prompt_engineer_mode) || 'assistant'
   const stage3PromptEngineerMode = safeText(stage3Request.prompt_engineer_mode) || safeText(stage3Assistant.mode) || safeText(safeObject(stage3Prompt?.raw_response_json).prompt_engineer_mode) || 'assistant'
+  const stage1ResponsesModel = safeText(stage1Request.responses_model)
+  const stage3ResponsesModel = safeText(stage3Request.responses_model)
 
   const stage1Instruction = safeText(stage1Request.prompt)
   const stage1Context = parseStage1Context(stage1Instruction, run)
@@ -450,7 +460,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       stageResult: stage1Result,
       promptRecord: stage1Prompt || null,
       asset: null,
-      model: stage1PromptEngineerMode,
+      model: promptEngineerLabel(stage1PromptEngineerMode, stage1ResponsesModel),
       score: null,
       attempt: 0,
       requestPayload: stage1Request,
@@ -485,7 +495,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       requestPayload: { upgrade_prompt_request: stage3UpgradeRequest },
       responsePayload: stage3Assistant,
       asset: null,
-      model: stage3PromptEngineerMode,
+      model: promptEngineerLabel(stage3PromptEngineerMode, stage3ResponsesModel),
       score: null,
       attempt,
     },

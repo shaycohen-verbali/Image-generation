@@ -149,87 +149,77 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const currentAttempt = Number(detail.run.optimization_attempt || 0)
   const maxAttempts = Number(detail.run.max_optimization_attempts || 0) + 1
   const selectedSummary = diagram.attemptSummaries.find((summary) => summary.attempt === selectedAttempt)
+  const stage1Request = detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json || {}
+  const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'assistant')
+  const selectedResponsesModel = String(stage1Request.responses_model || '')
+  const selectedVectorStoreId = String(stage1Request.responses_vector_store_id || '')
   const threshold = Number(detail.run.quality_threshold || 95)
   const selectedAttemptScore = selectedSummary?.score ?? null
-  const imageCreationFailed = useMemo(() => {
+  const imageCreationFailed = (() => {
     if (detail.run.status === 'failed_technical') return true
     return (detail.stages || []).some((stage) => {
       if (!['stage2_draft', 'stage3_upgrade', 'stage4_background'].includes(stage.stage_name)) return false
       const status = String(stage.status || '').toLowerCase()
       return status.includes('error') || status.includes('fail')
     })
-  }, [detail.run.status, detail.stages])
-  const scoreTooLow = useMemo(() => {
+  })()
+  const scoreTooLow = (() => {
     if (detail.run.status === 'completed_fail_threshold') return true
     if (selectedAttemptScore == null) return false
     return Number(selectedAttemptScore) < threshold
-  }, [detail.run.status, selectedAttemptScore, threshold])
-  const allRunAssets = useMemo(
-    () =>
-      [...(detail.assets || [])].sort((left, right) => {
-        const leftAttempt = Number(left.attempt || 0)
-        const rightAttempt = Number(right.attempt || 0)
-        if (leftAttempt !== rightAttempt) return leftAttempt - rightAttempt
-        const leftOrder = assetStageOrder[left.stage_name] || 99
-        const rightOrder = assetStageOrder[right.stage_name] || 99
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder
-        return String(left.created_at || '').localeCompare(String(right.created_at || ''))
-      }),
-    [detail.assets],
-  )
-  const winnerStage4Asset = useMemo(
-    () =>
-      allRunAssets
-        .filter((asset) => asset.stage_name === 'stage4_white_bg')
-        .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null,
-    [allRunAssets],
-  )
-  const filteredRunAssets = useMemo(
-    () => {
-      if (imageFilter === IMAGE_FILTER.DRAFT) {
-        return allRunAssets.filter((asset) => asset.stage_name === 'stage2_draft')
-      }
-      if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
-        return allRunAssets.filter((asset) => asset.stage_name === 'stage4_white_bg')
-      }
-      return allRunAssets.filter((asset) => {
-        if (asset.stage_name === 'stage2_draft') return true
-        return Number(asset.attempt || 0) === selectedAttempt
-      })
-    },
-    [allRunAssets, selectedAttempt, imageFilter],
-  )
-  const canvasNodes = useMemo(
-    () =>
-      diagram.nodes.map((node) => {
-        const position = {
-          stage1_prompt: { x: 40, y: 235 },
-          stage2_draft: { x: 380, y: 235 },
-          stage3_critique: { x: 760, y: 45 },
-          stage3_prompt_upgrade: { x: 760, y: 235 },
-          stage3_generate: { x: 760, y: 425 },
-          quality_gate: { x: 1160, y: 235 },
-          stage4_background: { x: 1540, y: 120 },
-          completed: { x: 1910, y: 120 },
-        }[node.id] || { x: 40, y: 185 }
+  })()
+  const allRunAssets = [...(detail.assets || [])].sort((left, right) => {
+    const leftAttempt = Number(left.attempt || 0)
+    const rightAttempt = Number(right.attempt || 0)
+    if (leftAttempt !== rightAttempt) return leftAttempt - rightAttempt
+    const leftOrder = assetStageOrder[left.stage_name] || 99
+    const rightOrder = assetStageOrder[right.stage_name] || 99
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder
+    return String(left.created_at || '').localeCompare(String(right.created_at || ''))
+  })
+  const winnerStage4Asset =
+    allRunAssets
+      .filter((asset) => asset.stage_name === 'stage4_white_bg')
+      .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null
+  const filteredRunAssets = (() => {
+    if (imageFilter === IMAGE_FILTER.DRAFT) {
+      return allRunAssets.filter((asset) => asset.stage_name === 'stage2_draft')
+    }
+    if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
+      return allRunAssets.filter((asset) => asset.stage_name === 'stage4_white_bg')
+    }
+    return allRunAssets.filter((asset) => {
+      if (asset.stage_name === 'stage2_draft') return true
+      return Number(asset.attempt || 0) === selectedAttempt
+    })
+  })()
+  const canvasNodes = diagram.nodes.map((node) => {
+    const position = {
+      stage1_prompt: { x: 40, y: 235 },
+      stage2_draft: { x: 380, y: 235 },
+      stage3_critique: { x: 760, y: 45 },
+      stage3_prompt_upgrade: { x: 760, y: 235 },
+      stage3_generate: { x: 760, y: 425 },
+      quality_gate: { x: 1160, y: 235 },
+      stage4_background: { x: 1540, y: 120 },
+      completed: { x: 1910, y: 120 },
+    }[node.id] || { x: 40, y: 185 }
 
-        const badge =
-          node.id === 'stage3_critique' ||
-          node.id === 'stage3_prompt_upgrade' ||
-          node.id === 'stage3_generate' ||
-          node.id === 'quality_gate' ||
-          node.id === 'stage4_background'
-            ? `Attempt ${selectedAttempt}`
-            : ''
+    const badge =
+      node.id === 'stage3_critique' ||
+      node.id === 'stage3_prompt_upgrade' ||
+      node.id === 'stage3_generate' ||
+      node.id === 'quality_gate' ||
+      node.id === 'stage4_background'
+        ? `Attempt ${selectedAttempt}`
+        : ''
 
-        return {
-          ...node,
-          ...position,
-          badge,
-        }
-      }),
-    [diagram.nodes, selectedAttempt],
-  )
+    return {
+      ...node,
+      ...position,
+      badge,
+    }
+  })
 
   return (
     <div className="run-diagram-root">
@@ -246,6 +236,15 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       <div className="run-help-card">
         <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
         <p>Attempt flow: Stage 3 improve -> Quality checks for all attempts -> pick highest score winner -> Stage 4 white background.</p>
+      </div>
+
+      <div className="run-help-card">
+        <p><strong>Prompt engineer used for this run:</strong> {selectedPromptEngineerMode === 'responses_api' ? 'Responses API' : 'OpenAI Assistant'}</p>
+        {selectedPromptEngineerMode === 'responses_api' ? (
+          <p>Responses model: {selectedResponsesModel || '-'} | Vector store: {selectedVectorStoreId || '-'}</p>
+        ) : (
+          <p>Assistant name: {assistantName || 'Prompt generator -JSON output'}</p>
+        )}
       </div>
 
       <div className="run-debug-card">
@@ -340,7 +339,9 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
           <p>
             {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND
               ? 'No remove-background image yet.'
-              : 'No images available for this filter yet.'}
+              : selectedSummary?.stage3Status === 'error'
+                ? 'No Stage 3 image is available for this attempt because the process failed after the draft image.'
+                : 'No images available for this filter yet.'}
           </p>
         ) : (
           <div className="asset-grid">

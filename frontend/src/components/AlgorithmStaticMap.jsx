@@ -203,22 +203,29 @@ const STAGE_DETAILS = {
   },
 }
 
-export default function AlgorithmStaticMap({ assistantName = '' }) {
+function promptEngineerModeLabel(config) {
+  return config?.prompt_engineer_mode === 'responses_api' ? 'Responses API + Vector Store' : 'OpenAI Assistant'
+}
+
+export default function AlgorithmStaticMap({ assistantName = '', config = null }) {
   const [selectedNodeId, setSelectedNodeId] = useState('stage3_prompt_upgrade')
+  const promptEngineerLabel = promptEngineerModeLabel(config)
+  const stage1Instruction = config?.stage1_prompt_template || STAGE1_PROMPT_TEMPLATE
+  const stage3Instruction = config?.stage3_prompt_template || STAGE3_UPGRADE_PROMPT_TEMPLATE
 
   const nodes = useMemo(
     () => [
-      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: 'Prompt Engineer', status: 'queued', x: 40, y: 235 },
+      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: promptEngineerLabel, status: 'queued', x: 40, y: 235 },
       { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 380, y: 235 },
       { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini', status: 'queued', x: 760, y: 45 },
-      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: 'Prompt Engineer', status: 'queued', x: 760, y: 235 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: promptEngineerLabel, status: 'queued', x: 760, y: 235 },
       { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana', status: 'queued', x: 1540, y: 120 },
       { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 1910, y: 120 },
       { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
     ],
-    [],
+    [promptEngineerLabel],
   )
 
   const edges = useMemo(
@@ -236,14 +243,58 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
     [],
   )
 
-  const selected = STAGE_DETAILS[selectedNodeId] || STAGE_DETAILS.stage1_prompt
+  const selectedBase = STAGE_DETAILS[selectedNodeId] || STAGE_DETAILS.stage1_prompt
+  const selected = useMemo(() => {
+    if (selectedNodeId === 'stage1_prompt') {
+      return {
+        ...selectedBase,
+        model: promptEngineerLabel,
+        instruction: stage1Instruction,
+        requestExample:
+          config?.prompt_engineer_mode === 'responses_api'
+            ? {
+                model: config?.responses_prompt_engineer_model || 'gpt-4.1-mini',
+                input: stage1Instruction,
+                tools: [{ type: 'file_search', vector_store_ids: [config?.responses_vector_store_id || 'vs_...'] }],
+              }
+            : { assistant_input: stage1Instruction },
+      }
+    }
+    if (selectedNodeId === 'stage3_prompt_upgrade') {
+      return {
+        ...selectedBase,
+        model: promptEngineerLabel,
+        instruction: stage3Instruction,
+        requestExample:
+          config?.prompt_engineer_mode === 'responses_api'
+            ? {
+                model: config?.responses_prompt_engineer_model || 'gpt-4.1-mini',
+                input: stage3Instruction,
+                tools: [{ type: 'file_search', vector_store_ids: [config?.responses_vector_store_id || 'vs_...'] }],
+              }
+            : { assistant_input: stage3Instruction },
+      }
+    }
+    return selectedBase
+  }, [config, promptEngineerLabel, selectedBase, selectedNodeId, stage1Instruction, stage3Instruction])
 
   return (
     <article className="card algo-static-card">
       <h2>Algorithm Architecture (Static)</h2>
       <p className="algo-subtitle">Full block-level map with the exact instruction text used by each AI call.</p>
       <p className="algo-assistant-name">
+        <strong>Prompt engineer mode:</strong> {promptEngineerLabel}
+      </p>
+      <p className="algo-assistant-name">
         <strong>Assistant Name:</strong> {assistantName || 'Prompt generator -JSON output'} (used when prompt engineer mode is Assistant)
+      </p>
+      {config?.prompt_engineer_mode === 'responses_api' ? (
+        <p className="algo-assistant-name">
+          <strong>Responses config:</strong> {config?.responses_prompt_engineer_model || 'gpt-4.1-mini'} using vector store {config?.responses_vector_store_id || '-'}
+        </p>
+      ) : null}
+      <p className="algo-assistant-name">
+        <strong>Loop logic:</strong> Stage 1 prompt engineer -> Stage 2 draft -> Stage 3 critique -> Stage 3 prompt engineer -> Stage 3 image -> Quality Gate -> loop back to Stage 3 critique until pass or attempts exhausted -> Stage 4 white background.
       </p>
 
       <WorkflowCanvas

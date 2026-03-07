@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getConfig, getRun, listRuns, retryRun } from '../lib/api'
+import { getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
+
+const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
 
 const stagePriority = {
   stage2_draft: 1,
@@ -20,13 +22,21 @@ export default function RunsPage() {
   const [filters, setFilters] = useState({ status: '', word: '', part_of_sentence: '', category: '' })
   const [runs, setRuns] = useState([])
   const [message, setMessage] = useState('')
-  const [selectedRunId, setSelectedRunId] = useState('')
+  const [selectedRunId, setSelectedRunId] = useState(() => window.sessionStorage.getItem(SELECTED_RUN_STORAGE_KEY) || '')
   const [detail, setDetail] = useState(null)
   const [assistantName, setAssistantName] = useState('')
+  const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
+  const [responsesPromptEngineerModel, setResponsesPromptEngineerModel] = useState('gpt-4.1-mini')
+  const [responsesVectorStoreId, setResponsesVectorStoreId] = useState('vs_683f3d36223481919f59fc5623286253')
+  const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
+  const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
   const selectedRunIdRef = useRef('')
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
+    if (selectedRunId) {
+      window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, selectedRunId)
+    }
   }, [selectedRunId])
 
   const query = useMemo(() => {
@@ -66,10 +76,20 @@ export default function RunsPage() {
       if (!activeRunId && data.length > 0) {
         setSelectedRunId(data[0].id)
         selectedRunIdRef.current = data[0].id
+        window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, data[0].id)
         loadRunDetail(data[0].id)
       } else if (activeRunId) {
         const exists = data.some((run) => run.id === activeRunId)
-        if (exists) loadRunDetail(activeRunId)
+        if (exists) {
+          loadRunDetail(activeRunId)
+        } else if (data.length > 0) {
+          setSelectedRunId(data[0].id)
+          selectedRunIdRef.current = data[0].id
+          window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, data[0].id)
+          loadRunDetail(data[0].id)
+        } else {
+          setDetail(null)
+        }
       }
     } catch (error) {
       setMessage(`Error: ${error.message}`)
@@ -83,6 +103,21 @@ export default function RunsPage() {
         const config = await getConfig()
         if (mounted && config?.openai_assistant_name) {
           setAssistantName(config.openai_assistant_name)
+        }
+        if (mounted && config?.prompt_engineer_mode) {
+          setPromptEngineerMode(config.prompt_engineer_mode)
+        }
+        if (mounted && config?.responses_prompt_engineer_model) {
+          setResponsesPromptEngineerModel(config.responses_prompt_engineer_model)
+        }
+        if (mounted && config?.responses_vector_store_id) {
+          setResponsesVectorStoreId(config.responses_vector_store_id)
+        }
+        if (mounted && typeof config?.stage1_prompt_template === 'string') {
+          setStage1PromptTemplate(config.stage1_prompt_template)
+        }
+        if (mounted && typeof config?.stage3_prompt_template === 'string') {
+          setStage3PromptTemplate(config.stage3_prompt_template)
         }
       } catch (_error) {
         // Keep fallback value.
@@ -109,6 +144,29 @@ export default function RunsPage() {
       setMessage(`Error: ${error.message}`)
     }
   }
+
+  const onSavePromptEngineerConfig = async () => {
+    try {
+      const updated = await updateConfig({
+        prompt_engineer_mode: promptEngineerMode,
+        responses_prompt_engineer_model: responsesPromptEngineerModel,
+        responses_vector_store_id: responsesVectorStoreId,
+        stage1_prompt_template: stage1PromptTemplate,
+        stage3_prompt_template: stage3PromptTemplate,
+      })
+      setPromptEngineerMode(updated.prompt_engineer_mode)
+      setResponsesPromptEngineerModel(updated.responses_prompt_engineer_model)
+      setResponsesVectorStoreId(updated.responses_vector_store_id)
+      setStage1PromptTemplate(updated.stage1_prompt_template)
+      setStage3PromptTemplate(updated.stage3_prompt_template)
+      setMessage('Saved prompt engineer configuration')
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const selectedRunPromptEngineerMode =
+    detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json?.prompt_engineer_mode || 'assistant'
 
   const sortedAssets = detail?.assets
     ? [...detail.assets].sort((left, right) => {
@@ -206,7 +264,51 @@ export default function RunsPage() {
         {!detail ? (
           <p>Select a run row to see details.</p>
         ) : algoDiagramEnabled ? (
-          <RunExecutionDiagram detail={detail} assistantName={assistantName} />
+          <>
+            <div className="run-debug-card">
+              <div>
+                <h4>Prompt Engineer Details</h4>
+                <p>Current runtime mode: <strong>{promptEngineerMode}</strong></p>
+                <p>Selected run used: <strong>{selectedRunPromptEngineerMode}</strong></p>
+              </div>
+              <div className="form-grid">
+                <label>
+                  Prompt engineer mode
+                  <select value={promptEngineerMode} onChange={(e) => setPromptEngineerMode(e.target.value)}>
+                    <option value="assistant">Option 1: OpenAI Assistant</option>
+                    <option value="responses_api">Option 2: Responses API + Vector Store</option>
+                  </select>
+                </label>
+                <label>
+                  Responses API model
+                  <input
+                    value={responsesPromptEngineerModel}
+                    onChange={(e) => setResponsesPromptEngineerModel(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Responses vector store id
+                  <input
+                    value={responsesVectorStoreId}
+                    onChange={(e) => setResponsesVectorStoreId(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Stage 1 prompt engineer input
+                  <textarea rows="10" value={stage1PromptTemplate} onChange={(e) => setStage1PromptTemplate(e.target.value)} />
+                </label>
+                <label>
+                  Stage 3 prompt engineer input
+                  <textarea rows="10" value={stage3PromptTemplate} onChange={(e) => setStage3PromptTemplate(e.target.value)} />
+                </label>
+                <p className="config-help-text">
+                  Placeholders: {'{word}'}, {'{part_of_sentence}'}, {'{category}'}, {'{context}'}, {'{boy_or_girl}'}, {'{photorealistic_hint}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}.
+                </p>
+                <button type="button" onClick={onSavePromptEngineerConfig}>Save Prompt Engineer Details</button>
+              </div>
+            </div>
+            <RunExecutionDiagram detail={detail} assistantName={assistantName} />
+          </>
         ) : (
           <>
             <h3>Run</h3>

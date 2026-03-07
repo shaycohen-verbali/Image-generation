@@ -15,10 +15,6 @@ export default function SubmitPage() {
   const [uploadResult, setUploadResult] = useState(null)
   const [workerCount, setWorkerCount] = useState(10)
   const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
-  const [responsesPromptEngineerModel, setResponsesPromptEngineerModel] = useState('gpt-4.1-mini')
-  const [responsesVectorStoreId, setResponsesVectorStoreId] = useState('vs_683f3d36223481919f59fc5623286253')
-  const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
-  const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('flux-1.1-pro')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
@@ -33,18 +29,6 @@ export default function SubmitPage() {
         }
         if (mounted && config?.prompt_engineer_mode) {
           setPromptEngineerMode(config.prompt_engineer_mode)
-        }
-        if (mounted && config?.responses_prompt_engineer_model) {
-          setResponsesPromptEngineerModel(config.responses_prompt_engineer_model)
-        }
-        if (mounted && config?.responses_vector_store_id) {
-          setResponsesVectorStoreId(config.responses_vector_store_id)
-        }
-        if (mounted && typeof config?.stage1_prompt_template === 'string') {
-          setStage1PromptTemplate(config.stage1_prompt_template)
-        }
-        if (mounted && typeof config?.stage3_prompt_template === 'string') {
-          setStage3PromptTemplate(config.stage3_prompt_template)
         }
         if (mounted && (config?.stage3_critique_model || config?.openai_model_vision)) {
           setStage3CritiqueModel(config.stage3_critique_model || config.openai_model_vision)
@@ -84,6 +68,7 @@ export default function SubmitPage() {
     }
     setMessage('Queueing run...')
     try {
+      await updateConfig({ prompt_engineer_mode: promptEngineerMode })
       const runs = await createRuns({ entry_ids: [lastEntryId] })
       setMessage(`Queued run ${runs[0].id}`)
     } catch (error) {
@@ -113,6 +98,7 @@ export default function SubmitPage() {
     }
     setMessage('Queueing imported entries...')
     try {
+      await updateConfig({ prompt_engineer_mode: promptEngineerMode })
       const runs = await createRuns({ entry_ids: entryIds })
       setMessage(`Queued ${runs.length} runs`)
     } catch (error) {
@@ -148,27 +134,6 @@ export default function SubmitPage() {
       setStage3GenerateModel(updated.stage3_generate_model)
       setQualityGateModel(updated.quality_gate_model)
       setMessage('Saved model configuration')
-    } catch (error) {
-      setMessage(`Error: ${error.message}`)
-    }
-  }
-
-  const onSavePromptEngineerConfig = async () => {
-    setMessage('Saving prompt engineer configuration...')
-    try {
-      const updated = await updateConfig({
-        prompt_engineer_mode: promptEngineerMode,
-        responses_prompt_engineer_model: responsesPromptEngineerModel,
-        responses_vector_store_id: responsesVectorStoreId,
-        stage1_prompt_template: stage1PromptTemplate,
-        stage3_prompt_template: stage3PromptTemplate,
-      })
-      setPromptEngineerMode(updated.prompt_engineer_mode)
-      setResponsesPromptEngineerModel(updated.responses_prompt_engineer_model)
-      setResponsesVectorStoreId(updated.responses_vector_store_id)
-      setStage1PromptTemplate(updated.stage1_prompt_template)
-      setStage3PromptTemplate(updated.stage3_prompt_template)
-      setMessage('Saved prompt engineer configuration')
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -279,7 +244,7 @@ export default function SubmitPage() {
 
       <article className="card">
         <h2>Prompt Engineer</h2>
-        <p>Choose who writes the image prompts and edit the exact prompt text sent for Stage 1 and Stage 3.</p>
+        <p>Choose which prompt engineer to use when you start new runs. Detailed prompt-engineer settings live in Runs + Details.</p>
         <div className="form-grid">
           <label>
             Prompt engineer mode
@@ -288,42 +253,9 @@ export default function SubmitPage() {
               <option value="responses_api">Option 2: Responses API + Vector Store</option>
             </select>
           </label>
-          <label>
-            Responses API model
-            <input
-              value={responsesPromptEngineerModel}
-              onChange={(e) => setResponsesPromptEngineerModel(e.target.value)}
-              placeholder="gpt-4.1-mini"
-            />
-          </label>
-          <label>
-            Responses vector store id
-            <input
-              value={responsesVectorStoreId}
-              onChange={(e) => setResponsesVectorStoreId(e.target.value)}
-              placeholder="vs_683f3d36223481919f59fc5623286253"
-            />
-          </label>
-          <label>
-            Stage 1 prompt engineer input
-            <textarea
-              rows="12"
-              value={stage1PromptTemplate}
-              onChange={(e) => setStage1PromptTemplate(e.target.value)}
-            />
-          </label>
-          <label>
-            Stage 3 prompt engineer input
-            <textarea
-              rows="12"
-              value={stage3PromptTemplate}
-              onChange={(e) => setStage3PromptTemplate(e.target.value)}
-            />
-          </label>
           <p className="config-help-text">
-            Placeholders you can use: {'{word}'}, {'{part_of_sentence}'}, {'{category}'}, {'{context}'}, {'{boy_or_girl}'}, {'{photorealistic_hint}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}.
+            The selected mode is applied automatically when you click Start Run or Queue Runs.
           </p>
-          <button type="button" onClick={onSavePromptEngineerConfig}>Save Prompt Engineer</button>
         </div>
       </article>
     </section>
