@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
 
 from app.services.pipeline import PipelineRunner
+from app.services.openai_client import AssistantRunFailedError
 from app.services.repository import Repository
 
 
@@ -38,6 +40,23 @@ class MockOpenAI:
                 "failure_tags": [] if score >= threshold else ["ambiguity"],
             },
             {"raw_text": "ok"},
+        )
+
+
+class FailingAssistantOpenAI(MockOpenAI):
+    def generate_first_prompt(self, user_text: str, assistant_id: str):
+        raise AssistantRunFailedError(
+            "Assistant run status: failed; code=server_error; message=assistant crashed",
+            request_json={"assistant_input": user_text, "assistant_id": assistant_id},
+            response_json={
+                "thread_id": "thread_fail",
+                "run_id": "run_fail",
+                "run_payload": {
+                    "status": "failed",
+                    "last_error": {"code": "server_error", "message": "assistant crashed"},
+                },
+                "last_error": {"code": "server_error", "message": "assistant crashed"},
+            },
         )
 
 
@@ -221,3 +240,21 @@ def test_threshold_pass_stops_additional_attempts(db_session):
     assert result.quality_score == 96
     assert mock_replicate.stage3_calls == 1
     assert mock_replicate.stage4_calls == 1
+
+
+def test_stage1_assistant_failure_records_last_error_payload(db_session):
+    run = _create_run(db_session)
+    runner = PipelineRunner(db_session, openai_client=FailingAssistantOpenAI(scores=[95]), replicate_client=MockReplicate())
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "failed_technical"
+    assert "server_error" in result.error_detail
+
+    repo = Repository(db_session)
+    _, stages, _, _, _ = repo.run_details(run.id)
+    stage1_error = next(stage for stage in stages if stage.stage_name == "stage1_prompt")
+    response_json = json.loads(stage1_error.response_json)
+    assert stage1_error.status == "error"
+    assert response_json.get("last_error", {}).get("code") == "server_error"
+    assert response_json.get("run_payload", {}).get("status") == "failed"

@@ -10,7 +10,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Prompt, Run
-from app.services.openai_client import OpenAIClient
+from app.services.openai_client import AssistantRunFailedError, OpenAIClient
 from app.services.prompt_templates import build_stage1_prompt, build_stage3_prompt
 from app.services.replicate_client import ReplicateClient
 from app.services.repository import Repository
@@ -170,13 +170,15 @@ class PipelineRunner:
 
         except Exception as exc:  # noqa: BLE001
             self._set_failed_technical(run, run.current_stage, str(exc))
+            request_json = getattr(exc, "request_json", {})
+            response_json = getattr(exc, "response_json", {})
             self._record_stage(
                 run_id=run.id,
                 stage_name=run.current_stage,
                 attempt=max(1, run.optimization_attempt),
                 status="error",
-                request_json={},
-                response_json={},
+                request_json=request_json if isinstance(request_json, dict) else {},
+                response_json=response_json if isinstance(response_json, dict) else {},
                 error_detail=str(exc),
             )
             return self.repo.get_run(run.id) or run
@@ -189,7 +191,11 @@ class PipelineRunner:
         def _exec():
             start = perf_counter()
             prompt_payload = build_stage1_prompt(entry)
-            parsed, raw = self.openai.generate_first_prompt(prompt_payload, assistant_id)
+            try:
+                parsed, raw = self.openai.generate_first_prompt(prompt_payload, assistant_id)
+            except AssistantRunFailedError as exc:
+                exc.request_json = {"prompt": prompt_payload, **(exc.request_json or {})}
+                raise
             first_prompt = parsed.get("first prompt") or parsed.get("prompt") or parsed.get("first_prompt")
             if not first_prompt:
                 raise RuntimeError("Missing 'first prompt' in assistant response")
@@ -396,7 +402,20 @@ class PipelineRunner:
             recommendations=recommendations,
         )
 
-        parsed, raw = self.openai.generate_upgraded_prompt(upgrade_request, assistant_id)
+        try:
+            parsed, raw = self.openai.generate_upgraded_prompt(upgrade_request, assistant_id)
+        except AssistantRunFailedError as exc:
+            exc.request_json = {
+                "upgrade_prompt_request": upgrade_request,
+                "critique_model_selected": critique_model,
+                **(exc.request_json or {}),
+            }
+            exc.response_json = {
+                "analysis": analysis,
+                "analysis_raw": analysis_raw,
+                **(exc.response_json or {}),
+            }
+            raise
         upgraded_prompt = parsed.get("upgraded prompt") or parsed.get("prompt")
         if not upgraded_prompt:
             raise RuntimeError("Missing upgraded prompt")

@@ -18,6 +18,13 @@ OPENAI_BASE_URL = "https://api.openai.com/v1"
 GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 
+class AssistantRunFailedError(RuntimeError):
+    def __init__(self, message: str, *, request_json: dict[str, Any], response_json: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.request_json = request_json
+        self.response_json = response_json
+
+
 class OpenAIClient:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -141,10 +148,29 @@ class OpenAIClient:
         run_id = self._create_run(thread_id, assistant_id)
         run = self._poll_run(thread_id, run_id)
         if run.get("status") != "completed":
-            raise RuntimeError(f"Assistant run status: {run.get('status')}")
+            last_error = run.get("last_error") or {}
+            last_error_code = str(last_error.get("code") or "").strip()
+            last_error_message = str(last_error.get("message") or "").strip()
+            detail_parts = [f"Assistant run status: {run.get('status')}"]
+            if last_error_code:
+                detail_parts.append(f"code={last_error_code}")
+            if last_error_message:
+                detail_parts.append(f"message={last_error_message}")
+            raise AssistantRunFailedError(
+                "; ".join(detail_parts),
+                request_json={"assistant_input": user_text, "assistant_id": assistant_id},
+                response_json={
+                    "thread_id": thread_id,
+                    "run_id": run_id,
+                    "run_payload": run,
+                    "last_error": last_error,
+                    "incomplete_details": run.get("incomplete_details"),
+                    "required_action": run.get("required_action"),
+                },
+            )
         raw_text = self._latest_assistant_text(thread_id)
         parsed = parse_json_relaxed(raw_text)
-        return parsed, {"thread_id": thread_id, "run_id": run_id, "raw_text": raw_text}
+        return parsed, {"thread_id": thread_id, "run_id": run_id, "run_payload": run, "raw_text": raw_text}
 
     def generate_first_prompt(self, user_text: str, assistant_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
         return self._assistant_json(user_text=user_text, assistant_id=assistant_id)
