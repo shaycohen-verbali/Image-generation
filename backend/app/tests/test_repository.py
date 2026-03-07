@@ -57,8 +57,14 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
             "stage3_critique_model": "gpt-40-mini",
             "stage3_generate_model": "bad-model-name",
             "quality_gate_model": "gemini-3-pro",
+            "prompt_engineer_mode": "not-real",
+            "stage1_prompt_template": "",
+            "stage3_prompt_template": "",
         }
     )
     assert config.stage3_critique_model == "gpt-4o-mini"
     assert config.stage3_generate_model == "flux-1.1-pro"
     assert config.quality_gate_model == "gemini-3-pro"
+    assert config.prompt_engineer_mode == "assistant"
+    assert config.stage1_prompt_template
+    assert config.stage3_prompt_template

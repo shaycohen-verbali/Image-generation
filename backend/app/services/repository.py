@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Export, Prompt, Run, RuntimeConfig, Score, StageResult
 from app.services.model_catalog import normalize_stage3_generation_model, normalize_vision_model
+from app.services.prompt_templates import DEFAULT_STAGE1_PROMPT_TEMPLATE, DEFAULT_STAGE3_PROMPT_TEMPLATE
 from app.services.utils import deterministic_entry_id, source_row_hash
 
 MIN_QUALITY_THRESHOLD = 95
@@ -43,12 +44,18 @@ class Repository:
         for key, value in updates.items():
             if value is not None and hasattr(config, key):
                 setattr(config, key, value)
+        if config.prompt_engineer_mode not in {"assistant", "responses_api"}:
+            config.prompt_engineer_mode = "assistant"
         if updates.get("openai_model_vision") is not None:
             legacy_model = normalize_vision_model(config.openai_model_vision)
             if updates.get("stage3_critique_model") is None:
                 config.stage3_critique_model = legacy_model
             if updates.get("quality_gate_model") is None:
                 config.quality_gate_model = legacy_model
+        config.responses_prompt_engineer_model = str(config.responses_prompt_engineer_model or "gpt-4.1-mini").strip() or "gpt-4.1-mini"
+        config.responses_vector_store_id = str(config.responses_vector_store_id or "").strip()
+        config.stage1_prompt_template = str(config.stage1_prompt_template or DEFAULT_STAGE1_PROMPT_TEMPLATE)
+        config.stage3_prompt_template = str(config.stage3_prompt_template or DEFAULT_STAGE3_PROMPT_TEMPLATE)
         config.stage3_critique_model = normalize_vision_model(config.stage3_critique_model)
         config.stage3_generate_model = normalize_stage3_generation_model(config.stage3_generate_model)
         config.quality_gate_model = normalize_vision_model(config.quality_gate_model)

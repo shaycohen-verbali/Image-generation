@@ -172,10 +172,71 @@ class OpenAIClient:
         parsed = parse_json_relaxed(raw_text)
         return parsed, {"thread_id": thread_id, "run_id": run_id, "run_payload": run, "raw_text": raw_text}
 
-    def generate_first_prompt(self, user_text: str, assistant_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    @staticmethod
+    def _responses_output_text(payload: dict[str, Any]) -> str:
+        output_text = str(payload.get("output_text") or "").strip()
+        if output_text:
+            return output_text
+
+        texts: list[str] = []
+        for item in payload.get("output", []):
+            for content in item.get("content", []):
+                if content.get("type") in {"output_text", "text"}:
+                    text_value = content.get("text")
+                    if isinstance(text_value, str) and text_value.strip():
+                        texts.append(text_value.strip())
+                    elif isinstance(text_value, dict) and str(text_value.get("value") or "").strip():
+                        texts.append(str(text_value.get("value")).strip())
+        return "\n".join(texts).strip()
+
+    def _responses_json(self, user_text: str, *, model: str, vector_store_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        if not str(vector_store_id or "").strip():
+            raise RuntimeError("Responses prompt engineer requires a vector store id")
+        payload = {
+            "model": model,
+            "input": user_text,
+            "tools": [
+                {
+                    "type": "file_search",
+                    "vector_store_ids": [vector_store_id],
+                }
+            ],
+        }
+        response = self._request("POST", f"{OPENAI_BASE_URL}/responses", json_body=payload)
+        raw_text = self._responses_output_text(response)
+        parsed = parse_json_relaxed(raw_text)
+        return parsed, {
+            "request_payload": payload,
+            "raw_response": response,
+            "raw_text": raw_text,
+            "model": model,
+            "vector_store_id": vector_store_id,
+        }
+
+    def generate_first_prompt(
+        self,
+        user_text: str,
+        assistant_id: str,
+        *,
+        mode: str = "assistant",
+        responses_model: str = "gpt-4.1-mini",
+        vector_store_id: str = "",
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if mode == "responses_api":
+            return self._responses_json(user_text, model=responses_model, vector_store_id=vector_store_id)
         return self._assistant_json(user_text=user_text, assistant_id=assistant_id)
 
-    def generate_upgraded_prompt(self, user_text: str, assistant_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def generate_upgraded_prompt(
+        self,
+        user_text: str,
+        assistant_id: str,
+        *,
+        mode: str = "assistant",
+        responses_model: str = "gpt-4.1-mini",
+        vector_store_id: str = "",
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if mode == "responses_api":
+            return self._responses_json(user_text, model=responses_model, vector_store_id=vector_store_id)
         return self._assistant_json(user_text=user_text, assistant_id=assistant_id)
 
     @staticmethod

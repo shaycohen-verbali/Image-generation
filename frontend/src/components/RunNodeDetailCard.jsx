@@ -94,7 +94,11 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           <p><strong>Provider:</strong> {node.provider}</p>
           <p><strong>Model:</strong> {node.model || 'N/A'}</p>
           {node.id === 'stage1_prompt' || node.id === 'stage3_prompt_upgrade' ? (
-            <p><strong>Assistant:</strong> {assistantName || 'Prompt generator -JSON output'}</p>
+            node.model === 'responses_api' ? (
+              <p><strong>Prompt engineer:</strong> Responses API</p>
+            ) : (
+              <p><strong>Assistant:</strong> {assistantName || 'Prompt generator -JSON output'}</p>
+            )
           ) : null}
           <p><strong>Stage status:</strong> {node.stageStatus || node.status}</p>
           <p><strong>Recorded at:</strong> {node.stageCreatedAt || 'N/A'}</p>
@@ -125,7 +129,9 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
             <p><strong>Prompt text:</strong> N/A</p>
           )}
           <button onClick={() => setShowRawPrompt((value) => !value)}>
-            {showRawPrompt ? 'Hide prompt raw JSON' : 'View prompt raw JSON'}
+            {showRawPrompt
+              ? 'Hide prompt engineer response JSON'
+              : 'View prompt engineer response JSON'}
           </button>
           {showRawPrompt ? <pre>{JSON.stringify(node.promptRaw || {}, null, 2)}</pre> : null}
         </div>

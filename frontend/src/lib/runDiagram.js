@@ -5,7 +5,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage1_prompt',
     label: 'Stage 1 Prompt',
-    provider: 'OpenAI Assistant',
+    provider: 'Prompt Engineer',
     inputs: ['word', 'part_of_sentence', 'category', 'context', 'boy_or_girl'],
     expected: ['first prompt', 'need a person'],
     retryPolicy: 'API retry + stage retry',
@@ -29,7 +29,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage3_prompt_upgrade',
     label: 'Stage 3.2 Prompt Upgrade',
-    provider: 'OpenAI Assistant',
+    provider: 'Prompt Engineer',
     inputs: ['old prompt', 'critique', 'previous score feedback'],
     expected: ['upgraded prompt'],
     retryPolicy: 'API retry + stage retry',
@@ -432,12 +432,16 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage3Response = safeObject(stage3Result?.response_json)
   const stage3Request = safeObject(stage3Result?.request_json)
   const stage3Analysis = safeObject(stage3Response.analysis)
-  const stage3Assistant = safeObject(stage3Response.assistant)
+  const stage3PromptEngineer = safeObject(stage3Response.prompt_engineer)
+  const stage3Assistant = Object.keys(stage3PromptEngineer).length > 0 ? stage3PromptEngineer : safeObject(stage3Response.assistant)
   const stage3Generation = safeObject(stage3Response.generation)
   const stage3UpgradeRequest = safeText(stage3Request.upgrade_prompt_request)
   const stage3GenerationModel = safeText(stage3Response.generation_model)
+  const stage1Request = safeObject(stage1Result?.request_json)
+  const stage1PromptEngineerMode = safeText(stage1Request.prompt_engineer_mode) || safeText(safeObject(stage1Prompt?.raw_response_json).prompt_engineer_mode) || 'assistant'
+  const stage3PromptEngineerMode = safeText(stage3Request.prompt_engineer_mode) || safeText(stage3Assistant.mode) || safeText(safeObject(stage3Prompt?.raw_response_json).prompt_engineer_mode) || 'assistant'
 
-  const stage1Instruction = safeText(safeObject(stage1Result?.request_json).prompt)
+  const stage1Instruction = safeText(stage1Request.prompt)
   const stage1Context = parseStage1Context(stage1Instruction, run)
 
   const nodeData = [
@@ -446,10 +450,10 @@ export function buildRunDiagram(detail, selectedAttempt) {
       stageResult: stage1Result,
       promptRecord: stage1Prompt || null,
       asset: null,
-      model: '',
+      model: stage1PromptEngineerMode,
       score: null,
       attempt: 0,
-      requestPayload: safeObject(stage1Result?.request_json),
+      requestPayload: stage1Request,
       responsePayload: safeObject(stage1Result?.response_json),
     },
     {
@@ -481,7 +485,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       requestPayload: { upgrade_prompt_request: stage3UpgradeRequest },
       responsePayload: stage3Assistant,
       asset: null,
-      model: 'OpenAI Assistant',
+      model: stage3PromptEngineerMode,
       score: null,
       attempt,
     },

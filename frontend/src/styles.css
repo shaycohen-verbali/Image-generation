@@ -107,6 +107,12 @@ body {
   gap: 8px;
 }
 
+.config-help-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #425560;
+}
+
 .inline-fields {
   display: flex;
   gap: 8px;
@@ -122,16 +128,23 @@ label {
 
 input,
 select,
+textarea,
 button {
   font: inherit;
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px;
   background: #fff;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 120px;
 }
 
 button {

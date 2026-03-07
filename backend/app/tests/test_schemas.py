@@ -41,6 +41,12 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
         assert True
 
     try:
+        RuntimeConfigUpdate(prompt_engineer_mode="bad-mode")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
         RuntimeConfigUpdate(max_parallel_runs=51)
         assert False, "expected ValidationError"
     except ValidationError:

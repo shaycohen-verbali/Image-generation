@@ -20,13 +20,13 @@ class MockOpenAI:
     def resolve_assistant_id(self, configured_id: str, configured_name: str) -> str:
         return configured_id or "asst_test"
 
-    def generate_first_prompt(self, user_text: str, assistant_id: str):
+    def generate_first_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         return {"first prompt": "simple concept image", "need a person": "no"}, {"raw_text": "ok"}
 
     def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str):
         return {"challenges": "too generic", "recommendations": "increase clarity"}, {"raw_text": "ok"}
 
-    def generate_upgraded_prompt(self, user_text: str, assistant_id: str):
+    def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         self._upgrade_idx += 1
         return {"upgraded prompt": f"upgraded prompt {self._upgrade_idx}"}, {"raw_text": "ok"}
 
@@ -44,7 +44,7 @@ class MockOpenAI:
 
 
 class FailingAssistantOpenAI(MockOpenAI):
-    def generate_first_prompt(self, user_text: str, assistant_id: str):
+    def generate_first_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         raise AssistantRunFailedError(
             "Assistant run status: failed; code=server_error; message=assistant crashed",
             request_json={"assistant_input": user_text, "assistant_id": assistant_id},
@@ -58,6 +58,21 @@ class FailingAssistantOpenAI(MockOpenAI):
                 "last_error": {"code": "server_error", "message": "assistant crashed"},
             },
         )
+
+
+class RecordingPromptEngineerOpenAI(MockOpenAI):
+    def __init__(self, scores: list[int]):
+        super().__init__(scores)
+        self.stage1_kwargs = {}
+        self.stage3_kwargs = {}
+
+    def generate_first_prompt(self, user_text: str, assistant_id: str, **kwargs):
+        self.stage1_kwargs = kwargs
+        return {"first prompt": "responses api first prompt", "need a person": "no"}, {"raw_text": '{"first prompt":"responses api first prompt","need a person":"no"}'}
+
+    def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **kwargs):
+        self.stage3_kwargs = kwargs
+        return {"upgraded prompt": "responses api upgraded prompt"}, {"raw_text": '{"upgraded prompt":"responses api upgraded prompt"}'}
 
 
 class MockReplicate:
@@ -258,3 +273,37 @@ def test_stage1_assistant_failure_records_last_error_payload(db_session):
     assert stage1_error.status == "error"
     assert response_json.get("last_error", {}).get("code") == "server_error"
     assert response_json.get("run_payload", {}).get("status") == "failed"
+
+
+def test_responses_api_prompt_engineer_mode_is_recorded(db_session):
+    repo = Repository(db_session)
+    config = repo.update_runtime_config(
+        {
+            "prompt_engineer_mode": "responses_api",
+            "responses_prompt_engineer_model": "gpt-4.1-mini",
+            "responses_vector_store_id": "vs_test_123",
+            "stage1_prompt_template": "Word: {word}",
+            "stage3_prompt_template": "Old prompt: {old_prompt}\nWord: {word}\nChallenges: {challenges}\nRecommendations: {recommendations}",
+        }
+    )
+    assert config.prompt_engineer_mode == "responses_api"
+
+    run = _create_run(db_session)
+    mock_openai = RecordingPromptEngineerOpenAI(scores=[95])
+    runner = PipelineRunner(db_session, openai_client=mock_openai, replicate_client=MockReplicate())
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    assert mock_openai.stage1_kwargs["mode"] == "responses_api"
+    assert mock_openai.stage1_kwargs["vector_store_id"] == "vs_test_123"
+    assert mock_openai.stage3_kwargs["mode"] == "responses_api"
+
+    _, stages, prompts, _, _ = repo.run_details(run.id)
+    stage1 = next(stage for stage in stages if stage.stage_name == "stage1_prompt")
+    stage1_request = json.loads(stage1.request_json)
+    assert stage1_request["prompt_engineer_mode"] == "responses_api"
+    assert stage1_request["responses_vector_store_id"] == "vs_test_123"
+
+    stage1_prompt = next(prompt for prompt in prompts if prompt.stage_name == "stage1_prompt")
+    assert stage1_prompt.source == "responses_api"

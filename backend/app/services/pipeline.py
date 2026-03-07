@@ -153,7 +153,9 @@ class PipelineRunner:
         config = self.repo.get_runtime_config()
         self.openai.settings.max_api_retries = config.max_api_retries
         self.replicate.settings.max_api_retries = config.max_api_retries
-        assistant_id = self.openai.resolve_assistant_id(config.openai_assistant_id, config.openai_assistant_name)
+        assistant_id = ""
+        if config.prompt_engineer_mode == "assistant":
+            assistant_id = self.openai.resolve_assistant_id(config.openai_assistant_id, config.openai_assistant_name)
 
         start_stage = run.retry_from_stage or "stage1_prompt"
         run = self.repo.update_run(run, status="running", current_stage=start_stage, retry_from_stage="")
@@ -190,9 +192,16 @@ class PipelineRunner:
 
         def _exec():
             start = perf_counter()
-            prompt_payload = build_stage1_prompt(entry)
+            runtime_config = self.repo.get_runtime_config()
+            prompt_payload = build_stage1_prompt(entry, runtime_config.stage1_prompt_template)
             try:
-                parsed, raw = self.openai.generate_first_prompt(prompt_payload, assistant_id)
+                parsed, raw = self.openai.generate_first_prompt(
+                    prompt_payload,
+                    assistant_id,
+                    mode=runtime_config.prompt_engineer_mode,
+                    responses_model=runtime_config.responses_prompt_engineer_model,
+                    vector_store_id=runtime_config.responses_vector_store_id,
+                )
             except AssistantRunFailedError as exc:
                 exc.request_json = {"prompt": prompt_payload, **(exc.request_json or {})}
                 raise
@@ -208,16 +217,21 @@ class PipelineRunner:
                 attempt=0,
                 prompt_text=first_prompt,
                 needs_person=need_person,
-                source="assistant",
-                raw_response_json={"parsed": parsed, "raw": raw},
+                source=runtime_config.prompt_engineer_mode,
+                raw_response_json={"prompt_engineer_mode": runtime_config.prompt_engineer_mode, "parsed": parsed, "raw": raw},
             )
             self._record_stage(
                 run_id=run.id,
                 stage_name="stage1_prompt",
                 attempt=0,
                 status="ok",
-                request_json={"prompt": prompt_payload},
-                response_json={"parsed": parsed, "raw": raw},
+                request_json={
+                    "prompt": prompt_payload,
+                    "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
+                    "responses_model": runtime_config.responses_prompt_engineer_model if runtime_config.prompt_engineer_mode == "responses_api" else "",
+                    "responses_vector_store_id": runtime_config.responses_vector_store_id if runtime_config.prompt_engineer_mode == "responses_api" else "",
+                },
+                response_json={"prompt_engineer_mode": runtime_config.prompt_engineer_mode, "parsed": parsed, "raw": raw},
             )
             logger.info(
                 "stage completed",
@@ -395,15 +409,23 @@ class PipelineRunner:
         if previous_score_explanation:
             recommendations = f"{recommendations}\nPrevious score feedback: {previous_score_explanation}"
 
+        runtime_config = self.repo.get_runtime_config()
         upgrade_request = build_stage3_prompt(
             entry,
             old_prompt=previous_prompt.prompt_text,
             challenges=str(analysis.get("challenges", "")),
             recommendations=recommendations,
+            template_text=runtime_config.stage3_prompt_template,
         )
 
         try:
-            parsed, raw = self.openai.generate_upgraded_prompt(upgrade_request, assistant_id)
+            parsed, raw = self.openai.generate_upgraded_prompt(
+                upgrade_request,
+                assistant_id,
+                mode=runtime_config.prompt_engineer_mode,
+                responses_model=runtime_config.responses_prompt_engineer_model,
+                vector_store_id=runtime_config.responses_vector_store_id,
+            )
         except AssistantRunFailedError as exc:
             exc.request_json = {
                 "upgrade_prompt_request": upgrade_request,
@@ -426,8 +448,14 @@ class PipelineRunner:
             attempt=attempt,
             prompt_text=upgraded_prompt,
             needs_person="",
-            source="assistant",
-            raw_response_json={"parsed": parsed, "raw": raw, "analysis": analysis, "analysis_raw": analysis_raw},
+            source=runtime_config.prompt_engineer_mode,
+            raw_response_json={
+                "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
+                "parsed": parsed,
+                "raw": raw,
+                "analysis": analysis,
+                "analysis_raw": analysis_raw,
+            },
         )
 
         selected_stage3_model = runtime_config.stage3_generate_model
@@ -463,12 +491,15 @@ class PipelineRunner:
             status="ok",
             request_json={
                 "upgrade_prompt_request": upgrade_request,
+                "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
+                "responses_model": runtime_config.responses_prompt_engineer_model if runtime_config.prompt_engineer_mode == "responses_api" else "",
+                "responses_vector_store_id": runtime_config.responses_vector_store_id if runtime_config.prompt_engineer_mode == "responses_api" else "",
                 "critique_model_selected": critique_model,
                 "generation_model_selected": selected_stage3_model,
             },
             response_json={
                 "analysis": analysis,
-                "assistant": {"parsed": parsed, "raw": raw},
+                "prompt_engineer": {"parsed": parsed, "raw": raw, "mode": runtime_config.prompt_engineer_mode},
                 "generation": flux_result,
                 "generation_model": model_name,
                 "generation_model_selected": selected_stage3_model,
@@ -482,7 +513,7 @@ class PipelineRunner:
                 "attempt": attempt,
                 "stage3": {
                     "analysis": analysis,
-                    "assistant": {"parsed": parsed, "raw": raw},
+                    "prompt_engineer": {"parsed": parsed, "raw": raw, "mode": runtime_config.prompt_engineer_mode},
                     "generation": flux_result,
                     "generation_model": model_name,
                 },

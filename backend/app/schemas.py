@@ -164,6 +164,11 @@ class RuntimeConfigOut(BaseModel):
     flux_imagen_fallback_enabled: bool
     openai_assistant_id: str
     openai_assistant_name: str
+    prompt_engineer_mode: Literal["assistant", "responses_api"]
+    responses_prompt_engineer_model: str
+    responses_vector_store_id: str
+    stage1_prompt_template: str
+    stage3_prompt_template: str
     openai_model_vision: str
     stage3_critique_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
@@ -180,6 +185,11 @@ class RuntimeConfigUpdate(BaseModel):
     flux_imagen_fallback_enabled: bool | None = None
     openai_assistant_id: str | None = None
     openai_assistant_name: str | None = None
+    prompt_engineer_mode: Literal["assistant", "responses_api"] | None = None
+    responses_prompt_engineer_model: str | None = None
+    responses_vector_store_id: str | None = None
+    stage1_prompt_template: str | None = None
+    stage3_prompt_template: str | None = None
     openai_model_vision: str | None = None
     stage3_critique_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None

@@ -49,9 +49,9 @@ const WHITE_BG_PROMPT_TEMPLATE = [
 
 const STAGE_DETAILS = {
   stage1_prompt: {
-    apiCall: 'OpenAI Assistants v2',
-    provider: 'OpenAI Assistant',
-    model: 'assistant configured in runtime',
+    apiCall: 'OpenAI Assistants v2 or Responses API',
+    provider: 'Prompt Engineer',
+    model: 'assistant configured in runtime or responses model + vector store',
     inputs: ['word', 'part_of_sentence', 'category (optional)', 'context', 'boy_or_girl'],
     outputs: ['first prompt', 'need a person'],
     instruction: STAGE1_PROMPT_TEMPLATE,
@@ -97,9 +97,9 @@ const STAGE_DETAILS = {
     },
   },
   stage3_prompt_upgrade: {
-    apiCall: 'OpenAI Assistants v2',
-    provider: 'OpenAI Assistant',
-    model: 'assistant configured in runtime',
+    apiCall: 'OpenAI Assistants v2 or Responses API',
+    provider: 'Prompt Engineer',
+    model: 'assistant configured in runtime or responses model + vector store',
     inputs: ['old prompt', 'critique', 'previous score feedback'],
     outputs: ['upgraded prompt'],
     instruction: STAGE3_UPGRADE_PROMPT_TEMPLATE,
@@ -208,10 +208,10 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
 
   const nodes = useMemo(
     () => [
-      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: 'OpenAI Assistant', status: 'queued', x: 40, y: 235 },
+      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: 'Prompt Engineer', status: 'queued', x: 40, y: 235 },
       { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 380, y: 235 },
       { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini', status: 'queued', x: 760, y: 45 },
-      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: 'OpenAI Assistant', status: 'queued', x: 760, y: 235 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: 'Prompt Engineer', status: 'queued', x: 760, y: 235 },
       { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana', status: 'queued', x: 1540, y: 120 },
@@ -243,7 +243,7 @@ export default function AlgorithmStaticMap({ assistantName = '' }) {
       <h2>Algorithm Architecture (Static)</h2>
       <p className="algo-subtitle">Full block-level map with the exact instruction text used by each AI call.</p>
       <p className="algo-assistant-name">
-        <strong>Assistant Name:</strong> {assistantName || 'Prompt generator -JSON output'}
+        <strong>Assistant Name:</strong> {assistantName || 'Prompt generator -JSON output'} (used when prompt engineer mode is Assistant)
       </p>
 
       <WorkflowCanvas
