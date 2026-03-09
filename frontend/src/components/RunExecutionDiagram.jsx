@@ -123,6 +123,24 @@ function compactDate(value) {
   return date.toLocaleString()
 }
 
+function safeArray(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : []
+}
+
+function safeObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function firstNonEmptyObject(...values) {
+  for (const value of values) {
+    const candidate = safeObject(value)
+    if (Object.keys(candidate).length > 0) {
+      return candidate
+    }
+  }
+  return {}
+}
+
 function runNarrative(detail, selectedSummary, threshold) {
   const run = detail.run || {}
   const score = selectedSummary?.score
@@ -379,17 +397,24 @@ export default function RunExecutionDiagram({
     return <p>Select a run row to see live execution.</p>
   }
 
+  if (!detail.run) {
+    return <p>Run detail payload is incomplete.</p>
+  }
+
+  const stages = safeArray(detail.stages)
+  const assets = safeArray(detail.assets)
+
   const selectedNode = diagram.nodes.find((node) => node.id === selectedNodeId) || diagram.nodes[0] || null
   const currentAttempt = Number(detail.run.optimization_attempt || 0)
   const maxAttempts = Number(detail.run.max_optimization_attempts || 0) + 1
   const selectedSummary = diagram.attemptSummaries.find((summary) => summary.attempt === selectedAttempt)
-  const stage1Request = detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json || {}
-  const stage1Response = detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.response_json || {}
+  const stage1Request = safeObject(stages.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json)
+  const stage1Response = safeObject(stages.find((stage) => stage.stage_name === 'stage1_prompt')?.response_json)
   const latestStage3 =
-    [...(detail?.stages || [])]
+    [...stages]
       .filter((stage) => stage.stage_name === 'stage3_upgrade')
       .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null
-  const latestDecision = latestStage3?.response_json?.decision || stage1Response?.decision || {}
+  const latestDecision = firstNonEmptyObject(safeObject(latestStage3?.response_json).decision, stage1Response.decision)
   const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'assistant')
   const selectedResponsesModel = String(stage1Request.responses_model || '')
   const selectedVectorStoreId = String(stage1Request.responses_vector_store_id || '')
@@ -397,14 +422,15 @@ export default function RunExecutionDiagram({
   const selectedVisualStyleName = String(stage1Request.visual_style_name || '')
   const selectedVisualStyleId = String(stage1Request.visual_style_id || '')
   const resolvedRenderStyleMode = String(latestDecision.render_style_mode || '')
-  const resolvedNeedPerson = String(latestDecision.resolved_need_person || stage1Response?.parsed?.['need a person'] || '')
+  const stage1Parsed = safeObject(stage1Response.parsed)
+  const resolvedNeedPerson = String(latestDecision.resolved_need_person || stage1Parsed['need a person'] || '')
   const resolvedRenderStyleName = String(latestDecision.render_style_name || '')
   const resolvedPersonReason = String(latestDecision.resolved_need_person_reasoning || '')
   const threshold = Number(detail.run.quality_threshold || 95)
   const selectedAttemptScore = selectedSummary?.score ?? null
   const imageCreationFailed = (() => {
     if (detail.run.status === 'failed_technical') return true
-    return (detail.stages || []).some((stage) => {
+    return stages.some((stage) => {
       if (!['stage2_draft', 'stage3_upgrade', 'stage4_background'].includes(stage.stage_name)) return false
       const status = String(stage.status || '').toLowerCase()
       return status.includes('error') || status.includes('fail')
@@ -415,7 +441,7 @@ export default function RunExecutionDiagram({
     if (selectedAttemptScore == null) return false
     return Number(selectedAttemptScore) < threshold
   })()
-  const allRunAssets = [...(detail.assets || [])].sort((left, right) => {
+  const allRunAssets = [...assets].sort((left, right) => {
     const leftAttempt = Number(left.attempt || 0)
     const rightAttempt = Number(right.attempt || 0)
     if (leftAttempt !== rightAttempt) return leftAttempt - rightAttempt
