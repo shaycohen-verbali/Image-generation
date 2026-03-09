@@ -175,7 +175,7 @@ class RuntimeConfigOut(BaseModel):
     stage1_prompt_template: str
     stage3_prompt_template: str
     openai_model_vision: str
-    stage3_critique_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
     quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
 
@@ -199,6 +199,6 @@ class RuntimeConfigUpdate(BaseModel):
     stage1_prompt_template: str | None = None
     stage3_prompt_template: str | None = None
     openai_model_vision: str | None = None
-    stage3_critique_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
     quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None

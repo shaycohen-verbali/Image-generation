@@ -106,7 +106,7 @@ const STAGE_DETAILS = {
   stage3_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gemini-3-flash | gemini-3-pro',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash | gemini-3-pro',
     inputs: ['stage2/stage3 source image', 'word', 'part_of_sentence', 'category'],
     outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning'],
     instruction: STAGE3_CRITIQUE_PROMPT_TEMPLATE,

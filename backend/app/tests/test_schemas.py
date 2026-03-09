@@ -51,3 +51,8 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
         assert False, "expected ValidationError"
     except ValidationError:
         assert True
+
+
+def test_runtime_config_update_accepts_gpt54_for_stage3_critique() -> None:
+    config = RuntimeConfigUpdate(stage3_critique_model="gpt-5.4")
+    assert config.stage3_critique_model == "gpt-5.4"

@@ -15,6 +15,7 @@ SUPPORTED_PROMPT_ENGINEER_MODELS = {
 
 SUPPORTED_VISION_MODELS = {
     "gpt-4o-mini",
+    "gpt-5.4",
     "gemini-3-flash",
     "gemini-3-pro",
 }

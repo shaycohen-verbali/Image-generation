@@ -263,6 +263,7 @@ export default function SubmitPage() {
               }}
             >
               <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gpt-5.4">gpt-5.4</option>
               <option value="gemini-3-flash">Gemini-3-flash</option>
               <option value="gemini-3-pro">Gemini-3-pro</option>
             </select>
