@@ -1,5 +1,7 @@
+const ILLUSTRATION_STYLE_HINT =
+  'Illustration style to use when a person is needed: follow the configured house illustration style block.'
 const PHOTOREALISTIC_HINT =
-  'If category is one of: Drinks, animals, food, food: fruits, food: vegetables, food: Sweets & desserts, shapes, school supplies, transportation - use a photorealistic style.'
+  'Photorealistic style to use when a person is not needed: use a clean premium photorealistic AAC style and do not include a person.'
 
 const STAGE_DEFINITIONS = [
   {
@@ -7,7 +9,7 @@ const STAGE_DEFINITIONS = [
     label: 'Stage 1 Prompt',
     provider: 'Prompt Engineer',
     inputs: ['word', 'part_of_sentence', 'category', 'context', 'boy_or_girl'],
-    expected: ['first prompt', 'need a person'],
+    expected: ['first prompt', 'need a person', 'initial render style hypothesis'],
     retryPolicy: 'API retry + stage retry',
   },
   {
@@ -23,7 +25,7 @@ const STAGE_DEFINITIONS = [
     label: 'Stage 3.1 Critique',
     provider: 'OpenAI Vision',
     inputs: ['previous image', 'word/POS/category'],
-    expected: ['challenges', 'recommendations'],
+    expected: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem'],
     retryPolicy: 'API retry + stage retry',
   },
   {
@@ -31,7 +33,7 @@ const STAGE_DEFINITIONS = [
     label: 'Stage 3.2 Prompt Upgrade',
     provider: 'Prompt Engineer',
     inputs: ['old prompt', 'critique', 'previous score feedback'],
-    expected: ['upgraded prompt'],
+    expected: ['upgraded prompt', 'resolved person/style decision'],
     retryPolicy: 'API retry + stage retry',
   },
   {
@@ -69,10 +71,10 @@ const STAGE_DEFINITIONS = [
 ]
 
 const FLOW_EDGES = [
-  { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt', fromPort: 'right', toPort: 'left' },
+  { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt + initial style guess', fromPort: 'right', toPort: 'left' },
   { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
-  { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique', fromPort: 'bottom', toPort: 'top' },
-  { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique + person validation', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt + resolved style', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
   { from: 'quality_gate', to: 'stage4_background', label: 'winner selected', fromPort: 'top', toPort: 'left' },
@@ -251,6 +253,11 @@ function stage1Template(ctx) {
     `Category: ${ctx.category}`,
     `If a person is present, use a: ${ctx.boyOrGirl}`,
     '',
+    'Decision rule:',
+    '- If a person is needed for AAC clarity, the prompt should use an illustration and make the person central.',
+    '- If a person is not needed for AAC clarity, the prompt should be photorealistic and should not include a person.',
+    '',
+    ILLUSTRATION_STYLE_HINT,
     PHOTOREALISTIC_HINT,
   ].join('\n')
 }
@@ -259,17 +266,17 @@ function critiqueTemplate(ctx) {
   return (
     'You are an expert AAC visual designer for children. ' +
     'Analyze the image for concept clarity. Return STRICT JSON with keys ' +
-    '{"challenges":"...", "recommendations":"..."}. ' +
+    '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none"}. ' +
     `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
   )
 }
 
-function qualityTemplate(ctx, threshold) {
+function qualityTemplate(ctx, threshold, expectedRenderStyleMode) {
   return (
     'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: ' +
     '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. ' +
     `Word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}. ` +
-    `Pass threshold is ${threshold}.`
+    `Pass threshold is ${threshold}. Expected render style is ${expectedRenderStyleMode || 'not specified'}.`
   )
 }
 
@@ -356,8 +363,9 @@ function aiInstructionForStage({
   }
 
   if (stageId === 'quality_gate') {
+    const expectedRenderStyle = safeText(safeObject(stage3Result?.response_json).decision?.render_style_mode)
     return {
-      text: qualityTemplate(stage1Context, Number(run.quality_threshold || 95)),
+      text: qualityTemplate(stage1Context, Number(run.quality_threshold || 95), expectedRenderStyle),
       source: 'backend prompt template (OpenAIClient.score_image)',
     }
   }

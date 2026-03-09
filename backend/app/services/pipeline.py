@@ -9,9 +9,15 @@ from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.models import Asset, Entry, Prompt, Run
+from app.models import Asset, Entry, Prompt, Run, StageResult
 from app.services.openai_client import AssistantRunFailedError, OpenAIClient
-from app.services.prompt_templates import build_stage1_prompt, build_stage3_prompt
+from app.services.prompt_templates import (
+    apply_render_decision_to_prompt,
+    build_stage1_prompt,
+    build_stage3_prompt,
+    normalize_need_person,
+    resolve_person_decision,
+)
 from app.services.replicate_client import ReplicateClient
 from app.services.repository import Repository
 from app.services.storage import image_dimensions, sha256_bytes, write_image, write_metadata
@@ -70,6 +76,15 @@ class PipelineRunner:
             .where(Asset.run_id == run_id)
             .where(Asset.stage_name == stage_name)
             .order_by(desc(Asset.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def _latest_stage_result(self, run_id: str, stage_name: str) -> StageResult | None:
+        return self.db.execute(
+            select(StageResult)
+            .where(StageResult.run_id == run_id)
+            .where(StageResult.stage_name == stage_name)
+            .order_by(desc(StageResult.created_at))
             .limit(1)
         ).scalar_one_or_none()
 
@@ -215,16 +230,31 @@ class PipelineRunner:
             if not first_prompt:
                 raise RuntimeError("Missing 'first prompt' in assistant response")
             need_person = str(parsed.get("need a person", parsed.get("need_person", "no"))).strip().lower()
-            if need_person not in {"yes", "no"}:
-                need_person = "no"
+            need_person = normalize_need_person(need_person)
+            enforced_first_prompt, decision = apply_render_decision_to_prompt(
+                first_prompt,
+                resolved_need_person=need_person,
+                resolved_need_person_reasoning="kept_stage1_person_decision",
+                boy_or_girl=entry.boy_or_girl,
+                illustration_style_id=runtime_config.visual_style_id,
+                illustration_style_name=runtime_config.visual_style_name,
+                illustration_style_block=runtime_config.visual_style_prompt_block,
+            )
             self.repo.add_prompt(
                 run_id=run.id,
                 stage_name="stage1_prompt",
                 attempt=0,
-                prompt_text=first_prompt,
+                prompt_text=enforced_first_prompt,
                 needs_person=need_person,
                 source=runtime_config.prompt_engineer_mode,
-                raw_response_json={"prompt_engineer_mode": runtime_config.prompt_engineer_mode, "parsed": parsed, "raw": raw},
+                raw_response_json={
+                    "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
+                    "parsed": parsed,
+                    "raw": raw,
+                    "decision": decision,
+                    "original_prompt_text": first_prompt,
+                    "enforced_prompt_text": enforced_first_prompt,
+                },
             )
             self._record_stage(
                 run_id=run.id,
@@ -240,7 +270,14 @@ class PipelineRunner:
                     "visual_style_name": runtime_config.visual_style_name,
                     "visual_style_prompt_block": runtime_config.visual_style_prompt_block,
                 },
-                response_json={"prompt_engineer_mode": runtime_config.prompt_engineer_mode, "parsed": parsed, "raw": raw},
+                response_json={
+                    "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
+                    "parsed": parsed,
+                    "raw": raw,
+                    "decision": decision,
+                    "original_prompt_text": first_prompt,
+                    "enforced_prompt_text": enforced_first_prompt,
+                },
             )
             logger.info(
                 "stage completed",
@@ -400,6 +437,12 @@ class PipelineRunner:
         critique_path = Path(critique_source_asset.abs_path)
         runtime_config = self.repo.get_runtime_config()
         critique_model = runtime_config.stage3_critique_model
+        stage1_prompt = self._latest_prompt(run.id, "stage1_prompt")
+        latest_stage3 = self._latest_stage_result(run.id, "stage3_upgrade")
+        latest_stage3_response = json.loads(latest_stage3.response_json) if latest_stage3 and latest_stage3.response_json else {}
+        latest_decision = latest_stage3_response.get("decision", {}) if isinstance(latest_stage3_response, dict) else {}
+        current_need_person = latest_decision.get("resolved_need_person") or (stage1_prompt.needs_person if stage1_prompt else "no")
+        current_render_style_mode = latest_decision.get("render_style_mode") or ("illustration" if normalize_need_person(current_need_person) == "yes" else "photorealistic")
 
         start = perf_counter()
         analysis, analysis_raw = self.openai.analyze_image(
@@ -408,11 +451,23 @@ class PipelineRunner:
             entry.part_of_sentence,
             entry.category,
             model=critique_model,
+            initial_need_person=current_need_person,
+            current_render_style_mode=current_render_style_mode,
         )
 
         previous_prompt = self._latest_prompt(run.id, "stage3_upgrade") or self._latest_prompt(run.id, "stage1_prompt")
         if previous_prompt is None:
             raise RuntimeError("No prior prompt to upgrade")
+        initial_need_person = latest_decision.get("resolved_need_person") or (stage1_prompt.needs_person if stage1_prompt else "no")
+        resolved_decision = resolve_person_decision(
+            initial_need_person=initial_need_person,
+            person_needed_for_clarity=str(analysis.get("person_needed_for_clarity", "")),
+            person_presence_problem=str(analysis.get("person_presence_problem", "none")),
+            boy_or_girl=entry.boy_or_girl,
+            illustration_style_id=runtime_config.visual_style_id,
+            illustration_style_name=runtime_config.visual_style_name,
+            illustration_style_block=runtime_config.visual_style_prompt_block,
+        )
 
         recommendations = str(analysis.get("recommendations", ""))
         if previous_score_explanation:
@@ -428,6 +483,10 @@ class PipelineRunner:
             visual_style_id=runtime_config.visual_style_id,
             visual_style_name=runtime_config.visual_style_name,
             visual_style_block=runtime_config.visual_style_prompt_block,
+            resolved_need_person=resolved_decision["resolved_need_person"],
+            resolved_need_person_reasoning=resolved_decision["resolved_need_person_reasoning"],
+            render_style_mode=resolved_decision["render_style_mode"],
+            person_decision_instruction=resolved_decision["person_decision_instruction"],
         )
 
         try:
@@ -453,13 +512,30 @@ class PipelineRunner:
         upgraded_prompt = parsed.get("upgraded prompt") or parsed.get("prompt")
         if not upgraded_prompt:
             raise RuntimeError("Missing upgraded prompt")
+        enforced_upgraded_prompt, enforced_decision = apply_render_decision_to_prompt(
+            upgraded_prompt,
+            resolved_need_person=resolved_decision["resolved_need_person"],
+            resolved_need_person_reasoning=resolved_decision["resolved_need_person_reasoning"],
+            boy_or_girl=entry.boy_or_girl,
+            illustration_style_id=runtime_config.visual_style_id,
+            illustration_style_name=runtime_config.visual_style_name,
+            illustration_style_block=runtime_config.visual_style_prompt_block,
+        )
+        enforced_decision = {
+            **resolved_decision,
+            **enforced_decision,
+            "initial_need_person": resolved_decision["initial_need_person"],
+            "person_needed_for_clarity": resolved_decision["person_needed_for_clarity"],
+            "person_presence_problem": resolved_decision["person_presence_problem"],
+            "resolved_need_person_reasoning": resolved_decision["resolved_need_person_reasoning"],
+        }
 
         self.repo.add_prompt(
             run_id=run.id,
             stage_name="stage3_upgrade",
             attempt=attempt,
-            prompt_text=upgraded_prompt,
-            needs_person="",
+            prompt_text=enforced_upgraded_prompt,
+            needs_person=enforced_decision["resolved_need_person"],
             source=runtime_config.prompt_engineer_mode,
             raw_response_json={
                 "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
@@ -467,16 +543,19 @@ class PipelineRunner:
                 "raw": raw,
                 "analysis": analysis,
                 "analysis_raw": analysis_raw,
+                "decision": enforced_decision,
+                "original_prompt_text": upgraded_prompt,
+                "enforced_prompt_text": enforced_upgraded_prompt,
             },
         )
 
         selected_stage3_model = runtime_config.stage3_generate_model
-        flux_result, model_name = self.replicate.generate_stage3(selected_stage3_model, upgraded_prompt)
+        flux_result, model_name = self.replicate.generate_stage3(selected_stage3_model, enforced_upgraded_prompt)
         if flux_result.get("status") != "succeeded":
             fallback_enabled = runtime_config.flux_imagen_fallback_enabled
             if selected_stage3_model != "flux-1.1-pro" or not fallback_enabled:
                 raise RuntimeError(f"Stage3 generation failed with {selected_stage3_model}: {flux_result.get('status')}")
-            flux_result, model_name = self.replicate.generate_stage3("imagen-3", upgraded_prompt)
+            flux_result, model_name = self.replicate.generate_stage3("imagen-3", enforced_upgraded_prompt)
             if flux_result.get("status") != "succeeded":
                 raise RuntimeError(f"Stage3 fallback failed: {flux_result.get('status')}")
 
@@ -511,6 +590,12 @@ class PipelineRunner:
                 "visual_style_prompt_block": runtime_config.visual_style_prompt_block,
                 "critique_model_selected": critique_model,
                 "generation_model_selected": selected_stage3_model,
+                "initial_need_person": current_need_person,
+                "current_render_style_mode": current_render_style_mode,
+                "resolved_need_person": enforced_decision["resolved_need_person"],
+                "resolved_need_person_reasoning": enforced_decision["resolved_need_person_reasoning"],
+                "render_style_mode": enforced_decision["render_style_mode"],
+                "person_decision_instruction": enforced_decision["person_decision_instruction"],
             },
             response_json={
                 "analysis": analysis,
@@ -518,6 +603,9 @@ class PipelineRunner:
                 "generation": flux_result,
                 "generation_model": model_name,
                 "generation_model_selected": selected_stage3_model,
+                "decision": enforced_decision,
+                "original_prompt_text": upgraded_prompt,
+                "enforced_prompt_text": enforced_upgraded_prompt,
             },
         )
 
@@ -531,6 +619,7 @@ class PipelineRunner:
                     "prompt_engineer": {"parsed": parsed, "raw": raw, "mode": runtime_config.prompt_engineer_mode},
                     "generation": flux_result,
                     "generation_model": model_name,
+                    "decision": enforced_decision,
                 },
             },
         )
@@ -604,6 +693,15 @@ class PipelineRunner:
 
         start = perf_counter()
         config = self.repo.get_runtime_config()
+        stage3_result = self.db.execute(
+            select(StageResult)
+            .where(StageResult.run_id == run.id)
+            .where(StageResult.stage_name == "stage3_upgrade")
+            .where(StageResult.attempt == attempt)
+            .limit(1)
+        ).scalar_one_or_none()
+        stage3_response = json.loads(stage3_result.response_json) if stage3_result and stage3_result.response_json else {}
+        decision = stage3_response.get("decision", {}) if isinstance(stage3_response, dict) else {}
         rubric, raw = self.openai.score_image(
             Path(final_asset.abs_path),
             word=entry.word,
@@ -611,6 +709,7 @@ class PipelineRunner:
             category=entry.category,
             threshold=run.quality_threshold,
             model=config.quality_gate_model,
+            expected_render_style_mode=str(decision.get("render_style_mode", "")),
         )
         score = float(rubric.get("score", 0))
         passed = score >= run.quality_threshold
@@ -633,6 +732,8 @@ class PipelineRunner:
                 "asset": final_asset.abs_path,
                 "threshold": run.quality_threshold,
                 "quality_model_selected": config.quality_gate_model,
+                "expected_render_style_mode": str(decision.get("render_style_mode", "")),
+                "resolved_need_person": str(decision.get("resolved_need_person", "")),
             },
             response_json={"rubric": rubric, "raw": raw},
         )

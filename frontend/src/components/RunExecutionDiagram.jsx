@@ -226,14 +226,19 @@ function renderOverviewSection({
           )}
         </article>
         <article className="run-kpi-card">
-          <p className="detail-eyebrow">Visual style</p>
-          <h4>{selectedVisualStyleName || '-'}</h4>
-          <p>{selectedVisualStyleId || 'No style id'}</p>
+          <p className="detail-eyebrow">Resolved render style</p>
+          <h4>{resolvedRenderStyleMode || '-'}</h4>
+          <p>{resolvedRenderStyleName || `${selectedVisualStyleName || '-'}${selectedVisualStyleId ? ` (${selectedVisualStyleId})` : ''}`}</p>
         </article>
         <article className="run-kpi-card">
           <p className="detail-eyebrow">Final image</p>
           <h4>{winnerStage4Asset ? 'Ready' : 'Not ready yet'}</h4>
           <p>{winnerStage4Asset?.file_name || 'No white-background winner image yet'}</p>
+        </article>
+        <article className="run-kpi-card">
+          <p className="detail-eyebrow">Person decision</p>
+          <h4>{resolvedNeedPerson ? `Person ${resolvedNeedPerson === 'yes' ? 'required' : 'not needed'}` : 'Not resolved yet'}</h4>
+          <p>{resolvedPersonReason || 'No critique correction recorded yet.'}</p>
         </article>
         <article className="run-kpi-card">
           <p className="detail-eyebrow">Attention</p>
@@ -379,12 +384,22 @@ export default function RunExecutionDiagram({
   const maxAttempts = Number(detail.run.max_optimization_attempts || 0) + 1
   const selectedSummary = diagram.attemptSummaries.find((summary) => summary.attempt === selectedAttempt)
   const stage1Request = detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json || {}
+  const stage1Response = detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.response_json || {}
+  const latestStage3 =
+    [...(detail?.stages || [])]
+      .filter((stage) => stage.stage_name === 'stage3_upgrade')
+      .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null
+  const latestDecision = latestStage3?.response_json?.decision || stage1Response?.decision || {}
   const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'assistant')
   const selectedResponsesModel = String(stage1Request.responses_model || '')
   const selectedVectorStoreId = String(stage1Request.responses_vector_store_id || '')
   const usesGeminiPromptEngineer = selectedResponsesModel.toLowerCase().startsWith('gemini-')
   const selectedVisualStyleName = String(stage1Request.visual_style_name || '')
   const selectedVisualStyleId = String(stage1Request.visual_style_id || '')
+  const resolvedRenderStyleMode = String(latestDecision.render_style_mode || '')
+  const resolvedNeedPerson = String(latestDecision.resolved_need_person || stage1Response?.parsed?.['need a person'] || '')
+  const resolvedRenderStyleName = String(latestDecision.render_style_name || '')
+  const resolvedPersonReason = String(latestDecision.resolved_need_person_reasoning || '')
   const threshold = Number(detail.run.quality_threshold || 95)
   const selectedAttemptScore = selectedSummary?.score ?? null
   const imageCreationFailed = (() => {
@@ -592,7 +607,7 @@ export default function RunExecutionDiagram({
         <div className="run-detail-section-grid">
           <div className="run-help-card">
             <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
-            <p>Flow: Stage 1 prompt -> Stage 2 draft -> Stage 3 critique/prompt/image -> Quality Gate -> winner selection -> Stage 4 white background.</p>
+            <p>Flow: Stage 1 prompt + initial person guess -> Stage 2 draft -> Stage 3 critique validates whether a person is actually needed -> Stage 3 prompt/image enforce the resolved style -> Quality Gate -> winner selection -> Stage 4 white background.</p>
             <p>If quality fails and attempts remain, the system loops from Quality Gate back to Stage 3 for the next attempt.</p>
           </div>
 
@@ -660,15 +675,15 @@ export default function RunExecutionDiagram({
                 />
               </label>
               <label>
-                Visual style id
+                Illustration style id
                 <input value={promptEngineerConfig.visualStyleId} onChange={(e) => promptEngineerConfig.setVisualStyleId(e.target.value)} />
               </label>
               <label>
-                Visual style name
+                Illustration style name
                 <input value={promptEngineerConfig.visualStyleName} onChange={(e) => promptEngineerConfig.setVisualStyleName(e.target.value)} />
               </label>
               <label>
-                Visual style instructions
+                Illustration style instructions
                 <textarea rows="12" value={promptEngineerConfig.visualStylePromptBlock} onChange={(e) => promptEngineerConfig.setVisualStylePromptBlock(e.target.value)} />
               </label>
               <label>

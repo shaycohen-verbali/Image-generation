@@ -334,12 +334,29 @@ class OpenAIClient:
         content = response["choices"][0]["message"]["content"]
         return parse_json_relaxed(content), {"provider": "openai", "model": normalized_model, "raw_response": response, "raw_text": content}
 
-    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def analyze_image(
+        self,
+        image_path: Path,
+        word: str,
+        part_of_sentence: str,
+        category: str,
+        model: str,
+        *,
+        initial_need_person: str = "no",
+        current_render_style_mode: str = "photorealistic",
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         prompt = (
             "You are an expert AAC visual designer for children. "
             "Analyze the image for concept clarity. Return STRICT JSON with keys "
-            '{"challenges":"...", "recommendations":"..."}. '
-            f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}."
+            '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", '
+            '"person_presence_problem":"missing_person|unnecessary_person|none"}. '
+            f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+            f"Current system hypothesis: person needed = {initial_need_person}. "
+            f"Current render style = {current_render_style_mode}. "
+            "If the concept would be clearer with a person, return person_needed_for_clarity=yes and "
+            "person_presence_problem=missing_person when the image lacks the needed person. "
+            "If a person is distracting or unnecessary, return person_needed_for_clarity=no and "
+            "person_presence_problem=unnecessary_person. Otherwise return person_presence_problem=none."
         )
         return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.2)
 
@@ -352,12 +369,14 @@ class OpenAIClient:
         category: str,
         threshold: int,
         model: str,
+        expected_render_style_mode: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         prompt = (
             "Score the AAC concept image quality for a child user. Return STRICT JSON with fields: "
             '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. '
             f"Word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
-            f"Pass threshold is {threshold}."
+            f"Pass threshold is {threshold}. "
+            f"Expected render style is {expected_render_style_mode or 'not specified'}."
         )
         parsed, raw = self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.1)
         if "score" not in parsed:

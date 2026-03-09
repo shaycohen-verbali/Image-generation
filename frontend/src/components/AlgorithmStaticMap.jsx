@@ -5,6 +5,8 @@ const DEFAULT_VISUAL_STYLE_NAME = 'Warm Watercolor Storybook Kids Style v3'
 const DEFAULT_VISUAL_STYLE_ID = 'warm_watercolor_storybook_kids_v3'
 const DEFAULT_VISUAL_STYLE_BLOCK =
   'House visual style: Warm Watercolor Storybook Kids Style v3. Create a premium child-friendly storybook illustration with watercolor-gouache softness and a polished picture-book finish. The image must feel warm, safe, playful, vivid, inviting, emotionally legible, and easy for AAC users and early learners to understand at a glance. Keep one clear focal subject and one clear action or concept, with a crisp polished focal subject, stronger contrast, vivid color richness, bright cheerful colors, warm golden sunlight, lively natural tones, and a premium picture-book finish. Use simple supportive backgrounds that do not compete with the subject. If a child is present, use oversized expressive eyes, rosy cheeks, soft rounded childlike anatomy, clear friendly emotion, and a readable silhouette. Avoid faded or muddy color, photorealism, realistic anatomy, dark mood, clutter, text, watermark, 3D render, and generic flashcard art. This house style overrides category-based photorealistic rendering.'
+const DEFAULT_PHOTOREALISTIC_STYLE_BLOCK =
+  'House visual style: AAC Clean Photorealistic Style v1. Create a clean premium photorealistic image with one clear focal subject, realistic materials, bright natural color, simple composition, and minimal distractors. Avoid illustration, cartoon styling, clutter, text, watermark, dramatic lighting, and unnecessary people.'
 
 const STAGE1_PROMPT_TEMPLATE = [
   'Task: Create the first image prompt for the given word and decide if the prompt needs a person.',
@@ -17,13 +19,19 @@ const STAGE1_PROMPT_TEMPLATE = [
   'Category: <entry.category>',
   'If a person is present, use a: <entry.boy_or_girl>',
   '',
-  'Do not switch to photorealistic rendering based on category. Follow the visual style block below.',
-  'Visual style to apply consistently across all images and attempts (<config.visual_style_name> / <config.visual_style_id>):',
+  'Decision rule:',
+  '- If a person is needed for AAC clarity, the prompt should use an illustration and make the person central.',
+  '- If a person is not needed for AAC clarity, the prompt should be photorealistic and should not include a person.',
+  '',
+  'Illustration style to use when a person is needed (<config.visual_style_name> / <config.visual_style_id>):',
   '<config.visual_style_prompt_block>',
+  '',
+  'Photorealistic style to use when a person is not needed (aac_clean_photorealistic_v1):',
+  DEFAULT_PHOTOREALISTIC_STYLE_BLOCK,
 ].join('\n')
 
 const STAGE3_CRITIQUE_PROMPT_TEMPLATE =
-  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"..."}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>.'
+  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Current system hypothesis: person needed = <decision.initial_need_person>. Current render style = <decision.render_style_mode>.'
 
 const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
   'Create an upgraded image prompt for the given word. Return STRICT JSON:',
@@ -37,16 +45,22 @@ const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
   'Category: <entry.category>',
   'If a person is present, use a <entry.boy_or_girl> as the person.',
   '',
+  'Current decision from the system: <decision.reason>',
+  'Resolved person-needed decision: <decision.resolved_need_person>',
+  'Resolved render style: <decision.render_style_mode>',
+  '<decision.person_instruction>',
+  '',
   'Do not use text in the image.',
   "The word's category can add information in addition to its PoS.",
-  'Do not switch to photorealistic rendering based on category. Follow the visual style block below.',
-  'Keep the exact house visual style consistent with previous and future images.',
-  'Visual style to apply consistently across all images and attempts (<config.visual_style_name> / <config.visual_style_id>):',
+  'Illustration style to use when a person is needed (<config.visual_style_name> / <config.visual_style_id>):',
   '<config.visual_style_prompt_block>',
+  '',
+  'Photorealistic style to use when a person is not needed (aac_clean_photorealistic_v1):',
+  DEFAULT_PHOTOREALISTIC_STYLE_BLOCK,
 ].join('\n')
 
 const QUALITY_GATE_PROMPT_TEMPLATE =
-  'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: {"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. Word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Pass threshold is <run.quality_threshold>.'
+  'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: {"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. Word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Pass threshold is <run.quality_threshold>. Expected render style is <decision.render_style_mode>.'
 
 const WHITE_BG_PROMPT_TEMPLATE = [
   'remove the background - keep only the important elements of the image and make the background white.',
@@ -94,7 +108,7 @@ const STAGE_DETAILS = {
     provider: 'OpenAI Vision / Google Gemini',
     model: 'gpt-4o-mini | gemini-3-flash | gemini-3-pro',
     inputs: ['stage2/stage3 source image', 'word', 'part_of_sentence', 'category'],
-    outputs: ['challenges', 'recommendations'],
+    outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem'],
     instruction: STAGE3_CRITIQUE_PROMPT_TEMPLATE,
     requestExample: {
       content: [
@@ -108,7 +122,7 @@ const STAGE_DETAILS = {
     provider: 'Prompt Engineer',
     model: 'assistant configured in runtime or selected prompt model (OpenAI/Gemini)',
     inputs: ['old prompt', 'critique', 'previous score feedback'],
-    outputs: ['upgraded prompt'],
+    outputs: ['upgraded prompt', 'resolved person/style decision'],
     instruction: STAGE3_UPGRADE_PROMPT_TEMPLATE,
     requestExample: {
       assistant_input: STAGE3_UPGRADE_PROMPT_TEMPLATE,
@@ -233,10 +247,10 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
 
   const nodes = useMemo(
     () => [
-      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: promptEngineerLabel, status: 'queued', x: 40, y: 235 },
+      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: `${promptEngineerLabel} + initial person guess`, status: 'queued', x: 40, y: 235 },
       { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 380, y: 235 },
-      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini', status: 'queued', x: 760, y: 45 },
-      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: promptEngineerLabel, status: 'queued', x: 760, y: 235 },
+      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini + person validation', status: 'queued', x: 760, y: 45 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: `${promptEngineerLabel} + resolved style`, status: 'queued', x: 760, y: 235 },
       { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana-2', status: 'queued', x: 1540, y: 120 },
@@ -248,9 +262,9 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
 
   const edges = useMemo(
     () => [
-      { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1', fromPort: 'right', toPort: 'left' },
+      { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1 + initial style hypothesis', fromPort: 'right', toPort: 'left' },
       { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
-      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'challenges + recommendations', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique + person validation', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
@@ -316,10 +330,13 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         </p>
       ) : null}
       <p className="algo-assistant-name">
-        <strong>Visual style:</strong> {visualStyleName} ({visualStyleId})
+        <strong>Illustration style:</strong> {visualStyleName} ({visualStyleId})
       </p>
       <p className="algo-assistant-name">
-        <strong>Loop logic:</strong> Stage 1 prompt engineer -> Stage 2 draft -> Stage 3 critique -> Stage 3 prompt engineer -> Stage 3 image -> Quality Gate -> loop back to Stage 3 critique until pass or attempts exhausted -> Stage 4 white background.
+        <strong>Photorealistic style:</strong> AAC Clean Photorealistic Style v1 (built-in when the resolved decision is no person)
+      </p>
+      <p className="algo-assistant-name">
+        <strong>Loop logic:</strong> Stage 1 proposes whether a person is needed -> Stage 2 draft -> Stage 3 critique validates or corrects that decision -> Stage 3 prompt engineer enforces the resolved style -> Stage 3 image -> Quality Gate -> loop back to Stage 3 critique until pass or attempts exhausted -> Stage 4 white background.
       </p>
 
       <WorkflowCanvas
