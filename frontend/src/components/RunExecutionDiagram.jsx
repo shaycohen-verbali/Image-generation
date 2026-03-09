@@ -153,6 +153,7 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'assistant')
   const selectedResponsesModel = String(stage1Request.responses_model || '')
   const selectedVectorStoreId = String(stage1Request.responses_vector_store_id || '')
+  const usesGeminiPromptEngineer = selectedResponsesModel.toLowerCase().startsWith('gemini-')
   const selectedVisualStyleName = String(stage1Request.visual_style_name || '')
   const selectedVisualStyleId = String(stage1Request.visual_style_id || '')
   const threshold = Number(detail.run.quality_threshold || 95)
@@ -241,9 +242,12 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
       </div>
 
       <div className="run-help-card">
-        <p><strong>Prompt engineer used for this run:</strong> {selectedPromptEngineerMode === 'responses_api' ? 'Responses API' : 'OpenAI Assistant'}</p>
+        <p><strong>Prompt engineer used for this run:</strong> {selectedPromptEngineerMode === 'responses_api' ? (usesGeminiPromptEngineer ? 'Direct model API' : 'Responses API') : 'OpenAI Assistant'}</p>
         {selectedPromptEngineerMode === 'responses_api' ? (
-          <p>Responses model: {selectedResponsesModel || '-'} | Vector store: {selectedVectorStoreId || '-'}</p>
+          <p>
+            Prompt engineer model: {selectedResponsesModel || '-'}
+            {!usesGeminiPromptEngineer ? ` | Vector store: ${selectedVectorStoreId || '-'}` : ' | Vector store: not used for Gemini'}
+          </p>
         ) : (
           <p>Assistant name: {assistantName || 'Prompt generator -JSON output'}</p>
         )}

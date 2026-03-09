@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Export, Prompt, Run, RuntimeConfig, Score, StageResult
-from app.services.model_catalog import normalize_stage3_generation_model, normalize_vision_model
+from app.services.model_catalog import normalize_prompt_engineer_model, normalize_stage3_generation_model, normalize_vision_model
 from app.services.prompt_templates import (
     DEFAULT_STAGE1_PROMPT_TEMPLATE,
     DEFAULT_STAGE3_PROMPT_TEMPLATE,
@@ -58,7 +58,7 @@ class Repository:
                 config.stage3_critique_model = legacy_model
             if updates.get("quality_gate_model") is None:
                 config.quality_gate_model = legacy_model
-        config.responses_prompt_engineer_model = str(config.responses_prompt_engineer_model or "gpt-4.1-mini").strip() or "gpt-4.1-mini"
+        config.responses_prompt_engineer_model = normalize_prompt_engineer_model(config.responses_prompt_engineer_model)
         config.responses_vector_store_id = str(config.responses_vector_store_id or "").strip()
         config.visual_style_id = str(config.visual_style_id or DEFAULT_VISUAL_STYLE_ID).strip() or DEFAULT_VISUAL_STYLE_ID
         config.visual_style_name = str(config.visual_style_name or DEFAULT_VISUAL_STYLE_NAME).strip() or DEFAULT_VISUAL_STYLE_NAME

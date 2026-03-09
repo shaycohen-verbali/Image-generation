@@ -153,6 +153,38 @@ button {
   padding: 8px 12px;
   background: #fff;
   cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
+  box-shadow: 0 2px 0 rgba(31, 42, 56, 0.12);
+}
+
+button:hover:not(:disabled),
+.tab:hover,
+.attempt-chip:hover,
+.workflow-zoom-btn:hover,
+.workflow-zoom-reset:hover {
+  box-shadow: 0 4px 10px rgba(31, 42, 56, 0.12);
+}
+
+button:active:not(:disabled),
+.tab:active,
+.attempt-chip:active,
+.workflow-zoom-btn:active,
+.workflow-zoom-reset:active {
+  transform: translateY(1px) scale(0.985);
+  box-shadow: inset 0 2px 6px rgba(31, 42, 56, 0.14);
+}
+
+button:focus-visible,
+.tab:focus-visible,
+.attempt-chip:focus-visible,
+.workflow-zoom-btn:focus-visible,
+.workflow-zoom-reset:focus-visible {
+  outline: 3px solid rgba(15, 127, 125, 0.28);
+  outline-offset: 2px;
 }
 
 button:disabled {

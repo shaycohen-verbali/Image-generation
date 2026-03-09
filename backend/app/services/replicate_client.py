@@ -196,7 +196,7 @@ class ReplicateClient:
         )
         image_input = self._to_data_uri(image_path)
         return self._run_prediction(
-            "google/nano-banana",
+            "google/nano-banana-2",
             {
                 "prompt": prompt,
                 "image_input": [image_input],

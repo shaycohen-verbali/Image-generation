@@ -16,7 +16,7 @@ export default function SubmitPage() {
   const [workerCount, setWorkerCount] = useState(10)
   const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
-  const [stage3GenerateModel, setStage3GenerateModel] = useState('flux-1.1-pro')
+  const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
 
   useEffect(() => {
@@ -122,18 +122,13 @@ export default function SubmitPage() {
     }
   }
 
-  const onSaveModelConfig = async () => {
-    setMessage('Saving model configuration...')
+  const saveModelConfig = async (updates, successMessage = 'Saved model configuration') => {
     try {
-      const updated = await updateConfig({
-        stage3_critique_model: stage3CritiqueModel,
-        stage3_generate_model: stage3GenerateModel,
-        quality_gate_model: qualityGateModel,
-      })
-      setStage3CritiqueModel(updated.stage3_critique_model)
-      setStage3GenerateModel(updated.stage3_generate_model)
-      setQualityGateModel(updated.quality_gate_model)
-      setMessage('Saved model configuration')
+      const updated = await updateConfig(updates)
+      if (updated.stage3_critique_model) setStage3CritiqueModel(updated.stage3_critique_model)
+      if (updated.stage3_generate_model) setStage3GenerateModel(updated.stage3_generate_model)
+      if (updated.quality_gate_model) setQualityGateModel(updated.quality_gate_model)
+      setMessage(successMessage)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -209,11 +204,19 @@ export default function SubmitPage() {
 
       <article className="card">
         <h2>Model Selection</h2>
-        <p>Choose models for Stage 3 critique, Stage 3 upgraded image, and Quality Gate scoring.</p>
+        <p>Choose models for Stage 3 critique, Stage 3 upgraded image, and Quality Gate scoring. Changes are saved automatically.</p>
         <div className="form-grid">
           <label>
             Stage 3.1 Vision Critique
-            <select value={stage3CritiqueModel} onChange={(e) => setStage3CritiqueModel(e.target.value)}>
+            <select
+              value={stage3CritiqueModel}
+              onChange={(e) => {
+                const value = e.target.value
+                setStage3CritiqueModel(value)
+                setMessage('Saving Stage 3 critique model...')
+                saveModelConfig({ stage3_critique_model: value }, `Saved Stage 3 critique model: ${value}`)
+              }}
+            >
               <option value="gpt-4o-mini">gpt-4o-mini</option>
               <option value="gemini-3-flash">Gemini-3-flash</option>
               <option value="gemini-3-pro">Gemini-3-pro</option>
@@ -221,7 +224,15 @@ export default function SubmitPage() {
           </label>
           <label>
             Stage 3.3 Upgraded Image
-            <select value={stage3GenerateModel} onChange={(e) => setStage3GenerateModel(e.target.value)}>
+            <select
+              value={stage3GenerateModel}
+              onChange={(e) => {
+                const value = e.target.value
+                setStage3GenerateModel(value)
+                setMessage('Saving Stage 3 upgraded image model...')
+                saveModelConfig({ stage3_generate_model: value }, `Saved Stage 3 upgraded image model: ${value}`)
+              }}
+            >
               <option value="flux-1.1-pro">Flux 1.1 Pro</option>
               <option value="imagen-3">Imagen 3</option>
               <option value="imagen-4">Imagen 4</option>
@@ -232,13 +243,20 @@ export default function SubmitPage() {
           </label>
           <label>
             Quality Gate
-            <select value={qualityGateModel} onChange={(e) => setQualityGateModel(e.target.value)}>
+            <select
+              value={qualityGateModel}
+              onChange={(e) => {
+                const value = e.target.value
+                setQualityGateModel(value)
+                setMessage('Saving Quality Gate model...')
+                saveModelConfig({ quality_gate_model: value }, `Saved Quality Gate model: ${value}`)
+              }}
+            >
               <option value="gpt-4o-mini">gpt-4o-mini</option>
               <option value="gemini-3-flash">Gemini-3-flash</option>
               <option value="gemini-3-pro">Gemini-3-pro</option>
             </select>
           </label>
-          <button type="button" onClick={onSaveModelConfig}>Save Models</button>
         </div>
       </article>
 
@@ -250,7 +268,7 @@ export default function SubmitPage() {
             Prompt engineer mode
             <select value={promptEngineerMode} onChange={(e) => setPromptEngineerMode(e.target.value)}>
               <option value="assistant">Option 1: OpenAI Assistant</option>
-              <option value="responses_api">Option 2: Responses API + Vector Store</option>
+              <option value="responses_api">Option 2: Responses API / Direct Model</option>
             </select>
           </label>
           <p className="config-help-text">

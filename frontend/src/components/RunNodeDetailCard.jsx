@@ -32,7 +32,9 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
     )
   }
 
-  const usesResponsesApi = String(node.model || '').toLowerCase().includes('responses api')
+  const normalizedPromptModel = String(node.model || '').toLowerCase()
+  const usesResponsesApi = normalizedPromptModel.includes('responses api')
+  const usesDirectModel = normalizedPromptModel.includes('direct model')
 
   return (
     <div className="run-node-detail">
@@ -98,6 +100,8 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           {node.id === 'stage1_prompt' || node.id === 'stage3_prompt_upgrade' ? (
             usesResponsesApi ? (
               <p><strong>Prompt engineer:</strong> Responses API</p>
+            ) : usesDirectModel ? (
+              <p><strong>Prompt engineer:</strong> Direct model API</p>
             ) : (
               <p><strong>Assistant:</strong> {assistantName || 'Prompt generator -JSON output'}</p>
             )

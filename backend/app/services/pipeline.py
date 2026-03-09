@@ -569,7 +569,7 @@ class PipelineRunner:
             filename=filename,
             image_bytes=image_bytes,
             origin_url=output_url,
-            model_name="google/nano-banana",
+            model_name="google/nano-banana-2",
         )
 
         self._record_stage(
@@ -581,6 +581,7 @@ class PipelineRunner:
                 "input_asset": upgraded_asset.abs_path,
                 "winner_attempt": winner_attempt,
                 "winner_score": winner_score,
+                "background_model_selected": "nano-banana-2",
             },
             response_json=result,
         )

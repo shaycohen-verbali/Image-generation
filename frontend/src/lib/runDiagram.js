@@ -37,7 +37,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage3_generate',
     label: 'Stage 3.3 Image Generate',
-    provider: 'Replicate: flux-pro / imagen fallback',
+    provider: 'Replicate: selected generation model',
     inputs: ['upgraded prompt'],
     expected: ['upgraded image'],
     retryPolicy: 'API retry + stage retry',
@@ -53,7 +53,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage4_background',
     label: 'Stage 4 White Background',
-    provider: 'Replicate: nano-banana',
+    provider: 'Replicate: nano-banana-2',
     inputs: ['passing stage3 image'],
     expected: ['white background image'],
     retryPolicy: 'API retry + stage retry',
@@ -100,6 +100,10 @@ function safeText(value) {
 function promptEngineerLabel(mode, responsesModel) {
   const normalizedMode = safeText(mode).toLowerCase()
   if (normalizedMode === 'responses_api') {
+    const normalizedModel = safeText(responsesModel).toLowerCase()
+    if (normalizedModel.startsWith('gemini-')) {
+      return responsesModel ? `Direct Model (${responsesModel})` : 'Direct Model'
+    }
     return responsesModel ? `Responses API (${responsesModel})` : 'Responses API'
   }
   return 'OpenAI Assistant'
@@ -322,7 +326,8 @@ function aiInstructionForStage({
   if (stageId === 'stage3_generate') {
     const prompt = safeText(stage3Prompt?.prompt_text)
     const payload = {
-      primary_model: 'black-forest-labs/flux-1.1-pro',
+      selected_model: safeText(safeObject(stage3Result?.request_json).generation_model_selected) || '<selected stage3 model>',
+      primary_model: 'runtime dependent',
       primary_input: {
         prompt: prompt || '<stage3 upgraded prompt>',
         aspect_ratio: '4:3',
@@ -332,7 +337,7 @@ function aiInstructionForStage({
         safety_tolerance: 2,
         seed: 10000,
       },
-      fallback_model: 'google/imagen-3-fast',
+      fallback_model: 'google/imagen-3-fast (only when enabled and flux-1.1-pro is selected)',
       fallback_input: {
         prompt: prompt || '<stage3 upgraded prompt>',
         num_outputs: 1,
@@ -368,7 +373,7 @@ function aiInstructionForStage({
     }
     return {
       text: JSON.stringify(payload, null, 2),
-      source: 'backend prompt template (ReplicateClient.nano_banana_white_bg)',
+      source: 'backend prompt template (ReplicateClient.nano_banana_white_bg -> nano-banana-2)',
     }
   }
 
@@ -484,7 +489,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       requestPayload: {},
       responsePayload: stage3Analysis,
       asset: stage2Asset || null,
-      model: 'gpt-4o-mini',
+      model: safeText(safeObject(stage3Result?.request_json).critique_model_selected) || 'gpt-4o-mini',
       score: null,
       attempt,
     },
@@ -517,7 +522,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       requestPayload: safeObject(qualityResult?.request_json),
       responsePayload: safeObject(qualityResult?.response_json),
       asset: stage3Asset || null,
-      model: 'gpt-4o-mini',
+      model: safeText(safeObject(qualityResult?.request_json).quality_model_selected) || 'gpt-4o-mini',
       score: score || null,
       attempt,
     },

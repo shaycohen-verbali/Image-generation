@@ -3,7 +3,7 @@ from sqlalchemy import select, text
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models import Base, RuntimeConfig
-from app.services.model_catalog import normalize_stage3_generation_model, normalize_vision_model
+from app.services.model_catalog import normalize_prompt_engineer_model, normalize_stage3_generation_model, normalize_vision_model
 from app.services.prompt_templates import (
     DEFAULT_STAGE1_PROMPT_TEMPLATE,
     DEFAULT_STAGE3_PROMPT_TEMPLATE,
@@ -37,7 +37,7 @@ def init_db() -> None:
                     openai_assistant_id=settings.openai_assistant_id,
                     openai_assistant_name=settings.openai_assistant_name,
                     prompt_engineer_mode=settings.prompt_engineer_mode if settings.prompt_engineer_mode in {"assistant", "responses_api"} else "assistant",
-                    responses_prompt_engineer_model=settings.responses_prompt_engineer_model,
+                    responses_prompt_engineer_model=normalize_prompt_engineer_model(settings.responses_prompt_engineer_model),
                     responses_vector_store_id=settings.responses_vector_store_id,
                     visual_style_id=settings.visual_style_id or DEFAULT_VISUAL_STYLE_ID,
                     visual_style_name=settings.visual_style_name or DEFAULT_VISUAL_STYLE_NAME,
@@ -57,10 +57,16 @@ def init_db() -> None:
             if int(existing.max_parallel_runs) < MIN_PARALLEL_RUNS:
                 existing.max_parallel_runs = DEFAULT_PARALLEL_RUNS
             existing.stage3_critique_model = normalize_vision_model(existing.stage3_critique_model or existing.openai_model_vision)
-            existing.stage3_generate_model = normalize_stage3_generation_model(existing.stage3_generate_model)
+            if not existing.stage3_generate_model or existing.stage3_generate_model == "flux-1.1-pro":
+                existing.stage3_generate_model = "nano-banana-2"
+            else:
+                existing.stage3_generate_model = normalize_stage3_generation_model(existing.stage3_generate_model)
             existing.quality_gate_model = normalize_vision_model(existing.quality_gate_model or existing.openai_model_vision)
             existing.prompt_engineer_mode = existing.prompt_engineer_mode if existing.prompt_engineer_mode in {"assistant", "responses_api"} else "assistant"
-            existing.responses_prompt_engineer_model = existing.responses_prompt_engineer_model or settings.responses_prompt_engineer_model
+            if not existing.responses_prompt_engineer_model or existing.responses_prompt_engineer_model == "gpt-4.1-mini":
+                existing.responses_prompt_engineer_model = "gpt-5.4"
+            else:
+                existing.responses_prompt_engineer_model = normalize_prompt_engineer_model(existing.responses_prompt_engineer_model or settings.responses_prompt_engineer_model)
             existing.responses_vector_store_id = existing.responses_vector_store_id or settings.responses_vector_store_id
             existing.visual_style_id = existing.visual_style_id or settings.visual_style_id or DEFAULT_VISUAL_STYLE_ID
             existing.visual_style_name = existing.visual_style_name or settings.visual_style_name or DEFAULT_VISUAL_STYLE_NAME
@@ -83,13 +89,13 @@ def _ensure_runtime_config_columns() -> None:
         if "stage3_critique_model" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
         if "stage3_generate_model" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'flux-1.1-pro'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
         if "quality_gate_model" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
         if "prompt_engineer_mode" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'assistant'"))
         if "responses_prompt_engineer_model" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-4.1-mini'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
         if "responses_vector_store_id" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
         if "visual_style_id" not in existing:

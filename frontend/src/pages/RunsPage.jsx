@@ -26,7 +26,7 @@ export default function RunsPage() {
   const [detail, setDetail] = useState(null)
   const [assistantName, setAssistantName] = useState('')
   const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
-  const [responsesPromptEngineerModel, setResponsesPromptEngineerModel] = useState('gpt-4.1-mini')
+  const [responsesPromptEngineerModel, setResponsesPromptEngineerModel] = useState('gpt-5.4')
   const [responsesVectorStoreId, setResponsesVectorStoreId] = useState('vs_683f3d36223481919f59fc5623286253')
   const [visualStyleId, setVisualStyleId] = useState('warm_watercolor_storybook_kids_v3')
   const [visualStyleName, setVisualStyleName] = useState('Warm Watercolor Storybook Kids Style v3')
@@ -298,15 +298,21 @@ export default function RunsPage() {
                   Prompt engineer mode
                   <select value={promptEngineerMode} onChange={(e) => setPromptEngineerMode(e.target.value)}>
                     <option value="assistant">Option 1: OpenAI Assistant</option>
-                    <option value="responses_api">Option 2: Responses API + Vector Store</option>
+                    <option value="responses_api">Option 2: Responses API / Direct Model</option>
                   </select>
                 </label>
                 <label>
-                  Responses API model
-                  <input
+                  Prompt engineer model
+                  <select
                     value={responsesPromptEngineerModel}
                     onChange={(e) => setResponsesPromptEngineerModel(e.target.value)}
-                  />
+                  >
+                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                    <option value="gpt-5.4">gpt-5.4</option>
+                    <option value="gemini-3-flash">Gemini-3-flash</option>
+                    <option value="gemini-3-pro">Gemini-3-pro</option>
+                  </select>
                 </label>
                 <label>
                   Responses vector store id
@@ -337,6 +343,9 @@ export default function RunsPage() {
                 </label>
                 <p className="config-help-text">
                   Placeholders: {'{word}'}, {'{part_of_sentence}'}, {'{category}'}, {'{context}'}, {'{boy_or_girl}'}, {'{photorealistic_hint}'}, {'{visual_style_id}'}, {'{visual_style_name}'}, {'{visual_style_block}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}.
+                </p>
+                <p className="config-help-text">
+                  OpenAI models use Responses API with the vector store. Gemini prompt engineer models use the direct Google API and do not use the vector store.
                 </p>
                 <button type="button" onClick={onSavePromptEngineerConfig}>Save Prompt Engineer Details</button>
               </div>

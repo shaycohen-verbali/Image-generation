@@ -56,9 +56,9 @@ const WHITE_BG_PROMPT_TEMPLATE = [
 
 const STAGE_DETAILS = {
   stage1_prompt: {
-    apiCall: 'OpenAI Assistants v2 or Responses API',
+    apiCall: 'OpenAI Assistants v2 or model API',
     provider: 'Prompt Engineer',
-    model: 'assistant configured in runtime or responses model + vector store',
+    model: 'assistant configured in runtime or selected prompt model (OpenAI/Gemini)',
     inputs: ['word', 'part_of_sentence', 'category (optional)', 'context', 'boy_or_girl'],
     outputs: ['first prompt', 'need a person'],
     instruction: STAGE1_PROMPT_TEMPLATE,
@@ -104,9 +104,9 @@ const STAGE_DETAILS = {
     },
   },
   stage3_prompt_upgrade: {
-    apiCall: 'OpenAI Assistants v2 or Responses API',
+    apiCall: 'OpenAI Assistants v2 or model API',
     provider: 'Prompt Engineer',
-    model: 'assistant configured in runtime or responses model + vector store',
+    model: 'assistant configured in runtime or selected prompt model (OpenAI/Gemini)',
     inputs: ['old prompt', 'critique', 'previous score feedback'],
     outputs: ['upgraded prompt'],
     instruction: STAGE3_UPGRADE_PROMPT_TEMPLATE,
@@ -176,8 +176,8 @@ const STAGE_DETAILS = {
   },
   stage4_background: {
     apiCall: 'Replicate via Cloudflare AI Gateway',
-    provider: 'google/nano-banana',
-    model: 'google/nano-banana',
+    provider: 'google/nano-banana-2',
+    model: 'google/nano-banana-2',
     inputs: ['highest-score winner image from stage3 attempts'],
     outputs: ['white background image URL', 'stage4_white_bg asset'],
     instruction: WHITE_BG_PROMPT_TEMPLATE,
@@ -211,7 +211,9 @@ const STAGE_DETAILS = {
 }
 
 function promptEngineerModeLabel(config) {
-  return config?.prompt_engineer_mode === 'responses_api' ? 'Responses API + Vector Store' : 'OpenAI Assistant'
+  if (config?.prompt_engineer_mode !== 'responses_api') return 'OpenAI Assistant'
+  const model = String(config?.responses_prompt_engineer_model || '').toLowerCase()
+  return model.startsWith('gemini-') ? 'Direct Model API' : 'Responses API + Vector Store'
 }
 
 export default function AlgorithmStaticMap({ assistantName = '', config = null }) {
@@ -237,7 +239,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: promptEngineerLabel, status: 'queued', x: 760, y: 235 },
       { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
-      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana', status: 'queued', x: 1540, y: 120 },
+      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana-2', status: 'queued', x: 1540, y: 120 },
       { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 1910, y: 120 },
       { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
     ],
@@ -269,9 +271,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         requestExample:
           config?.prompt_engineer_mode === 'responses_api'
             ? {
-                model: config?.responses_prompt_engineer_model || 'gpt-4.1-mini',
+                model: config?.responses_prompt_engineer_model || 'gpt-5.4',
                 input: stage1Instruction,
-                tools: [{ type: 'file_search', vector_store_ids: [config?.responses_vector_store_id || 'vs_...'] }],
+                ...(String(config?.responses_prompt_engineer_model || '').toLowerCase().startsWith('gemini-')
+                  ? {}
+                  : { tools: [{ type: 'file_search', vector_store_ids: [config?.responses_vector_store_id || 'vs_...'] }] }),
               }
             : { assistant_input: stage1Instruction },
       }
@@ -284,9 +288,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         requestExample:
           config?.prompt_engineer_mode === 'responses_api'
             ? {
-                model: config?.responses_prompt_engineer_model || 'gpt-4.1-mini',
+                model: config?.responses_prompt_engineer_model || 'gpt-5.4',
                 input: stage3Instruction,
-                tools: [{ type: 'file_search', vector_store_ids: [config?.responses_vector_store_id || 'vs_...'] }],
+                ...(String(config?.responses_prompt_engineer_model || '').toLowerCase().startsWith('gemini-')
+                  ? {}
+                  : { tools: [{ type: 'file_search', vector_store_ids: [config?.responses_vector_store_id || 'vs_...'] }] }),
               }
             : { assistant_input: stage3Instruction },
       }
@@ -306,7 +312,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       </p>
       {config?.prompt_engineer_mode === 'responses_api' ? (
         <p className="algo-assistant-name">
-          <strong>Responses config:</strong> {config?.responses_prompt_engineer_model || 'gpt-4.1-mini'} using vector store {config?.responses_vector_store_id || '-'}
+          <strong>Prompt engineer model:</strong> {config?.responses_prompt_engineer_model || 'gpt-5.4'} {String(config?.responses_prompt_engineer_model || '').toLowerCase().startsWith('gemini-') ? '(direct model API, no vector store)' : `using vector store ${config?.responses_vector_store_id || '-'}`}
         </p>
       ) : null}
       <p className="algo-assistant-name">

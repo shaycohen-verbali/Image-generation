@@ -47,7 +47,7 @@ def db_session(tmp_path: Path):
                 openai_assistant_id="asst_test",
                 openai_assistant_name="Prompt generator -JSON output",
                 prompt_engineer_mode="assistant",
-                responses_prompt_engineer_model="gpt-4.1-mini",
+                responses_prompt_engineer_model="gpt-5.4",
                 responses_vector_store_id="vs_683f3d36223481919f59fc5623286253",
                 visual_style_id=DEFAULT_VISUAL_STYLE_ID,
                 visual_style_name=DEFAULT_VISUAL_STYLE_NAME,
@@ -55,7 +55,7 @@ def db_session(tmp_path: Path):
                 stage1_prompt_template=DEFAULT_STAGE1_PROMPT_TEMPLATE,
                 stage3_prompt_template=DEFAULT_STAGE3_PROMPT_TEMPLATE,
                 stage3_critique_model="gpt-4o-mini",
-                stage3_generate_model="flux-1.1-pro",
+                stage3_generate_model="nano-banana-2",
                 quality_gate_model="gpt-4o-mini",
                 openai_model_vision="gpt-4o-mini",
             )

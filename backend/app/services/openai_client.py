@@ -10,7 +10,7 @@ from urllib.parse import quote
 import requests
 
 from app.core.config import get_settings
-from app.services.model_catalog import is_gemini_model, normalize_vision_model
+from app.services.model_catalog import is_gemini_model, normalize_prompt_engineer_model, normalize_vision_model
 from app.services.retry import with_backoff
 from app.services.utils import parse_json_relaxed
 
@@ -190,10 +190,13 @@ class OpenAIClient:
         return "\n".join(texts).strip()
 
     def _responses_json(self, user_text: str, *, model: str, vector_store_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        normalized_model = normalize_prompt_engineer_model(model)
+        if is_gemini_model(normalized_model):
+            return self._gemini_text_json(user_text, model=normalized_model)
         if not str(vector_store_id or "").strip():
             raise RuntimeError("Responses prompt engineer requires a vector store id")
         payload = {
-            "model": model,
+            "model": normalized_model,
             "input": user_text,
             "tools": [
                 {
@@ -209,8 +212,39 @@ class OpenAIClient:
             "request_payload": payload,
             "raw_response": response,
             "raw_text": raw_text,
-            "model": model,
+            "model": normalized_model,
             "vector_store_id": vector_store_id,
+        }
+
+    def _gemini_text_json(self, user_text: str, *, model: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        normalized_model = normalize_prompt_engineer_model(model)
+        model_path = quote(normalized_model, safe="")
+        url = f"{GOOGLE_BASE_URL}/models/{model_path}:generateContent"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": user_text},
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.4,
+                "responseMimeType": "application/json",
+            },
+        }
+        response = self._request_gemini("POST", url, json_body=payload)
+        candidates = response.get("candidates", [])
+        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+        content = "\n".join(str(part.get("text", "")) for part in parts if part.get("text")).strip()
+        return parse_json_relaxed(content), {
+            "provider": "google",
+            "model": normalized_model,
+            "raw_response": response,
+            "raw_text": content,
+            "request_payload": payload,
+            "vector_store_id": "",
         }
 
     def generate_first_prompt(
@@ -219,7 +253,7 @@ class OpenAIClient:
         assistant_id: str,
         *,
         mode: str = "assistant",
-        responses_model: str = "gpt-4.1-mini",
+        responses_model: str = "gpt-5.4",
         vector_store_id: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if mode == "responses_api":
@@ -232,7 +266,7 @@ class OpenAIClient:
         assistant_id: str,
         *,
         mode: str = "assistant",
-        responses_model: str = "gpt-4.1-mini",
+        responses_model: str = "gpt-5.4",
         vector_store_id: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if mode == "responses_api":

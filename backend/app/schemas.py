@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+PromptEngineerModel = Literal["gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
+
 
 class EntryCreate(BaseModel):
     word: str
@@ -165,7 +167,7 @@ class RuntimeConfigOut(BaseModel):
     openai_assistant_id: str
     openai_assistant_name: str
     prompt_engineer_mode: Literal["assistant", "responses_api"]
-    responses_prompt_engineer_model: str
+    responses_prompt_engineer_model: PromptEngineerModel
     responses_vector_store_id: str
     visual_style_id: str
     visual_style_name: str
@@ -189,7 +191,7 @@ class RuntimeConfigUpdate(BaseModel):
     openai_assistant_id: str | None = None
     openai_assistant_name: str | None = None
     prompt_engineer_mode: Literal["assistant", "responses_api"] | None = None
-    responses_prompt_engineer_model: str | None = None
+    responses_prompt_engineer_model: PromptEngineerModel | None = None
     responses_vector_store_id: str | None = None
     visual_style_id: str | None = None
     visual_style_name: str | None = None

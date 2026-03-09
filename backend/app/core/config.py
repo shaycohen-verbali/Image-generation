@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     openai_assistant_id: str = Field(default="", alias="OPENAI_ASSISTANT_ID")
     openai_assistant_name: str = Field(default="Prompt generator -JSON output", alias="OPENAI_ASSISTANT_NAME")
     prompt_engineer_mode: str = Field(default="assistant", alias="PROMPT_ENGINEER_MODE")
-    responses_prompt_engineer_model: str = Field(default="gpt-4.1-mini", alias="RESPONSES_PROMPT_ENGINEER_MODEL")
+    responses_prompt_engineer_model: str = Field(default="gpt-5.4", alias="RESPONSES_PROMPT_ENGINEER_MODEL")
     responses_vector_store_id: str = Field(default="vs_683f3d36223481919f59fc5623286253", alias="RESPONSES_VECTOR_STORE_ID")
     visual_style_id: str = Field(default="warm_watercolor_storybook_kids_v3", alias="VISUAL_STYLE_ID")
     visual_style_name: str = Field(default="Warm Watercolor Storybook Kids Style v3", alias="VISUAL_STYLE_NAME")
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     stage3_prompt_template: str = Field(default="", alias="STAGE3_PROMPT_TEMPLATE")
     openai_model_vision: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL_VISION")
     stage3_critique_model: str = Field(default="gpt-4o-mini", alias="STAGE3_CRITIQUE_MODEL")
-    stage3_generate_model: str = Field(default="flux-1.1-pro", alias="STAGE3_GENERATE_MODEL")
+    stage3_generate_model: str = Field(default="nano-banana-2", alias="STAGE3_GENERATE_MODEL")
     quality_gate_model: str = Field(default="gpt-4o-mini", alias="QUALITY_GATE_MODEL")
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
 
