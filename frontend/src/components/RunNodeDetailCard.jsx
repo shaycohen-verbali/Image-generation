@@ -33,6 +33,7 @@ function summarizeNode(node) {
     return [
       ['Person needed for clarity', analysis.person_needed_for_clarity || '-'],
       ['Presence issue', analysis.person_presence_problem || '-'],
+      ['Why', analysis.person_decision_reasoning || '-'],
       ['Challenges', analysis.challenges || '-'],
       ['Recommendations', analysis.recommendations || '-'],
     ]

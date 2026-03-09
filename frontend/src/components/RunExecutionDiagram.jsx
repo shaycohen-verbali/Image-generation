@@ -188,6 +188,7 @@ function renderOverviewSection({
   stage1NeedPerson,
   critiqueNeedPerson,
   critiquePresenceProblem,
+  critiqueReasoning,
   critiqueRecommendation,
   attempts,
   setSelectedAttempt,
@@ -311,6 +312,7 @@ function renderOverviewSection({
             <p><strong>Stage 1 initial guess:</strong> {stage1NeedPerson ? (stage1NeedPerson === 'yes' ? 'person needed' : 'no person needed') : 'not available'}</p>
             <p><strong>Stage 3.1 critique:</strong> {critiqueNeedPerson ? (critiqueNeedPerson === 'yes' ? 'person needed' : 'no person needed') : 'not available'}</p>
             <p><strong>Presence issue found:</strong> {critiquePresenceProblem || 'none recorded'}</p>
+            {critiqueReasoning ? <p><strong>Why:</strong> {critiqueReasoning}</p> : null}
             <p><strong>Result used in Stage 3.2/3.3:</strong> {resolvedNeedPerson ? (resolvedNeedPerson === 'yes' ? 'include a person' : 'do not include a person') : 'pending'}</p>
             {critiqueRecommendation ? <p><strong>Critique recommendation:</strong> {critiqueRecommendation}</p> : null}
           </div>
@@ -425,7 +427,7 @@ export default function RunExecutionDiagram({
     if (nextNodeId) {
       setSelectedNodeId(nextNodeId)
     }
-  }, [detail?.run?.id, detail?.run?.updated_at, detail?.run?.current_stage, detail?.run?.status])
+  }, [detail?.run?.id])
 
   useEffect(() => {
     setImageFilter(IMAGE_FILTER.ATTEMPT)
@@ -466,6 +468,7 @@ export default function RunExecutionDiagram({
   const stage1NeedPerson = String(stage1Parsed['need a person'] || stage1Parsed.need_person || '')
   const critiqueNeedPerson = String(latestAnalysis.person_needed_for_clarity || latestDecision.person_needed_for_clarity || '')
   const critiquePresenceProblem = String(latestAnalysis.person_presence_problem || latestDecision.person_presence_problem || '')
+  const critiqueReasoning = String(latestAnalysis.person_decision_reasoning || '')
   const critiqueRecommendation = String(latestAnalysis.recommendations || '')
   const resolvedNeedPerson = String(latestDecision.resolved_need_person || stage1Parsed['need a person'] || '')
   const resolvedRenderStyleName = String(latestDecision.render_style_name || '')
@@ -592,6 +595,7 @@ export default function RunExecutionDiagram({
         stage1NeedPerson,
         critiqueNeedPerson,
         critiquePresenceProblem,
+        critiqueReasoning,
         critiqueRecommendation,
         attempts,
         setSelectedAttempt,

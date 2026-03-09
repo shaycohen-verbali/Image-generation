@@ -25,7 +25,7 @@ const STAGE_DEFINITIONS = [
     label: 'Stage 3.1 Critique',
     provider: 'OpenAI Vision',
     inputs: ['previous image', 'word/POS/category'],
-    expected: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem'],
+    expected: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning'],
     retryPolicy: 'API retry + stage retry',
   },
   {
@@ -266,7 +266,7 @@ function critiqueTemplate(ctx) {
   return (
     'You are an expert AAC visual designer for children. ' +
     'Analyze the image for concept clarity. Return STRICT JSON with keys ' +
-    '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none"}. ' +
+    '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"..."}. ' +
     `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
   )
 }

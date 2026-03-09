@@ -349,14 +349,16 @@ class OpenAIClient:
             "You are an expert AAC visual designer for children. "
             "Analyze the image for concept clarity. Return STRICT JSON with keys "
             '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", '
-            '"person_presence_problem":"missing_person|unnecessary_person|none"}. '
+            '"person_presence_problem":"missing_person|unnecessary_person|none", '
+            '"person_decision_reasoning":"..."}. '
             f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
             f"Current system hypothesis: person needed = {initial_need_person}. "
             f"Current render style = {current_render_style_mode}. "
             "If the concept would be clearer with a person, return person_needed_for_clarity=yes and "
             "person_presence_problem=missing_person when the image lacks the needed person. "
             "If a person is distracting or unnecessary, return person_needed_for_clarity=no and "
-            "person_presence_problem=unnecessary_person. Otherwise return person_presence_problem=none."
+            "person_presence_problem=unnecessary_person. Otherwise return person_presence_problem=none. "
+            "In person_decision_reasoning, explain in one short sentence why a person is or is not needed for clarity."
         )
         return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.2)
 

@@ -31,7 +31,7 @@ const STAGE1_PROMPT_TEMPLATE = [
 ].join('\n')
 
 const STAGE3_CRITIQUE_PROMPT_TEMPLATE =
-  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Current system hypothesis: person needed = <decision.initial_need_person>. Current render style = <decision.render_style_mode>.'
+  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"..."}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Current system hypothesis: person needed = <decision.initial_need_person>. Current render style = <decision.render_style_mode>.'
 
 const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
   'Create an upgraded image prompt for the given word. Return STRICT JSON:',
@@ -108,7 +108,7 @@ const STAGE_DETAILS = {
     provider: 'OpenAI Vision / Google Gemini',
     model: 'gpt-4o-mini | gemini-3-flash | gemini-3-pro',
     inputs: ['stage2/stage3 source image', 'word', 'part_of_sentence', 'category'],
-    outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem'],
+    outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning'],
     instruction: STAGE3_CRITIQUE_PROMPT_TEMPLATE,
     requestExample: {
       content: [
