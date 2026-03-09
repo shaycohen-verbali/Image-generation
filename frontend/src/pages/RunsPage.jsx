@@ -26,12 +26,6 @@ function setStoredRunId(runId) {
   }
 }
 
-const stagePriority = {
-  stage2_draft: 1,
-  stage3_upgraded: 2,
-  stage4_white_bg: 3,
-}
-
 function stageTitle(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
@@ -206,26 +200,6 @@ export default function RunsPage() {
     }
   }
 
-  const selectedRunPromptEngineerMode =
-    detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json?.prompt_engineer_mode || 'assistant'
-  const selectedRunVisualStyleName =
-    detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json?.visual_style_name || visualStyleName
-
-  const sortedAssets = detail?.assets
-    ? [...detail.assets].sort((left, right) => {
-        const leftOrder = stagePriority[left.stage_name] || 99
-        const rightOrder = stagePriority[right.stage_name] || 99
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder
-        return (left.attempt || 0) - (right.attempt || 0)
-      })
-    : []
-
-  const finalAsset = sortedAssets.reduce((latest, asset) => {
-    if (asset.stage_name !== 'stage4_white_bg') return latest
-    if (!latest) return asset
-    return (asset.attempt || 0) >= (latest.attempt || 0) ? asset : latest
-  }, null)
-
   return (
     <section className="runs-page-stack">
       <section className="runs-layout">
@@ -307,74 +281,29 @@ export default function RunsPage() {
         {!detail ? (
           <p>Select a run row to see details.</p>
         ) : algoDiagramEnabled ? (
-          <>
-            <div className="run-debug-card">
-              <div>
-                <h4>Prompt Engineer Details</h4>
-                <p>Current runtime mode: <strong>{promptEngineerMode}</strong></p>
-                <p>Selected run used: <strong>{selectedRunPromptEngineerMode}</strong></p>
-                <p>House style for new runs: <strong>{visualStyleName}</strong></p>
-                <p>Selected run style: <strong>{selectedRunVisualStyleName}</strong></p>
-              </div>
-              <div className="form-grid">
-                <label>
-                  Prompt engineer mode
-                  <select value={promptEngineerMode} onChange={(e) => setPromptEngineerMode(e.target.value)}>
-                    <option value="assistant">Option 1: OpenAI Assistant</option>
-                    <option value="responses_api">Option 2: Responses API / Direct Model</option>
-                  </select>
-                </label>
-                <label>
-                  Prompt engineer model
-                  <select
-                    value={responsesPromptEngineerModel}
-                    onChange={(e) => setResponsesPromptEngineerModel(e.target.value)}
-                  >
-                    <option value="gpt-4o-mini">gpt-4o-mini</option>
-                    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-                    <option value="gpt-5.4">gpt-5.4</option>
-                    <option value="gemini-3-flash">Gemini-3-flash</option>
-                    <option value="gemini-3-pro">Gemini-3-pro</option>
-                  </select>
-                </label>
-                <label>
-                  Responses vector store id
-                  <input
-                    value={responsesVectorStoreId}
-                    onChange={(e) => setResponsesVectorStoreId(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Visual style id
-                  <input value={visualStyleId} onChange={(e) => setVisualStyleId(e.target.value)} />
-                </label>
-                <label>
-                  Visual style name
-                  <input value={visualStyleName} onChange={(e) => setVisualStyleName(e.target.value)} />
-                </label>
-                <label>
-                  Visual style instructions
-                  <textarea rows="12" value={visualStylePromptBlock} onChange={(e) => setVisualStylePromptBlock(e.target.value)} />
-                </label>
-                <label>
-                  Stage 1 prompt engineer input
-                  <textarea rows="10" value={stage1PromptTemplate} onChange={(e) => setStage1PromptTemplate(e.target.value)} />
-                </label>
-                <label>
-                  Stage 3 prompt engineer input
-                  <textarea rows="10" value={stage3PromptTemplate} onChange={(e) => setStage3PromptTemplate(e.target.value)} />
-                </label>
-                <p className="config-help-text">
-                  Placeholders: {'{word}'}, {'{part_of_sentence}'}, {'{category}'}, {'{context}'}, {'{boy_or_girl}'}, {'{photorealistic_hint}'}, {'{visual_style_id}'}, {'{visual_style_name}'}, {'{visual_style_block}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}.
-                </p>
-                <p className="config-help-text">
-                  OpenAI models use Responses API with the vector store. Gemini prompt engineer models use the direct Google API and do not use the vector store.
-                </p>
-                <button type="button" onClick={onSavePromptEngineerConfig}>Save Prompt Engineer Details</button>
-              </div>
-            </div>
-            <RunExecutionDiagram detail={detail} assistantName={assistantName} />
-          </>
+          <RunExecutionDiagram
+            detail={detail}
+            assistantName={assistantName}
+            promptEngineerConfig={{
+              promptEngineerMode,
+              setPromptEngineerMode,
+              responsesPromptEngineerModel,
+              setResponsesPromptEngineerModel,
+              responsesVectorStoreId,
+              setResponsesVectorStoreId,
+              visualStyleId,
+              setVisualStyleId,
+              visualStyleName,
+              setVisualStyleName,
+              visualStylePromptBlock,
+              setVisualStylePromptBlock,
+              stage1PromptTemplate,
+              setStage1PromptTemplate,
+              stage3PromptTemplate,
+              setStage3PromptTemplate,
+            }}
+            onSavePromptEngineerConfig={onSavePromptEngineerConfig}
+          />
         ) : (
           <>
             <h3>Run</h3>
