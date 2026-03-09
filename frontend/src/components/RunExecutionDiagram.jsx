@@ -3,6 +3,31 @@ import RunNodeDetailCard from './RunNodeDetailCard'
 import WorkflowCanvas from './WorkflowCanvas'
 import { buildRunDiagram, getAvailableAttempts } from '../lib/runDiagram'
 
+function runDetailStateKey(runId) {
+  return `aac:run-detail:${runId || 'unknown'}`
+}
+
+function loadRunDetailState(runId) {
+  try {
+    if (typeof window === 'undefined' || !runId) return null
+    const raw = window.sessionStorage.getItem(runDetailStateKey(runId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch (_error) {
+    return null
+  }
+}
+
+function saveRunDetailState(runId, value) {
+  try {
+    if (typeof window === 'undefined' || !runId) return
+    window.sessionStorage.setItem(runDetailStateKey(runId), JSON.stringify(value))
+  } catch (_error) {
+    // Ignore storage failures and keep UI usable.
+  }
+}
+
 function humanStatus(status) {
   const value = String(status || '').toLowerCase()
   if (value === 'ok') return 'Done'
@@ -392,13 +417,14 @@ export default function RunExecutionDiagram({
   onSavePromptEngineerConfig,
 }) {
   const attempts = useMemo(() => getAvailableAttempts(detail), [detail?.run?.id, detail?.run?.updated_at, detail])
-  const [selectedAttempt, setSelectedAttempt] = useState(defaultAttempt(detail, attempts))
-  const [imageFilter, setImageFilter] = useState(IMAGE_FILTER.ATTEMPT)
+  const initialState = loadRunDetailState(detail?.run?.id) || {}
+  const [selectedAttempt, setSelectedAttempt] = useState(initialState.selectedAttempt || defaultAttempt(detail, attempts))
+  const [imageFilter, setImageFilter] = useState(initialState.imageFilter || IMAGE_FILTER.ATTEMPT)
   const diagram = useMemo(() => buildRunDiagram(detail, selectedAttempt), [detail, selectedAttempt])
-  const [selectedNodeId, setSelectedNodeId] = useState(currentNodeId(detail) || 'stage3_generate')
+  const [selectedNodeId, setSelectedNodeId] = useState(initialState.selectedNodeId || currentNodeId(detail) || 'stage3_generate')
   const [showRunJson, setShowRunJson] = useState(false)
   const [copyMessage, setCopyMessage] = useState('')
-  const [activeTab, setActiveTab] = useState(DETAIL_TABS.OVERVIEW)
+  const [activeTab, setActiveTab] = useState(initialState.activeTab || DETAIL_TABS.OVERVIEW)
 
   async function copyJson(label, value) {
     try {
@@ -423,6 +449,21 @@ export default function RunExecutionDiagram({
   }, [diagram.nodes, selectedNodeId])
 
   useEffect(() => {
+    const stored = loadRunDetailState(detail?.run?.id)
+    if (stored) {
+      if (stored.activeTab) setActiveTab(stored.activeTab)
+      if (stored.imageFilter) setImageFilter(stored.imageFilter)
+      if (stored.selectedNodeId) setSelectedNodeId(stored.selectedNodeId)
+      if (stored.selectedAttempt && attempts.includes(Number(stored.selectedAttempt))) {
+        setSelectedAttempt(Number(stored.selectedAttempt))
+      } else {
+        setSelectedAttempt(defaultAttempt(detail, attempts))
+      }
+      return
+    }
+    setSelectedAttempt(defaultAttempt(detail, attempts))
+    setImageFilter(IMAGE_FILTER.ATTEMPT)
+    setActiveTab(DETAIL_TABS.OVERVIEW)
     const nextNodeId = currentNodeId(detail)
     if (nextNodeId) {
       setSelectedNodeId(nextNodeId)
@@ -430,9 +471,14 @@ export default function RunExecutionDiagram({
   }, [detail?.run?.id])
 
   useEffect(() => {
-    setImageFilter(IMAGE_FILTER.ATTEMPT)
-    setActiveTab(DETAIL_TABS.OVERVIEW)
-  }, [detail?.run?.id])
+    if (!detail?.run?.id) return
+    saveRunDetailState(detail.run.id, {
+      activeTab,
+      imageFilter,
+      selectedNodeId,
+      selectedAttempt,
+    })
+  }, [detail?.run?.id, activeTab, imageFilter, selectedNodeId, selectedAttempt])
 
   if (!detail) {
     return <p>Select a run row to see live execution.</p>
