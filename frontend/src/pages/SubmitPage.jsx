@@ -15,6 +15,7 @@ export default function SubmitPage() {
   const [uploadResult, setUploadResult] = useState(null)
   const [workerCount, setWorkerCount] = useState(10)
   const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
+  const [promptEngineerModel, setPromptEngineerModel] = useState('gpt-5.4')
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
@@ -29,6 +30,9 @@ export default function SubmitPage() {
         }
         if (mounted && config?.prompt_engineer_mode) {
           setPromptEngineerMode(config.prompt_engineer_mode)
+        }
+        if (mounted && config?.responses_prompt_engineer_model) {
+          setPromptEngineerModel(config.responses_prompt_engineer_model)
         }
         if (mounted && (config?.stage3_critique_model || config?.openai_model_vision)) {
           setStage3CritiqueModel(config.stage3_critique_model || config.openai_model_vision)
@@ -68,7 +72,10 @@ export default function SubmitPage() {
     }
     setMessage('Queueing run...')
     try {
-      await updateConfig({ prompt_engineer_mode: promptEngineerMode })
+      await updateConfig({
+        prompt_engineer_mode: promptEngineerMode,
+        responses_prompt_engineer_model: promptEngineerModel,
+      })
       const runs = await createRuns({ entry_ids: [lastEntryId] })
       setMessage(`Queued run ${runs[0].id}`)
     } catch (error) {
@@ -98,7 +105,10 @@ export default function SubmitPage() {
     }
     setMessage('Queueing imported entries...')
     try {
-      await updateConfig({ prompt_engineer_mode: promptEngineerMode })
+      await updateConfig({
+        prompt_engineer_mode: promptEngineerMode,
+        responses_prompt_engineer_model: promptEngineerModel,
+      })
       const runs = await createRuns({ entry_ids: entryIds })
       setMessage(`Queued ${runs.length} runs`)
     } catch (error) {
@@ -271,8 +281,18 @@ export default function SubmitPage() {
               <option value="responses_api">Option 2: Responses API / Direct Model</option>
             </select>
           </label>
+          <label>
+            Prompt engineer model
+            <select value={promptEngineerModel} onChange={(e) => setPromptEngineerModel(e.target.value)}>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              <option value="gpt-5.4">gpt-5.4</option>
+              <option value="gemini-3-flash">Gemini-3-flash</option>
+              <option value="gemini-3-pro">Gemini-3-pro</option>
+            </select>
+          </label>
           <p className="config-help-text">
-            The selected mode is applied automatically when you click Start Run or Queue Runs.
+            The selected mode and prompt engineer model are applied automatically when you click Start Run or Queue Runs.
           </p>
         </div>
       </article>

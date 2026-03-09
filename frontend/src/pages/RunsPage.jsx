@@ -4,6 +4,28 @@ import RunExecutionDiagram from '../components/RunExecutionDiagram'
 
 const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
 
+function getStoredRunId() {
+  try {
+    if (typeof window === 'undefined') return ''
+    return window.sessionStorage.getItem(SELECTED_RUN_STORAGE_KEY) || ''
+  } catch (_error) {
+    return ''
+  }
+}
+
+function setStoredRunId(runId) {
+  try {
+    if (typeof window === 'undefined') return
+    if (runId) {
+      window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, runId)
+    } else {
+      window.sessionStorage.removeItem(SELECTED_RUN_STORAGE_KEY)
+    }
+  } catch (_error) {
+    // Ignore storage failures and keep the page usable.
+  }
+}
+
 const stagePriority = {
   stage2_draft: 1,
   stage3_upgraded: 2,
@@ -22,7 +44,7 @@ export default function RunsPage() {
   const [filters, setFilters] = useState({ status: '', word: '', part_of_sentence: '', category: '' })
   const [runs, setRuns] = useState([])
   const [message, setMessage] = useState('')
-  const [selectedRunId, setSelectedRunId] = useState(() => window.sessionStorage.getItem(SELECTED_RUN_STORAGE_KEY) || '')
+  const [selectedRunId, setSelectedRunId] = useState(() => getStoredRunId())
   const [detail, setDetail] = useState(null)
   const [assistantName, setAssistantName] = useState('')
   const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
@@ -37,9 +59,7 @@ export default function RunsPage() {
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
-    if (selectedRunId) {
-      window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, selectedRunId)
-    }
+    setStoredRunId(selectedRunId)
   }, [selectedRunId])
 
   const query = useMemo(() => {
@@ -79,7 +99,7 @@ export default function RunsPage() {
       if (!activeRunId && data.length > 0) {
         setSelectedRunId(data[0].id)
         selectedRunIdRef.current = data[0].id
-        window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, data[0].id)
+        setStoredRunId(data[0].id)
         loadRunDetail(data[0].id)
       } else if (activeRunId) {
         const exists = data.some((run) => run.id === activeRunId)
@@ -88,9 +108,12 @@ export default function RunsPage() {
         } else if (data.length > 0) {
           setSelectedRunId(data[0].id)
           selectedRunIdRef.current = data[0].id
-          window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, data[0].id)
+          setStoredRunId(data[0].id)
           loadRunDetail(data[0].id)
         } else {
+          setSelectedRunId('')
+          selectedRunIdRef.current = ''
+          setStoredRunId('')
           setDetail(null)
         }
       }
