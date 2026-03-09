@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react'
 import WorkflowCanvas from './WorkflowCanvas'
 
-const PHOTOREALISTIC_HINT =
-  'If category is one of: Drinks, animals, food, food: fruits, food: vegetables, food: Sweets & desserts, shapes, school supplies, transportation - use a photorealistic style.'
+const DEFAULT_VISUAL_STYLE_NAME = 'Warm Watercolor Storybook Kids Style v3'
+const DEFAULT_VISUAL_STYLE_ID = 'warm_watercolor_storybook_kids_v3'
+const DEFAULT_VISUAL_STYLE_BLOCK =
+  'House visual style: Warm Watercolor Storybook Kids Style v3. Create a premium child-friendly storybook illustration with watercolor-gouache softness and a polished picture-book finish. The image must feel warm, safe, playful, vivid, inviting, emotionally legible, and easy for AAC users and early learners to understand at a glance. Keep one clear focal subject and one clear action or concept, with a crisp polished focal subject, stronger contrast, vivid color richness, bright cheerful colors, warm golden sunlight, lively natural tones, and a premium picture-book finish. Use simple supportive backgrounds that do not compete with the subject. If a child is present, use oversized expressive eyes, rosy cheeks, soft rounded childlike anatomy, clear friendly emotion, and a readable silhouette. Avoid faded or muddy color, photorealism, realistic anatomy, dark mood, clutter, text, watermark, 3D render, and generic flashcard art. This house style overrides category-based photorealistic rendering.'
 
 const STAGE1_PROMPT_TEMPLATE = [
   'Task: Create the first image prompt for the given word and decide if the prompt needs a person.',
@@ -15,7 +17,9 @@ const STAGE1_PROMPT_TEMPLATE = [
   'Category: <entry.category>',
   'If a person is present, use a: <entry.boy_or_girl>',
   '',
-  PHOTOREALISTIC_HINT,
+  'Do not switch to photorealistic rendering based on category. Follow the visual style block below.',
+  'Visual style to apply consistently across all images and attempts (<config.visual_style_name> / <config.visual_style_id>):',
+  '<config.visual_style_prompt_block>',
 ].join('\n')
 
 const STAGE3_CRITIQUE_PROMPT_TEMPLATE =
@@ -35,7 +39,10 @@ const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
   '',
   'Do not use text in the image.',
   "The word's category can add information in addition to its PoS.",
-  PHOTOREALISTIC_HINT,
+  'Do not switch to photorealistic rendering based on category. Follow the visual style block below.',
+  'Keep the exact house visual style consistent with previous and future images.',
+  'Visual style to apply consistently across all images and attempts (<config.visual_style_name> / <config.visual_style_id>):',
+  '<config.visual_style_prompt_block>',
 ].join('\n')
 
 const QUALITY_GATE_PROMPT_TEMPLATE =
@@ -210,8 +217,17 @@ function promptEngineerModeLabel(config) {
 export default function AlgorithmStaticMap({ assistantName = '', config = null }) {
   const [selectedNodeId, setSelectedNodeId] = useState('stage3_prompt_upgrade')
   const promptEngineerLabel = promptEngineerModeLabel(config)
-  const stage1Instruction = config?.stage1_prompt_template || STAGE1_PROMPT_TEMPLATE
-  const stage3Instruction = config?.stage3_prompt_template || STAGE3_UPGRADE_PROMPT_TEMPLATE
+  const visualStyleName = config?.visual_style_name || DEFAULT_VISUAL_STYLE_NAME
+  const visualStyleId = config?.visual_style_id || DEFAULT_VISUAL_STYLE_ID
+  const visualStyleBlock = config?.visual_style_prompt_block || DEFAULT_VISUAL_STYLE_BLOCK
+  const stage1Instruction = (config?.stage1_prompt_template || STAGE1_PROMPT_TEMPLATE)
+    .replaceAll('{visual_style_name}', visualStyleName)
+    .replaceAll('{visual_style_id}', visualStyleId)
+    .replaceAll('{visual_style_block}', visualStyleBlock)
+  const stage3Instruction = (config?.stage3_prompt_template || STAGE3_UPGRADE_PROMPT_TEMPLATE)
+    .replaceAll('{visual_style_name}', visualStyleName)
+    .replaceAll('{visual_style_id}', visualStyleId)
+    .replaceAll('{visual_style_block}', visualStyleBlock)
 
   const nodes = useMemo(
     () => [
@@ -293,6 +309,9 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
           <strong>Responses config:</strong> {config?.responses_prompt_engineer_model || 'gpt-4.1-mini'} using vector store {config?.responses_vector_store_id || '-'}
         </p>
       ) : null}
+      <p className="algo-assistant-name">
+        <strong>Visual style:</strong> {visualStyleName} ({visualStyleId})
+      </p>
       <p className="algo-assistant-name">
         <strong>Loop logic:</strong> Stage 1 prompt engineer -> Stage 2 draft -> Stage 3 critique -> Stage 3 prompt engineer -> Stage 3 image -> Quality Gate -> loop back to Stage 3 critique until pass or attempts exhausted -> Stage 4 white background.
       </p>

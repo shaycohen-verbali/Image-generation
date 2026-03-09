@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 from app.models import Base, RuntimeConfig
-from app.services.prompt_templates import DEFAULT_STAGE1_PROMPT_TEMPLATE, DEFAULT_STAGE3_PROMPT_TEMPLATE
+from app.services.prompt_templates import (
+    DEFAULT_STAGE1_PROMPT_TEMPLATE,
+    DEFAULT_STAGE3_PROMPT_TEMPLATE,
+    DEFAULT_VISUAL_STYLE_ID,
+    DEFAULT_VISUAL_STYLE_NAME,
+    DEFAULT_VISUAL_STYLE_PROMPT_BLOCK,
+)
 
 
 @pytest.fixture()
@@ -43,6 +49,9 @@ def db_session(tmp_path: Path):
                 prompt_engineer_mode="assistant",
                 responses_prompt_engineer_model="gpt-4.1-mini",
                 responses_vector_store_id="vs_683f3d36223481919f59fc5623286253",
+                visual_style_id=DEFAULT_VISUAL_STYLE_ID,
+                visual_style_name=DEFAULT_VISUAL_STYLE_NAME,
+                visual_style_prompt_block=DEFAULT_VISUAL_STYLE_PROMPT_BLOCK,
                 stage1_prompt_template=DEFAULT_STAGE1_PROMPT_TEMPLATE,
                 stage3_prompt_template=DEFAULT_STAGE3_PROMPT_TEMPLATE,
                 stage3_critique_model="gpt-4o-mini",

@@ -153,6 +153,8 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
   const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'assistant')
   const selectedResponsesModel = String(stage1Request.responses_model || '')
   const selectedVectorStoreId = String(stage1Request.responses_vector_store_id || '')
+  const selectedVisualStyleName = String(stage1Request.visual_style_name || '')
+  const selectedVisualStyleId = String(stage1Request.visual_style_id || '')
   const threshold = Number(detail.run.quality_threshold || 95)
   const selectedAttemptScore = selectedSummary?.score ?? null
   const imageCreationFailed = (() => {
@@ -245,6 +247,7 @@ export default function RunExecutionDiagram({ detail, assistantName = '' }) {
         ) : (
           <p>Assistant name: {assistantName || 'Prompt generator -JSON output'}</p>
         )}
+        <p>Visual style: {selectedVisualStyleName || '-'} {selectedVisualStyleId ? `(${selectedVisualStyleId})` : ''}</p>
       </div>
 
       <div className="run-debug-card">

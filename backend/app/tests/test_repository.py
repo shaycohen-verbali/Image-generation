@@ -68,3 +68,6 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
     assert config.prompt_engineer_mode == "assistant"
     assert config.stage1_prompt_template
     assert config.stage3_prompt_template
+    assert config.visual_style_id
+    assert config.visual_style_name
+    assert config.visual_style_prompt_block

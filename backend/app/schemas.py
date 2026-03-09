@@ -167,6 +167,9 @@ class RuntimeConfigOut(BaseModel):
     prompt_engineer_mode: Literal["assistant", "responses_api"]
     responses_prompt_engineer_model: str
     responses_vector_store_id: str
+    visual_style_id: str
+    visual_style_name: str
+    visual_style_prompt_block: str
     stage1_prompt_template: str
     stage3_prompt_template: str
     openai_model_vision: str
@@ -188,6 +191,9 @@ class RuntimeConfigUpdate(BaseModel):
     prompt_engineer_mode: Literal["assistant", "responses_api"] | None = None
     responses_prompt_engineer_model: str | None = None
     responses_vector_store_id: str | None = None
+    visual_style_id: str | None = None
+    visual_style_name: str | None = None
+    visual_style_prompt_block: str | None = None
     stage1_prompt_template: str | None = None
     stage3_prompt_template: str | None = None
     openai_model_vision: str | None = None

@@ -193,7 +193,13 @@ class PipelineRunner:
         def _exec():
             start = perf_counter()
             runtime_config = self.repo.get_runtime_config()
-            prompt_payload = build_stage1_prompt(entry, runtime_config.stage1_prompt_template)
+            prompt_payload = build_stage1_prompt(
+                entry,
+                runtime_config.stage1_prompt_template,
+                visual_style_id=runtime_config.visual_style_id,
+                visual_style_name=runtime_config.visual_style_name,
+                visual_style_block=runtime_config.visual_style_prompt_block,
+            )
             try:
                 parsed, raw = self.openai.generate_first_prompt(
                     prompt_payload,
@@ -230,6 +236,9 @@ class PipelineRunner:
                     "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
                     "responses_model": runtime_config.responses_prompt_engineer_model if runtime_config.prompt_engineer_mode == "responses_api" else "",
                     "responses_vector_store_id": runtime_config.responses_vector_store_id if runtime_config.prompt_engineer_mode == "responses_api" else "",
+                    "visual_style_id": runtime_config.visual_style_id,
+                    "visual_style_name": runtime_config.visual_style_name,
+                    "visual_style_prompt_block": runtime_config.visual_style_prompt_block,
                 },
                 response_json={"prompt_engineer_mode": runtime_config.prompt_engineer_mode, "parsed": parsed, "raw": raw},
             )
@@ -416,6 +425,9 @@ class PipelineRunner:
             challenges=str(analysis.get("challenges", "")),
             recommendations=recommendations,
             template_text=runtime_config.stage3_prompt_template,
+            visual_style_id=runtime_config.visual_style_id,
+            visual_style_name=runtime_config.visual_style_name,
+            visual_style_block=runtime_config.visual_style_prompt_block,
         )
 
         try:
@@ -494,6 +506,9 @@ class PipelineRunner:
                 "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
                 "responses_model": runtime_config.responses_prompt_engineer_model if runtime_config.prompt_engineer_mode == "responses_api" else "",
                 "responses_vector_store_id": runtime_config.responses_vector_store_id if runtime_config.prompt_engineer_mode == "responses_api" else "",
+                "visual_style_id": runtime_config.visual_style_id,
+                "visual_style_name": runtime_config.visual_style_name,
+                "visual_style_prompt_block": runtime_config.visual_style_prompt_block,
                 "critique_model_selected": critique_model,
                 "generation_model_selected": selected_stage3_model,
             },

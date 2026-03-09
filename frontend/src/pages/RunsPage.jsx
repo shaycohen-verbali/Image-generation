@@ -28,6 +28,9 @@ export default function RunsPage() {
   const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
   const [responsesPromptEngineerModel, setResponsesPromptEngineerModel] = useState('gpt-4.1-mini')
   const [responsesVectorStoreId, setResponsesVectorStoreId] = useState('vs_683f3d36223481919f59fc5623286253')
+  const [visualStyleId, setVisualStyleId] = useState('warm_watercolor_storybook_kids_v3')
+  const [visualStyleName, setVisualStyleName] = useState('Warm Watercolor Storybook Kids Style v3')
+  const [visualStylePromptBlock, setVisualStylePromptBlock] = useState('')
   const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
   const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
   const selectedRunIdRef = useRef('')
@@ -113,6 +116,15 @@ export default function RunsPage() {
         if (mounted && config?.responses_vector_store_id) {
           setResponsesVectorStoreId(config.responses_vector_store_id)
         }
+        if (mounted && config?.visual_style_id) {
+          setVisualStyleId(config.visual_style_id)
+        }
+        if (mounted && config?.visual_style_name) {
+          setVisualStyleName(config.visual_style_name)
+        }
+        if (mounted && typeof config?.visual_style_prompt_block === 'string') {
+          setVisualStylePromptBlock(config.visual_style_prompt_block)
+        }
         if (mounted && typeof config?.stage1_prompt_template === 'string') {
           setStage1PromptTemplate(config.stage1_prompt_template)
         }
@@ -151,15 +163,21 @@ export default function RunsPage() {
         prompt_engineer_mode: promptEngineerMode,
         responses_prompt_engineer_model: responsesPromptEngineerModel,
         responses_vector_store_id: responsesVectorStoreId,
+        visual_style_id: visualStyleId,
+        visual_style_name: visualStyleName,
+        visual_style_prompt_block: visualStylePromptBlock,
         stage1_prompt_template: stage1PromptTemplate,
         stage3_prompt_template: stage3PromptTemplate,
       })
       setPromptEngineerMode(updated.prompt_engineer_mode)
       setResponsesPromptEngineerModel(updated.responses_prompt_engineer_model)
       setResponsesVectorStoreId(updated.responses_vector_store_id)
+      setVisualStyleId(updated.visual_style_id)
+      setVisualStyleName(updated.visual_style_name)
+      setVisualStylePromptBlock(updated.visual_style_prompt_block)
       setStage1PromptTemplate(updated.stage1_prompt_template)
       setStage3PromptTemplate(updated.stage3_prompt_template)
-      setMessage('Saved prompt engineer configuration')
+      setMessage('Saved prompt engineer and visual style configuration')
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -167,6 +185,8 @@ export default function RunsPage() {
 
   const selectedRunPromptEngineerMode =
     detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json?.prompt_engineer_mode || 'assistant'
+  const selectedRunVisualStyleName =
+    detail?.stages?.find((stage) => stage.stage_name === 'stage1_prompt')?.request_json?.visual_style_name || visualStyleName
 
   const sortedAssets = detail?.assets
     ? [...detail.assets].sort((left, right) => {
@@ -270,6 +290,8 @@ export default function RunsPage() {
                 <h4>Prompt Engineer Details</h4>
                 <p>Current runtime mode: <strong>{promptEngineerMode}</strong></p>
                 <p>Selected run used: <strong>{selectedRunPromptEngineerMode}</strong></p>
+                <p>House style for new runs: <strong>{visualStyleName}</strong></p>
+                <p>Selected run style: <strong>{selectedRunVisualStyleName}</strong></p>
               </div>
               <div className="form-grid">
                 <label>
@@ -294,6 +316,18 @@ export default function RunsPage() {
                   />
                 </label>
                 <label>
+                  Visual style id
+                  <input value={visualStyleId} onChange={(e) => setVisualStyleId(e.target.value)} />
+                </label>
+                <label>
+                  Visual style name
+                  <input value={visualStyleName} onChange={(e) => setVisualStyleName(e.target.value)} />
+                </label>
+                <label>
+                  Visual style instructions
+                  <textarea rows="12" value={visualStylePromptBlock} onChange={(e) => setVisualStylePromptBlock(e.target.value)} />
+                </label>
+                <label>
                   Stage 1 prompt engineer input
                   <textarea rows="10" value={stage1PromptTemplate} onChange={(e) => setStage1PromptTemplate(e.target.value)} />
                 </label>
@@ -302,7 +336,7 @@ export default function RunsPage() {
                   <textarea rows="10" value={stage3PromptTemplate} onChange={(e) => setStage3PromptTemplate(e.target.value)} />
                 </label>
                 <p className="config-help-text">
-                  Placeholders: {'{word}'}, {'{part_of_sentence}'}, {'{category}'}, {'{context}'}, {'{boy_or_girl}'}, {'{photorealistic_hint}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}.
+                  Placeholders: {'{word}'}, {'{part_of_sentence}'}, {'{category}'}, {'{context}'}, {'{boy_or_girl}'}, {'{photorealistic_hint}'}, {'{visual_style_id}'}, {'{visual_style_name}'}, {'{visual_style_block}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}.
                 </p>
                 <button type="button" onClick={onSavePromptEngineerConfig}>Save Prompt Engineer Details</button>
               </div>
