@@ -32,6 +32,39 @@ DEFAULT_PHOTOREALISTIC_STYLE_PROMPT_BLOCK = (
     "watermark, dramatic shadows, moody lighting, excessive props, and unnecessary people."
 )
 
+DEFAULT_ILLUSTRATION_ENFORCED_PROMPT_TEMPLATE = (
+    "Create an illustration for the AAC concept \"{word}\".\n"
+    "Use this concept guidance from the prompt engineer: {source_prompt}\n"
+    "Context: {context}\n"
+    "Part of speech: {part_of_sentence}\n"
+    "Category: {category}\n"
+    "Hard requirements:\n"
+    "- Resolved render style: illustration ({render_style_name}).\n"
+    "- {person_decision_instruction}\n"
+    "- Keep one clear focal subject and one clear action or concept.\n"
+    "- Keep the person central, readable, and emotionally clear when present.\n"
+    "- Do not add text.\n"
+    "- Follow this illustration style block exactly:\n"
+    "{render_style_block}\n"
+)
+
+DEFAULT_PHOTOREALISTIC_ENFORCED_PROMPT_TEMPLATE = (
+    "Create a photorealistic AAC image for the concept \"{word}\".\n"
+    "Use this concept guidance from the prompt engineer: {source_prompt}\n"
+    "Context: {context}\n"
+    "Part of speech: {part_of_sentence}\n"
+    "Category: {category}\n"
+    "Hard requirements:\n"
+    "- Resolved render style: photorealistic ({render_style_name}).\n"
+    "- {person_decision_instruction}\n"
+    "- Show one clear focal subject or one clear real-world concept.\n"
+    "- Keep the subject large, immediately recognizable, and free of distracting props.\n"
+    "- Use realistic materials, realistic lighting, clean edges, and simple composition.\n"
+    "- Do not add text.\n"
+    "- Follow this photorealistic style block exactly:\n"
+    "{render_style_block}\n"
+)
+
 
 def _photorealistic_hint() -> str:
     return (
@@ -88,6 +121,34 @@ def _render_template(template_text: str, values: dict[str, str]) -> str:
     for key, value in values.items():
         rendered = rendered.replace(f"{{{key}}}", str(value or ""))
     return rendered
+
+
+def _strip_style_conflicts(prompt_text: str, render_style_mode: str) -> str:
+    text = " ".join(str(prompt_text or "").split())
+    if render_style_mode == "photorealistic":
+        for marker in [
+            "illustration",
+            "storybook",
+            "watercolor-gouache",
+            "watercolor",
+            "colored pencil",
+            "cartoonish",
+            "cartoon",
+            "playful and kid-friendly",
+            "kid-friendly",
+        ]:
+            text = text.replace(marker, "")
+            text = text.replace(marker.title(), "")
+    else:
+        for marker in [
+            "photorealistic",
+            "realistic materials",
+            "realistic lighting",
+            "clean premium photorealistic",
+        ]:
+            text = text.replace(marker, "")
+            text = text.replace(marker.title(), "")
+    return " ".join(text.split()).strip()
 
 
 def _render_with_visual_style(
@@ -205,6 +266,10 @@ def apply_render_decision_to_prompt(
     *,
     resolved_need_person: str,
     resolved_need_person_reasoning: str = "kept_stage1_person_decision",
+    word: str = "",
+    part_of_sentence: str = "",
+    category: str = "",
+    context: str = "",
     boy_or_girl: str = "",
     illustration_style_id: str = DEFAULT_VISUAL_STYLE_ID,
     illustration_style_name: str = DEFAULT_VISUAL_STYLE_NAME,
@@ -227,12 +292,21 @@ def apply_render_decision_to_prompt(
         "person_decision_instruction": person_instruction_for_need_person(normalized_need_person, boy_or_girl=boy_or_girl),
         **style,
     }
-    enforced_prompt = (
-        f"{prompt_text.strip()}\n\n"
-        "System-enforced rendering rule:\n"
-        f"- Resolved render style: {decision['render_style_mode']} ({decision['render_style_name']}).\n"
-        f"- {decision['person_decision_instruction']}\n"
-        f"- Style block to follow:\n{decision['render_style_block']}"
+    normalized_source_prompt = _strip_style_conflicts(prompt_text, decision["render_style_mode"]) or str(prompt_text or "").strip()
+    enforced_prompt = _render_template(
+        DEFAULT_ILLUSTRATION_ENFORCED_PROMPT_TEMPLATE
+        if decision["render_style_mode"] == "illustration"
+        else DEFAULT_PHOTOREALISTIC_ENFORCED_PROMPT_TEMPLATE,
+        {
+            "word": word,
+            "context": context,
+            "part_of_sentence": part_of_sentence,
+            "category": category,
+            "source_prompt": normalized_source_prompt,
+            "render_style_name": decision["render_style_name"],
+            "person_decision_instruction": decision["person_decision_instruction"],
+            "render_style_block": decision["render_style_block"],
+        },
     ).strip()
     return enforced_prompt, decision
 

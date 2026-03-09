@@ -649,15 +649,9 @@ pre {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
-  padding: 10px;
+  padding: 14px;
   display: grid;
-  gap: 8px;
-}
-
-.run-node-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
+  gap: 12px;
 }
 
 .run-node-section {
@@ -694,6 +688,76 @@ pre {
 
 .run-node-detail-head h3 {
   margin: 0;
+}
+
+.run-node-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.run-node-summary-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffaf3;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.run-node-summary-card span {
+  font-size: 0.76rem;
+  color: #576a76;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.run-node-summary-card strong {
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.run-node-main-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.run-node-main-card,
+.run-node-wide-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffaf3;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.run-node-main-card h4,
+.run-node-wide-card h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.run-node-main-card p,
+.run-node-wide-card p {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.run-node-wide-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.run-node-inline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .status-pill {

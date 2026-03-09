@@ -62,10 +62,32 @@ def test_resolve_person_decision_can_override_stage1_hypothesis() -> None:
 
 def test_apply_render_decision_to_prompt_enforces_photorealistic_without_person() -> None:
     enforced_prompt, decision = apply_render_decision_to_prompt(
-        "A red bucket on grass.",
+        "A bright colored pencil illustration of a red bucket on grass.",
         resolved_need_person="no",
+        word="bucket",
+        part_of_sentence="noun",
+        category="",
+        context="at the beach",
         boy_or_girl="girl",
     )
     assert decision["render_style_mode"] == "photorealistic"
     assert "Do not include any person" in enforced_prompt
     assert DEFAULT_PHOTOREALISTIC_STYLE_NAME in enforced_prompt
+    assert "Create a photorealistic AAC image" in enforced_prompt
+    assert "colored pencil" not in enforced_prompt.lower()
+
+
+def test_apply_render_decision_to_prompt_enforces_illustration_with_person() -> None:
+    enforced_prompt, decision = apply_render_decision_to_prompt(
+        "A clean photorealistic bucket with realistic lighting.",
+        resolved_need_person="yes",
+        word="carry",
+        part_of_sentence="verb",
+        category="",
+        context="at the beach",
+        boy_or_girl="girl",
+    )
+    assert decision["render_style_mode"] == "illustration"
+    assert "Create an illustration for the AAC concept" in enforced_prompt
+    assert "Include one clear central person" in enforced_prompt
+    assert "Follow this illustration style block exactly" in enforced_prompt

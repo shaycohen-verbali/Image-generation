@@ -494,9 +494,17 @@ export function buildRunDiagram(detail, selectedAttempt) {
     {
       id: 'stage3_critique',
       stageResult: stage3Result,
-      promptRecord: stage3Prompt || null,
-      requestPayload: {},
-      responsePayload: stage3Analysis,
+      promptRecord: null,
+      requestPayload: {
+        critique_model_selected: safeText(stage3Request.critique_model_selected),
+        initial_need_person: safeText(stage3Request.initial_need_person),
+        current_render_style_mode: safeText(stage3Request.current_render_style_mode),
+      },
+      responsePayload: {
+        analysis: stage3Analysis,
+        analysis_raw: safeObject(stage3Response.analysis_raw),
+        decision: safeObject(stage3Response.decision),
+      },
       asset: stage2Asset || null,
       model: safeText(safeObject(stage3Result?.request_json).critique_model_selected) || 'gpt-4o-mini',
       score: null,
