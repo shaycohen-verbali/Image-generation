@@ -336,7 +336,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         <strong>Photorealistic style:</strong> AAC Clean Photorealistic Style v1 (built-in when the resolved decision is no person)
       </p>
       <p className="algo-assistant-name">
-        <strong>Loop logic:</strong> Stage 1 proposes whether a person is needed -> Stage 2 draft -> Stage 3 critique validates or corrects that decision -> Stage 3 prompt engineer enforces the resolved style -> Stage 3 image -> Quality Gate -> loop back to Stage 3 critique until pass or attempts exhausted -> Stage 4 white background.
+        <strong>Loop logic:</strong> Stage 1 makes an initial guess about whether a person is needed -> Stage 2 creates the draft -> Stage 3.1 critique decides whether a person is actually needed for clarity -> Stage 3.2 prompt engineer uses that Stage 3.1 decision -> Stage 3.3 generates the upgraded image -> Quality Gate -> loop back to Stage 3.1 until pass or attempts exhausted -> Stage 4 white background.
       </p>
 
       <WorkflowCanvas

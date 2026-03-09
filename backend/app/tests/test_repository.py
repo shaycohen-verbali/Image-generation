@@ -66,7 +66,7 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
     assert config.stage3_critique_model == "gpt-4o-mini"
     assert config.stage3_generate_model == "nano-banana-2"
     assert config.quality_gate_model == "gemini-3-pro"
-    assert config.prompt_engineer_mode == "assistant"
+    assert config.prompt_engineer_mode == "responses_api"
     assert config.responses_prompt_engineer_model == "gpt-5.4"
     assert config.stage1_prompt_template
     assert config.stage3_prompt_template

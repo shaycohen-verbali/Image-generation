@@ -460,8 +460,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage3UpgradeRequest = safeText(stage3Request.upgrade_prompt_request)
   const stage3GenerationModel = safeText(stage3Response.generation_model)
   const stage1Request = safeObject(stage1Result?.request_json)
-  const stage1PromptEngineerMode = safeText(stage1Request.prompt_engineer_mode) || safeText(safeObject(stage1Prompt?.raw_response_json).prompt_engineer_mode) || 'assistant'
-  const stage3PromptEngineerMode = safeText(stage3Request.prompt_engineer_mode) || safeText(stage3Assistant.mode) || safeText(safeObject(stage3Prompt?.raw_response_json).prompt_engineer_mode) || 'assistant'
+  const stage1PromptEngineerMode = safeText(stage1Request.prompt_engineer_mode) || safeText(safeObject(stage1Prompt?.raw_response_json).prompt_engineer_mode) || 'responses_api'
+  const stage3PromptEngineerMode = safeText(stage3Request.prompt_engineer_mode) || safeText(stage3Assistant.mode) || safeText(safeObject(stage3Prompt?.raw_response_json).prompt_engineer_mode) || 'responses_api'
   const stage1ResponsesModel = safeText(stage1Request.responses_model)
   const stage3ResponsesModel = safeText(stage3Request.responses_model)
 

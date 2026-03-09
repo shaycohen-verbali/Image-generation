@@ -46,7 +46,7 @@ def db_session(tmp_path: Path):
                 flux_imagen_fallback_enabled=True,
                 openai_assistant_id="asst_test",
                 openai_assistant_name="Prompt generator -JSON output",
-                prompt_engineer_mode="assistant",
+                prompt_engineer_mode="responses_api",
                 responses_prompt_engineer_model="gpt-5.4",
                 responses_vector_store_id="vs_683f3d36223481919f59fc5623286253",
                 visual_style_id=DEFAULT_VISUAL_STYLE_ID,

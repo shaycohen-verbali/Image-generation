@@ -51,7 +51,7 @@ class Repository:
             if value is not None and hasattr(config, key):
                 setattr(config, key, value)
         if config.prompt_engineer_mode not in {"assistant", "responses_api"}:
-            config.prompt_engineer_mode = "assistant"
+            config.prompt_engineer_mode = "responses_api"
         if updates.get("openai_model_vision") is not None:
             legacy_model = normalize_vision_model(config.openai_model_vision)
             if updates.get("stage3_critique_model") is None:

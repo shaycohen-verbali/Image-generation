@@ -157,7 +157,7 @@ class RuntimeConfig(Base):
     flux_imagen_fallback_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     openai_assistant_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     openai_assistant_name: Mapped[str] = mapped_column(String(256), default="Prompt generator -JSON output", nullable=False)
-    prompt_engineer_mode: Mapped[str] = mapped_column(String(32), default="assistant", nullable=False)
+    prompt_engineer_mode: Mapped[str] = mapped_column(String(32), default="responses_api", nullable=False)
     responses_prompt_engineer_model: Mapped[str] = mapped_column(String(128), default="gpt-5.4", nullable=False)
     responses_vector_store_id: Mapped[str] = mapped_column(String(128), default="vs_683f3d36223481919f59fc5623286253", nullable=False)
     visual_style_id: Mapped[str] = mapped_column(String(128), default="warm_watercolor_storybook_kids_v3", nullable=False)

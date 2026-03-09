@@ -14,7 +14,7 @@ export default function SubmitPage() {
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
   const [workerCount, setWorkerCount] = useState(10)
-  const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
+  const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
   const [promptEngineerModel, setPromptEngineerModel] = useState('gpt-5.4')
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
@@ -277,8 +277,8 @@ export default function SubmitPage() {
           <label>
             Prompt engineer mode
             <select value={promptEngineerMode} onChange={(e) => setPromptEngineerMode(e.target.value)}>
-              <option value="assistant">Option 1: OpenAI Assistant</option>
               <option value="responses_api">Option 2: Responses API / Direct Model</option>
+              <option value="assistant">Option 1: OpenAI Assistant</option>
             </select>
           </label>
           <label>

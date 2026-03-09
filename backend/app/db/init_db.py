@@ -36,7 +36,7 @@ def init_db() -> None:
                     flux_imagen_fallback_enabled=settings.flux_imagen_fallback_enabled,
                     openai_assistant_id=settings.openai_assistant_id,
                     openai_assistant_name=settings.openai_assistant_name,
-                    prompt_engineer_mode=settings.prompt_engineer_mode if settings.prompt_engineer_mode in {"assistant", "responses_api"} else "assistant",
+                    prompt_engineer_mode=settings.prompt_engineer_mode if settings.prompt_engineer_mode in {"assistant", "responses_api"} else "responses_api",
                     responses_prompt_engineer_model=normalize_prompt_engineer_model(settings.responses_prompt_engineer_model),
                     responses_vector_store_id=settings.responses_vector_store_id,
                     visual_style_id=settings.visual_style_id or DEFAULT_VISUAL_STYLE_ID,
@@ -62,7 +62,7 @@ def init_db() -> None:
             else:
                 existing.stage3_generate_model = normalize_stage3_generation_model(existing.stage3_generate_model)
             existing.quality_gate_model = normalize_vision_model(existing.quality_gate_model or existing.openai_model_vision)
-            existing.prompt_engineer_mode = existing.prompt_engineer_mode if existing.prompt_engineer_mode in {"assistant", "responses_api"} else "assistant"
+            existing.prompt_engineer_mode = existing.prompt_engineer_mode if existing.prompt_engineer_mode in {"assistant", "responses_api"} else "responses_api"
             if not existing.responses_prompt_engineer_model or existing.responses_prompt_engineer_model == "gpt-4.1-mini":
                 existing.responses_prompt_engineer_model = "gpt-5.4"
             else:
@@ -93,7 +93,7 @@ def _ensure_runtime_config_columns() -> None:
         if "quality_gate_model" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
         if "prompt_engineer_mode" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'assistant'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
         if "responses_prompt_engineer_model" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
         if "responses_vector_store_id" not in existing:

@@ -47,7 +47,7 @@ export default function RunsPage() {
   const [selectedRunId, setSelectedRunId] = useState(() => getStoredRunId())
   const [detail, setDetail] = useState(null)
   const [assistantName, setAssistantName] = useState('')
-  const [promptEngineerMode, setPromptEngineerMode] = useState('assistant')
+  const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
   const [responsesPromptEngineerModel, setResponsesPromptEngineerModel] = useState('gpt-5.4')
   const [responsesVectorStoreId, setResponsesVectorStoreId] = useState('vs_683f3d36223481919f59fc5623286253')
   const [visualStyleId, setVisualStyleId] = useState('warm_watercolor_storybook_kids_v3')

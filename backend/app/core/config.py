@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_assistant_id: str = Field(default="", alias="OPENAI_ASSISTANT_ID")
     openai_assistant_name: str = Field(default="Prompt generator -JSON output", alias="OPENAI_ASSISTANT_NAME")
-    prompt_engineer_mode: str = Field(default="assistant", alias="PROMPT_ENGINEER_MODE")
+    prompt_engineer_mode: str = Field(default="responses_api", alias="PROMPT_ENGINEER_MODE")
     responses_prompt_engineer_model: str = Field(default="gpt-5.4", alias="RESPONSES_PROMPT_ENGINEER_MODEL")
     responses_vector_store_id: str = Field(default="vs_683f3d36223481919f59fc5623286253", alias="RESPONSES_VECTOR_STORE_ID")
     visual_style_id: str = Field(default="warm_watercolor_storybook_kids_v3", alias="VISUAL_STYLE_ID")

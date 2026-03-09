@@ -185,6 +185,10 @@ function renderOverviewSection({
   resolvedRenderStyleName,
   resolvedNeedPerson,
   resolvedPersonReason,
+  stage1NeedPerson,
+  critiqueNeedPerson,
+  critiquePresenceProblem,
+  critiqueRecommendation,
   attempts,
   setSelectedAttempt,
   setImageFilter,
@@ -258,9 +262,22 @@ function renderOverviewSection({
           <p>{winnerStage4Asset?.file_name || 'No white-background winner image yet'}</p>
         </article>
         <article className="run-kpi-card">
-          <p className="detail-eyebrow">Person decision</p>
+          <p className="detail-eyebrow">Person needed? (Stage 3.1)</p>
           <h4>{resolvedNeedPerson ? `Person ${resolvedNeedPerson === 'yes' ? 'required' : 'not needed'}` : 'Not resolved yet'}</h4>
           <p>{resolvedPersonReason || 'No critique correction recorded yet.'}</p>
+        </article>
+        <article className="run-kpi-card">
+          <p className="detail-eyebrow">Decision flow</p>
+          <h4>Stage 1: {stage1NeedPerson ? (stage1NeedPerson === 'yes' ? 'person needed' : 'no person needed') : '-'}</h4>
+          <p>
+            Stage 3.1: {critiqueNeedPerson ? (critiqueNeedPerson === 'yes' ? 'person needed' : 'no person needed') : 'not decided yet'}
+            {critiquePresenceProblem ? ` | ${critiquePresenceProblem}` : ''}
+          </p>
+        </article>
+        <article className="run-kpi-card">
+          <p className="detail-eyebrow">Applied to next step</p>
+          <h4>{resolvedNeedPerson ? 'Yes' : 'Pending'}</h4>
+          <p>Stage 3.2 prompt upgrade and Stage 3.3 image generation use the Stage 3.1 resolved person decision.</p>
         </article>
         <article className="run-kpi-card">
           <p className="detail-eyebrow">Attention</p>
@@ -280,6 +297,24 @@ function renderOverviewSection({
           {imageCreationFailed ? <span className="run-flag run-flag-error">Flag: image creation failed in this run</span> : null}
           {scoreTooLow ? <span className="run-flag run-flag-warn">Flag: score is below threshold ({threshold})</span> : null}
         </div>
+      ) : null}
+
+      {(stage1NeedPerson || critiqueNeedPerson || critiqueRecommendation) ? (
+        <section className="run-overview-card">
+          <div className="section-head-row">
+            <div>
+              <h4>Stage 3.1 Person Decision</h4>
+              <p>This is the clearest place to see whether the upgraded image should include a person.</p>
+            </div>
+          </div>
+          <div className="run-help-card">
+            <p><strong>Stage 1 initial guess:</strong> {stage1NeedPerson ? (stage1NeedPerson === 'yes' ? 'person needed' : 'no person needed') : 'not available'}</p>
+            <p><strong>Stage 3.1 critique:</strong> {critiqueNeedPerson ? (critiqueNeedPerson === 'yes' ? 'person needed' : 'no person needed') : 'not available'}</p>
+            <p><strong>Presence issue found:</strong> {critiquePresenceProblem || 'none recorded'}</p>
+            <p><strong>Result used in Stage 3.2/3.3:</strong> {resolvedNeedPerson ? (resolvedNeedPerson === 'yes' ? 'include a person' : 'do not include a person') : 'pending'}</p>
+            {critiqueRecommendation ? <p><strong>Critique recommendation:</strong> {critiqueRecommendation}</p> : null}
+          </div>
+        </section>
       ) : null}
 
       <section className="run-overview-split">
@@ -419,7 +454,8 @@ export default function RunExecutionDiagram({
       .filter((stage) => stage.stage_name === 'stage3_upgrade')
       .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null
   const latestDecision = firstNonEmptyObject(safeObject(latestStage3?.response_json).decision, stage1Response.decision)
-  const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'assistant')
+  const latestAnalysis = safeObject(safeObject(latestStage3?.response_json).analysis)
+  const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'responses_api')
   const selectedResponsesModel = String(stage1Request.responses_model || '')
   const selectedVectorStoreId = String(stage1Request.responses_vector_store_id || '')
   const usesGeminiPromptEngineer = selectedResponsesModel.toLowerCase().startsWith('gemini-')
@@ -427,6 +463,10 @@ export default function RunExecutionDiagram({
   const selectedVisualStyleId = String(stage1Request.visual_style_id || '')
   const resolvedRenderStyleMode = String(latestDecision.render_style_mode || '')
   const stage1Parsed = safeObject(stage1Response.parsed)
+  const stage1NeedPerson = String(stage1Parsed['need a person'] || stage1Parsed.need_person || '')
+  const critiqueNeedPerson = String(latestAnalysis.person_needed_for_clarity || latestDecision.person_needed_for_clarity || '')
+  const critiquePresenceProblem = String(latestAnalysis.person_presence_problem || latestDecision.person_presence_problem || '')
+  const critiqueRecommendation = String(latestAnalysis.recommendations || '')
   const resolvedNeedPerson = String(latestDecision.resolved_need_person || stage1Parsed['need a person'] || '')
   const resolvedRenderStyleName = String(latestDecision.render_style_name || '')
   const resolvedPersonReason = String(latestDecision.resolved_need_person_reasoning || '')
@@ -549,6 +589,10 @@ export default function RunExecutionDiagram({
         resolvedRenderStyleName,
         resolvedNeedPerson,
         resolvedPersonReason,
+        stage1NeedPerson,
+        critiqueNeedPerson,
+        critiquePresenceProblem,
+        critiqueRecommendation,
         attempts,
         setSelectedAttempt,
         setImageFilter,
@@ -684,8 +728,8 @@ export default function RunExecutionDiagram({
                   value={promptEngineerConfig.promptEngineerMode}
                   onChange={(e) => promptEngineerConfig.setPromptEngineerMode(e.target.value)}
                 >
-                  <option value="assistant">Option 1: OpenAI Assistant</option>
                   <option value="responses_api">Option 2: Responses API / Direct Model</option>
+                  <option value="assistant">Option 1: OpenAI Assistant</option>
                 </select>
               </label>
               <label>

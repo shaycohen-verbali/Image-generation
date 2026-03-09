@@ -110,7 +110,9 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           <p><strong>Stage status:</strong> {node.stageStatus || node.status}</p>
           <p><strong>Recorded at:</strong> {node.stageCreatedAt || 'N/A'}</p>
           {decision.render_style_mode ? <p><strong>Resolved render style:</strong> {decision.render_style_mode}</p> : null}
-          {decision.resolved_need_person ? <p><strong>Resolved need person:</strong> {decision.resolved_need_person}</p> : null}
+          {decision.person_needed_for_clarity ? <p><strong>Stage 3.1 person decision:</strong> {decision.person_needed_for_clarity}</p> : null}
+          {decision.person_presence_problem ? <p><strong>Presence issue:</strong> {decision.person_presence_problem}</p> : null}
+          {decision.resolved_need_person ? <p><strong>Used in next step:</strong> {decision.resolved_need_person}</p> : null}
           {decision.resolved_need_person_reasoning ? <p><strong>Decision reason:</strong> {decision.resolved_need_person_reasoning}</p> : null}
           {node.stageErrorDetail ? <p><strong>Error detail:</strong> {node.stageErrorDetail}</p> : null}
         </div>
