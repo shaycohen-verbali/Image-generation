@@ -33,6 +33,12 @@ function stageTitle(stageName) {
   return stageName
 }
 
+const stagePriority = {
+  stage2_draft: 1,
+  stage3_upgraded: 2,
+  stage4_white_bg: 3,
+}
+
 export default function RunsPage() {
   const algoDiagramEnabled = import.meta.env.VITE_ALGO_DIAGRAM_ENABLED !== 'false'
   const [filters, setFilters] = useState({ status: '', word: '', part_of_sentence: '', category: '' })
@@ -50,6 +56,7 @@ export default function RunsPage() {
   const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
   const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
   const selectedRunIdRef = useRef('')
+  const detailRef = useRef(null)
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
@@ -74,12 +81,42 @@ export default function RunsPage() {
     })
   }, [runs, filters.word, filters.part_of_sentence, filters.category])
 
+  const sortedAssets = detail?.assets
+    ? [...detail.assets].sort((left, right) => {
+        const leftOrder = stagePriority[left.stage_name] || 99
+        const rightOrder = stagePriority[right.stage_name] || 99
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder
+        return (left.attempt || 0) - (right.attempt || 0)
+      })
+    : []
+
+  const finalAsset = sortedAssets.reduce((latest, asset) => {
+    if (asset.stage_name !== 'stage4_white_bg') return latest
+    if (!latest) return asset
+    return (asset.attempt || 0) >= (latest.attempt || 0) ? asset : latest
+  }, null)
+
   async function loadRunDetail(runId) {
     try {
       const data = await getRun(runId)
       setDetail(data)
     } catch (error) {
       setMessage(`Error loading detail: ${error.message}`)
+    }
+  }
+
+  function scrollToDetail() {
+    window.requestAnimationFrame(() => {
+      detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
+  function selectRun(runId, options = {}) {
+    setSelectedRunId(runId)
+    selectedRunIdRef.current = runId
+    loadRunDetail(runId)
+    if (options.scrollToDetail) {
+      scrollToDetail()
     }
   }
 
@@ -202,162 +239,176 @@ export default function RunsPage() {
 
   return (
     <section className="runs-page-stack">
-      <section className="runs-layout">
-        <article className="card">
-        <h2>Runs</h2>
-        <div className="inline-fields">
-          <label>
-            Status
-            <input value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} />
-          </label>
-          <label>
-            Word
-            <input value={filters.word} onChange={(e) => setFilters({ ...filters, word: e.target.value })} />
-          </label>
-          <label>
-            POS
-            <input
-              value={filters.part_of_sentence}
-              onChange={(e) => setFilters({ ...filters, part_of_sentence: e.target.value })}
-            />
-          </label>
-          <label>
-            Category
-            <input value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} />
-          </label>
-        </div>
+      <section className="runs-layout runs-layout-stacked">
+        <article className="card runs-floor-card">
+          <div className="runs-floor-head">
+            <div>
+              <p className="detail-eyebrow">First Floor</p>
+              <h2>Runs</h2>
+              <p className="runs-floor-copy">Choose a run here, then inspect it in full width below.</p>
+            </div>
+            <div className="runs-floor-summary">
+              <span>{filteredRuns.length} shown</span>
+              <span>{runs.length} total</span>
+            </div>
+          </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Word</th>
-                <th>POS</th>
-                <th>Category</th>
-                <th>Status</th>
-                <th>Score</th>
-                <th>Attempt</th>
-                <th>Retry</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRuns.map((run) => (
-                <tr
-                  key={run.id}
-                  className={run.id === selectedRunId ? 'selected-row' : 'clickable-row'}
-                  onClick={() => {
-                    setSelectedRunId(run.id)
-                    selectedRunIdRef.current = run.id
-                    loadRunDetail(run.id)
-                  }}
-                >
-                  <td>{run.word || '-'}</td>
-                  <td>{run.part_of_sentence || '-'}</td>
-                  <td>{run.category || '-'}</td>
-                  <td>{run.status}</td>
-                  <td>{run.quality_score ?? '-'}</td>
-                  <td>{run.optimization_attempt}</td>
-                  <td>
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onRetry(run.id)
-                      }}
-                      disabled={!run.status.startsWith('failed')}
-                    >
-                      Retry
-                    </button>
-                  </td>
+          <div className="inline-fields">
+            <label>
+              Status
+              <input value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} />
+            </label>
+            <label>
+              Word
+              <input value={filters.word} onChange={(e) => setFilters({ ...filters, word: e.target.value })} />
+            </label>
+            <label>
+              POS
+              <input
+                value={filters.part_of_sentence}
+                onChange={(e) => setFilters({ ...filters, part_of_sentence: e.target.value })}
+              />
+            </label>
+            <label>
+              Category
+              <input value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} />
+            </label>
+          </div>
+
+          <div className="table-wrap runs-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Word</th>
+                  <th>POS</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th>Attempt</th>
+                  <th>Retry</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p>{message}</p>
+              </thead>
+              <tbody>
+                {filteredRuns.map((run) => (
+                  <tr
+                    key={run.id}
+                    className={run.id === selectedRunId ? 'selected-row' : 'clickable-row'}
+                    onClick={() => selectRun(run.id, { scrollToDetail: true })}
+                  >
+                    <td>{run.word || '-'}</td>
+                    <td>{run.part_of_sentence || '-'}</td>
+                    <td>{run.category || '-'}</td>
+                    <td>{run.status}</td>
+                    <td>{run.quality_score ?? '-'}</td>
+                    <td>{run.optimization_attempt}</td>
+                    <td>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onRetry(run.id)
+                        }}
+                        disabled={!run.status.startsWith('failed')}
+                      >
+                        Retry
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>{message}</p>
         </article>
 
-        <article className="card">
-        <h2>Run Detail</h2>
-        {!detail ? (
-          <p>Select a run row to see details.</p>
-        ) : algoDiagramEnabled ? (
-          <RunExecutionDiagram
-            detail={detail}
-            assistantName={assistantName}
-            promptEngineerConfig={{
-              promptEngineerMode,
-              setPromptEngineerMode,
-              responsesPromptEngineerModel,
-              setResponsesPromptEngineerModel,
-              responsesVectorStoreId,
-              setResponsesVectorStoreId,
-              visualStyleId,
-              setVisualStyleId,
-              visualStyleName,
-              setVisualStyleName,
-              visualStylePromptBlock,
-              setVisualStylePromptBlock,
-              stage1PromptTemplate,
-              setStage1PromptTemplate,
-              stage3PromptTemplate,
-              setStage3PromptTemplate,
-            }}
-            onSavePromptEngineerConfig={onSavePromptEngineerConfig}
-          />
-        ) : (
-          <>
-            <h3>Run</h3>
-            <pre>{JSON.stringify(detail.run, null, 2)}</pre>
+        <article ref={detailRef} className="card run-detail-floor-card">
+          <div className="runs-floor-head">
+            <div>
+              <p className="detail-eyebrow">Second Floor</p>
+              <h2>Run Detail</h2>
+              <p className="runs-floor-copy">The selected run gets the full page width so the story, images, and process are easier to read.</p>
+            </div>
+          </div>
 
-            <h3>Final Image</h3>
-            {finalAsset?.origin_url ? (
-              <div className="asset-card">
-                <img className="asset-image" src={finalAsset.origin_url} alt="Final white background output" />
-                <div className="asset-meta">
-                  <p>{finalAsset.file_name}</p>
-                  <a href={finalAsset.origin_url} target="_blank" rel="noreferrer">
-                    Open Full Image
-                  </a>
-                </div>
-              </div>
-            ) : (
-              <p>No final image yet.</p>
-            )}
+          {!detail ? (
+            <p>Select a run row to see details.</p>
+          ) : algoDiagramEnabled ? (
+            <RunExecutionDiagram
+              detail={detail}
+              assistantName={assistantName}
+              promptEngineerConfig={{
+                promptEngineerMode,
+                setPromptEngineerMode,
+                responsesPromptEngineerModel,
+                setResponsesPromptEngineerModel,
+                responsesVectorStoreId,
+                setResponsesVectorStoreId,
+                visualStyleId,
+                setVisualStyleId,
+                visualStyleName,
+                setVisualStyleName,
+                visualStylePromptBlock,
+                setVisualStylePromptBlock,
+                stage1PromptTemplate,
+                setStage1PromptTemplate,
+                stage3PromptTemplate,
+                setStage3PromptTemplate,
+              }}
+              onSavePromptEngineerConfig={onSavePromptEngineerConfig}
+            />
+          ) : (
+            <>
+              <h3>Run</h3>
+              <pre>{JSON.stringify(detail.run, null, 2)}</pre>
 
-            <h3>Image History</h3>
-            {sortedAssets.length > 0 ? (
-              <div className="asset-grid">
-                {sortedAssets.map((asset) => (
-                  <div key={asset.id} className="asset-card">
-                    <h4>{stageTitle(asset.stage_name)}</h4>
-                    {asset.origin_url ? (
-                      <img className="asset-image" src={asset.origin_url} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
-                    ) : (
-                      <p>Image URL unavailable.</p>
-                    )}
-                    <div className="asset-meta">
-                      <p>Attempt: {asset.attempt}</p>
-                      <p>Model: {asset.model_name}</p>
-                      {asset.origin_url ? (
-                        <a href={asset.origin_url} target="_blank" rel="noreferrer">
-                          Open Image
-                        </a>
-                      ) : null}
-                    </div>
+              <h3>Final Image</h3>
+              {finalAsset?.origin_url ? (
+                <div className="asset-card">
+                  <img className="asset-image" src={finalAsset.origin_url} alt="Final white background output" />
+                  <div className="asset-meta">
+                    <p>{finalAsset.file_name}</p>
+                    <a href={finalAsset.origin_url} target="_blank" rel="noreferrer">
+                      Open Full Image
+                    </a>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p>No images generated yet.</p>
-            )}
+                </div>
+              ) : (
+                <p>No final image yet.</p>
+              )}
 
-            <h3>Prompts</h3>
-            <pre>{JSON.stringify(detail.prompts, null, 2)}</pre>
+              <h3>Image History</h3>
+              {sortedAssets.length > 0 ? (
+                <div className="asset-grid">
+                  {sortedAssets.map((asset) => (
+                    <div key={asset.id} className="asset-card">
+                      <h4>{stageTitle(asset.stage_name)}</h4>
+                      {asset.origin_url ? (
+                        <img className="asset-image" src={asset.origin_url} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
+                      ) : (
+                        <p>Image URL unavailable.</p>
+                      )}
+                      <div className="asset-meta">
+                        <p>Attempt: {asset.attempt}</p>
+                        <p>Model: {asset.model_name}</p>
+                        {asset.origin_url ? (
+                          <a href={asset.origin_url} target="_blank" rel="noreferrer">
+                            Open Image
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p>No images generated yet.</p>
+              )}
 
-            <h3>Scores</h3>
-            <pre>{JSON.stringify(detail.scores, null, 2)}</pre>
-          </>
-        )}
+              <h3>Prompts</h3>
+              <pre>{JSON.stringify(detail.prompts, null, 2)}</pre>
+
+              <h3>Scores</h3>
+              <pre>{JSON.stringify(detail.scores, null, 2)}</pre>
+            </>
+          )}
         </article>
       </section>
     </section>

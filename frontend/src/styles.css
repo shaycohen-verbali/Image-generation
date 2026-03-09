@@ -80,9 +80,12 @@ body {
 
 .runs-layout {
   display: grid;
-  grid-template-columns: minmax(480px, 1.1fr) minmax(360px, 1fr);
   gap: 12px;
   align-items: start;
+}
+
+.runs-layout-stacked {
+  grid-template-columns: 1fr;
 }
 
 .runs-page-stack {
@@ -1042,5 +1045,80 @@ pre {
 
   .run-head-status-block p {
     text-align: left;
+  }
+}
+
+
+.runs-floor-card,
+.run-detail-floor-card {
+  display: grid;
+  gap: 12px;
+}
+
+.runs-floor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.runs-floor-head h2 {
+  margin: 0;
+}
+
+.runs-floor-copy {
+  margin: 4px 0 0;
+  color: #425560;
+  font-size: 0.9rem;
+}
+
+.runs-floor-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.runs-floor-summary span {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.runs-table-wrap {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.runs-table-wrap table thead th {
+  position: sticky;
+  top: 0;
+  background: #f8f3e8;
+  z-index: 1;
+}
+
+.run-detail-floor-card {
+  scroll-margin-top: 16px;
+}
+
+@media (max-width: 760px) {
+  .runs-floor-head {
+    display: grid;
+  }
+
+  .runs-floor-summary {
+    justify-content: flex-start;
+  }
+
+  .runs-table-wrap {
+    max-height: 360px;
   }
 }
