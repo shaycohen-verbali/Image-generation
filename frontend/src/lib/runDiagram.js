@@ -119,6 +119,10 @@ function safeText(value) {
   return String(value)
 }
 
+function safeArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
 function promptEngineerLabel(mode, responsesModel) {
   const normalizedMode = safeText(mode).toLowerCase()
   if (normalizedMode === 'responses_api') {
@@ -152,6 +156,28 @@ function mapByAttemptAndStage(items, stageField, attemptField) {
     index.set(makeKey(stageName, attempt), item)
   })
   return index
+}
+
+function mapAssetsByAttemptAndStage(items, stageField, attemptField) {
+  const index = new Map()
+  items.forEach((item) => {
+    const stageName = String(item[stageField] || '')
+    const attempt = Number(item[attemptField] || 0)
+    const key = makeKey(stageName, attempt)
+    const bucket = index.get(key) || []
+    bucket.push(item)
+    index.set(key, bucket)
+  })
+  return index
+}
+
+function firstVariantAsset(responsePayload, assetList) {
+  if (assetList[0]) return assetList[0]
+  const response = safeObject(responsePayload)
+  const variants = safeArray(response.variants)
+  const fromResponse = variants.find((item) => safeObject(item.asset).id)?.asset
+  if (fromResponse && typeof fromResponse === 'object') return fromResponse
+  return null
 }
 
 function mapScoresByAttempt(scores) {
@@ -495,7 +521,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
 
   const stageIndex = mapByAttemptAndStage(stages, 'stage_name', 'attempt')
   const promptIndex = mapByAttemptAndStage(prompts, 'stage_name', 'attempt')
-  const assetIndex = mapByAttemptAndStage(assets, 'stage_name', 'attempt')
+  const assetIndex = mapAssetsByAttemptAndStage(assets, 'stage_name', 'attempt')
   const scoreIndex = mapScoresByAttempt(scores)
 
   const stage1Result = stageIndex.get(makeKey('stage1_prompt', 0))
@@ -509,11 +535,16 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage1Prompt = promptIndex.get(makeKey('stage1_prompt', 0))
   const stage3Prompt = promptIndex.get(makeKey('stage3_upgrade', attempt))
 
-  const stage2Asset = assetIndex.get(makeKey('stage2_draft', 0))
-  const stage3Asset = assetIndex.get(makeKey('stage3_upgraded', attempt))
-  const stage4Asset = assetIndex.get(makeKey('stage4_white_bg', attempt))
-  const stage4VariantAsset = assetIndex.get(makeKey('stage4_variant_generate', attempt))
-  const stage5VariantAsset = assetIndex.get(makeKey('stage5_variant_white_bg', attempt))
+  const stage2Assets = assetIndex.get(makeKey('stage2_draft', 0)) || []
+  const stage3Assets = assetIndex.get(makeKey('stage3_upgraded', attempt)) || []
+  const stage4Assets = assetIndex.get(makeKey('stage4_white_bg', attempt)) || []
+  const stage4VariantAssets = assetIndex.get(makeKey('stage4_variant_generate', attempt)) || []
+  const stage5VariantAssets = assetIndex.get(makeKey('stage5_variant_white_bg', attempt)) || []
+  const stage2Asset = stage2Assets[0] || null
+  const stage3Asset = stage3Assets[0] || null
+  const stage4Asset = stage4Assets[0] || null
+  const stage4VariantAsset = firstVariantAsset(stage4VariantResult?.response_json, stage4VariantAssets)
+  const stage5VariantAsset = firstVariantAsset(stage5VariantResult?.response_json, stage5VariantAssets)
 
   const score = scoreIndex.get(attempt)
   const stage3Response = safeObject(stage3Result?.response_json)
@@ -626,6 +657,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       requestPayload: safeObject(stage4VariantResult?.request_json),
       responsePayload: safeObject(stage4VariantResult?.response_json),
       asset: stage4VariantAsset || null,
+      assets: stage4VariantAssets,
       model: stage4VariantAsset?.model_name || 'google/nano-banana-2',
       score: score || null,
       attempt,
@@ -637,6 +669,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       requestPayload: safeObject(stage5VariantResult?.request_json),
       responsePayload: safeObject(stage5VariantResult?.response_json),
       asset: stage5VariantAsset || null,
+      assets: stage5VariantAssets,
       model: stage5VariantAsset?.model_name || 'google/nano-banana-2',
       score: score || null,
       attempt,
@@ -703,6 +736,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       aiInstructionSource: safeText(aiInstruction.source),
       requestJson: safeObject(item.requestPayload || item.stageResult?.request_json),
       responseJson: safeObject(item.responsePayload || item.stageResult?.response_json),
+      assets: safeArray(item.assets),
       requestKeys: Object.keys(safeObject(item.requestPayload || item.stageResult?.request_json)),
       responseKeys: Object.keys(safeObject(item.responsePayload || item.stageResult?.response_json)),
     }

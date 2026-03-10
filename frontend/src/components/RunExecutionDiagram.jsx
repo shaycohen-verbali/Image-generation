@@ -193,6 +193,56 @@ function firstNonEmptyObject(...values) {
   return {}
 }
 
+function profileLabel(item) {
+  const profile = safeObject(item?.profile)
+  const parts = [profile.gender, profile.age, profile.skin_color].filter(Boolean)
+  const branchRole = item?.branch_role ? ` (${item.branch_role})` : ''
+  return `${parts.join(' / ') || item?.profile_description || 'profile'}${branchRole}`
+}
+
+function variantPanelData(node) {
+  if (!node) return null
+  const request = safeObject(node.requestJson)
+  const response = safeObject(node.responseJson)
+  const progress = safeObject(response.progress)
+  const planned = safeArray(request.profiles)
+  const submitted = safeArray(response.submitted_profiles)
+  const completed = safeArray(response.completed_profiles)
+  const failed = safeArray(response.failed_profiles)
+  const submittedKeys = new Set(submitted.map((item) => JSON.stringify(safeObject(item.profile))))
+  const completedKeys = new Set(completed.map((item) => JSON.stringify(safeObject(item.profile))))
+  const failedKeys = new Set(failed.map((item) => JSON.stringify(safeObject(item.profile))))
+  const inFlight = submitted.filter((item) => {
+    const key = JSON.stringify(safeObject(item.profile))
+    return !completedKeys.has(key) && !failedKeys.has(key)
+  })
+  const waiting = planned
+    .filter((profile) => {
+      const key = JSON.stringify(safeObject(profile))
+      return !submittedKeys.has(key) && !completedKeys.has(key) && !failedKeys.has(key)
+    })
+    .map((profile) => ({ profile, branch_role: 'planned' }))
+
+  return {
+    nodeId: node.id,
+    title: node.id === 'stage5_variant_white_bg' ? 'White-background variant progress' : 'Final-image variant progress',
+    progress,
+    completed,
+    failed,
+    inFlight,
+    waiting,
+    hasActivity:
+      completed.length > 0 ||
+      failed.length > 0 ||
+      inFlight.length > 0 ||
+      waiting.length > 0 ||
+      Number(progress.completed_count || 0) > 0 ||
+      Number(progress.in_flight_count || 0) > 0 ||
+      Number(progress.remaining_count || 0) > 0 ||
+      Number(progress.failed_count || 0) > 0,
+  }
+}
+
 function runNarrative(detail, selectedSummary, threshold) {
   const run = detail.run || {}
   const score = selectedSummary?.score
@@ -595,6 +645,10 @@ export default function RunExecutionDiagram({
       .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null
   const latestDecision = firstNonEmptyObject(safeObject(latestStage3?.response_json).decision, stage1Response.decision)
   const latestAnalysis = safeObject(safeObject(latestStage3?.response_json).analysis)
+  const selectedFinalVariantNode = diagram.nodes.find((node) => node.id === 'stage4_variant_generate') || null
+  const selectedWhiteVariantNode = diagram.nodes.find((node) => node.id === 'stage5_variant_white_bg') || null
+  const finalVariantPanel = variantPanelData(selectedFinalVariantNode)
+  const whiteVariantPanel = variantPanelData(selectedWhiteVariantNode)
   const selectedPromptEngineerMode = String(stage1Request.prompt_engineer_mode || 'responses_api')
   const selectedResponsesModel = String(stage1Request.responses_model || '')
   const selectedVectorStoreId = String(stage1Request.responses_vector_store_id || '')
@@ -639,7 +693,7 @@ export default function RunExecutionDiagram({
     allRunAssets
       .filter((asset) => asset.stage_name === 'stage4_white_bg')
       .sort((left, right) => Number(right.attempt || 0) - Number(left.attempt || 0))[0] || null
-  const finalAsset = winnerStage4Asset || [...allRunAssets].reverse().find((asset) => asset.origin_url) || null
+  const finalAsset = winnerStage4Asset || [...allRunAssets].reverse().find((asset) => asset.id) || null
   const filteredRunAssets = (() => {
     if (imageFilter === IMAGE_FILTER.DRAFT) {
       return allRunAssets.filter((asset) => asset.stage_name === 'stage2_draft')
@@ -652,6 +706,15 @@ export default function RunExecutionDiagram({
       if (asset.stage_name === 'stage4_variant_generate') return Number(asset.attempt || 0) === selectedAttempt
       return Number(asset.attempt || 0) === selectedAttempt
     })
+  })()
+  const visibleVariantPanels = (() => {
+    if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
+      return whiteVariantPanel?.hasActivity ? [whiteVariantPanel] : []
+    }
+    if (imageFilter === IMAGE_FILTER.ATTEMPT) {
+      return finalVariantPanel?.hasActivity ? [finalVariantPanel] : []
+    }
+    return []
   })()
   const canvasNodes = diagram.nodes.map((node) => {
     const position = {
@@ -790,14 +853,38 @@ export default function RunExecutionDiagram({
           </section>
 
           <section className="run-all-images-section">
+            {visibleVariantPanels.length > 0 ? (
+              <div className="run-overview-card">
+                {visibleVariantPanels.map((panel) => (
+                  <div key={panel.nodeId} className="run-help-card compact-help-card">
+                    <p><strong>{panel.title}</strong></p>
+                    <p>
+                      Completed: <strong>{panel.progress.completed_count ?? 0}</strong> | In flight: <strong>{panel.progress.in_flight_count ?? 0}</strong> | Remaining: <strong>{panel.progress.remaining_count ?? 0}</strong> | Failed: <strong>{panel.progress.failed_count ?? 0}</strong>
+                    </p>
+                    {panel.inFlight.length > 0 ? (
+                      <p><strong>In flight:</strong> {panel.inFlight.map(profileLabel).join(', ')}</p>
+                    ) : null}
+                    {panel.waiting.length > 0 ? (
+                      <p><strong>Waiting on branch or queue:</strong> {panel.waiting.map(profileLabel).join(', ')}</p>
+                    ) : null}
+                    {panel.failed.length > 0 ? (
+                      <p><strong>Failed:</strong> {panel.failed.map((item) => `${profileLabel(item)}${item.error ? ` - ${item.error}` : ''}`).join(', ')}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             {filteredRunAssets.length === 0 ? (
               <div className="empty-state-card">
                 <p>
-                  {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND
-                    ? 'No remove-background image yet.'
-                    : selectedSummary?.stage3Status === 'error'
-                      ? 'No Stage 3 image is available for this attempt because the process failed after the draft image.'
-                      : 'No images available for this filter yet.'}
+                  {visibleVariantPanels.length > 0
+                    ? 'Variant generation is active. Images will appear here as soon as each finished output is downloaded and saved.'
+                    : imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND
+                      ? 'No remove-background image yet.'
+                      : selectedSummary?.stage3Status === 'error'
+                        ? 'No Stage 3 image is available for this attempt because the process failed after the draft image.'
+                        : 'No images available for this filter yet.'}
                 </p>
               </div>
             ) : (

@@ -75,6 +75,26 @@ class RecordingPromptEngineerOpenAI(MockOpenAI):
         return {"upgraded prompt": "responses api upgraded prompt"}, {"raw_text": '{"upgraded prompt":"responses api upgraded prompt"}'}
 
 
+class PersonVariantOpenAI(MockOpenAI):
+    def generate_first_prompt(self, user_text: str, assistant_id: str, **_kwargs):
+        return {"first prompt": "person-centered action image", "need a person": "yes"}, {"raw_text": "ok"}
+
+    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str):
+        return (
+            {
+                "challenges": "needs stronger action",
+                "recommendations": "keep the person and emphasize the action",
+                "person_needed_for_clarity": "yes",
+                "person_presence_problem": "none",
+                "person_decision_reasoning": "The verb needs a visible person for AAC clarity.",
+            },
+            {"raw_text": "ok"},
+        )
+
+    def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **_kwargs):
+        return {"upgraded prompt": "upgraded person-centered action image"}, {"raw_text": "ok"}
+
+
 class MockReplicate:
     def __init__(
         self,
@@ -133,6 +153,90 @@ class MockReplicate:
         return buf.getvalue()
 
 
+class VariantCapableReplicate(MockReplicate):
+    def __init__(self):
+        super().__init__()
+        self.variant_submissions: list[dict[str, str | bool]] = []
+        self._variant_predictions: dict[str, dict[str, object]] = {}
+        self._variant_idx = 0
+
+    def submit_nano_banana_profile_variant(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, object]:
+        self._variant_idx += 1
+        prediction_id = f"pred_variant_{self._variant_idx}"
+        self.variant_submissions.append(
+            {
+                "prediction_id": prediction_id,
+                "source_path": image_path.as_posix(),
+                "profile_description": profile_description,
+                "white_background": white_background,
+            }
+        )
+        self._variant_predictions[prediction_id] = {
+            "status": "processing",
+            "polls_remaining": 1,
+            "output": f"http://mock/{prediction_id}.jpg",
+        }
+        return {"id": prediction_id, "status": "processing"}
+
+    def get_prediction(self, prediction_id: str) -> dict[str, object]:
+        state = self._variant_predictions[prediction_id]
+        polls_remaining = int(state["polls_remaining"])
+        if polls_remaining > 0:
+            state["polls_remaining"] = polls_remaining - 1
+            return {"id": prediction_id, "status": "processing"}
+        return {
+            "id": prediction_id,
+            "status": "succeeded",
+            "output": state["output"],
+            "model": "google/nano-banana-2",
+        }
+
+
+class RecordingPipelineRunner(PipelineRunner):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.recorded_stage_payloads: list[dict[str, object]] = []
+
+    def _record_stage(
+        self,
+        *,
+        run_id: str,
+        stage_name: str,
+        attempt: int,
+        status: str,
+        request_json: dict[str, object],
+        response_json: dict[str, object],
+        error_detail: str = "",
+    ) -> None:
+        self.recorded_stage_payloads.append(
+            {
+                "run_id": run_id,
+                "stage_name": stage_name,
+                "attempt": attempt,
+                "status": status,
+                "request_json": json.loads(json.dumps(request_json)),
+                "response_json": json.loads(json.dumps(response_json)),
+                "error_detail": error_detail,
+            }
+        )
+        super()._record_stage(
+            run_id=run_id,
+            stage_name=stage_name,
+            attempt=attempt,
+            status=status,
+            request_json=request_json,
+            response_json=response_json,
+            error_detail=error_detail,
+        )
+
+
 def _create_run(db_session, *, max_optimization_attempts: int = 3):
     repo = Repository(db_session)
     entry = repo.create_entry(
@@ -149,6 +253,29 @@ def _create_run(db_session, *, max_optimization_attempts: int = 3):
         [entry.id],
         quality_threshold=95,
         max_optimization_attempts=max_optimization_attempts,
+    )[0]
+    return run
+
+
+def _create_variant_run(db_session):
+    repo = Repository(db_session)
+    entry = repo.create_entry(
+        {
+            "word": "soccer",
+            "part_of_sentence": "verb",
+            "category": "",
+            "context": "",
+            "boy_or_girl": "male",
+            "person_gender_options": ["male", "female"],
+            "person_age_options": ["kid", "tween"],
+            "person_skin_color_options": ["white", "black"],
+            "batch": "1",
+        }
+    )
+    run = repo.create_runs(
+        [entry.id],
+        quality_threshold=95,
+        max_optimization_attempts=3,
     )[0]
     return run
 
@@ -307,3 +434,95 @@ def test_responses_api_prompt_engineer_mode_is_recorded(db_session):
 
     stage1_prompt = next(prompt for prompt in prompts if prompt.stage_name == "stage1_prompt")
     assert stage1_prompt.source == "responses_api"
+
+
+def test_variant_stages_record_progress_and_completed_profiles(db_session):
+    run = _create_variant_run(db_session)
+    mock_replicate = VariantCapableReplicate()
+    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+
+    stage4_snapshots = [
+        payload for payload in runner.recorded_stage_payloads
+        if payload["stage_name"] == "stage4_variant_generate"
+    ]
+    stage5_snapshots = [
+        payload for payload in runner.recorded_stage_payloads
+        if payload["stage_name"] == "stage5_variant_white_bg"
+    ]
+    assert any(
+        payload["status"] == "running"
+        and int(payload["response_json"].get("progress", {}).get("in_flight_count", 0)) > 0
+        for payload in stage4_snapshots
+    )
+    assert any(
+        payload["status"] == "running"
+        and int(payload["response_json"].get("progress", {}).get("in_flight_count", 0)) > 0
+        for payload in stage5_snapshots
+    )
+
+    repo = Repository(db_session)
+    _, stages, _, assets, _ = repo.run_details(run.id)
+    stage4 = next(stage for stage in stages if stage.stage_name == "stage4_variant_generate")
+    stage5 = next(stage for stage in stages if stage.stage_name == "stage5_variant_white_bg")
+    stage4_response = json.loads(stage4.response_json)
+    stage5_response = json.loads(stage5.response_json)
+
+    assert stage4.status == "ok"
+    assert stage5.status == "ok"
+    assert stage4_response["progress"]["completed_count"] == len(stage4_response["variants"])
+    assert stage5_response["progress"]["completed_count"] == len(stage5_response["variants"])
+    assert len(stage4_response["submitted_profiles"]) >= len(stage4_response["completed_profiles"]) > 0
+    assert len(stage5_response["submitted_profiles"]) >= len(stage5_response["completed_profiles"]) > 0
+    assert any(asset.stage_name == "stage4_variant_generate" for asset in assets)
+    assert any(asset.stage_name == "stage5_variant_white_bg" for asset in assets)
+
+
+def test_variant_female_branch_uses_female_seed_assets(db_session):
+    run = _create_variant_run(db_session)
+    mock_replicate = VariantCapableReplicate()
+    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    assert any(
+        submission["source_path"].endswith("female_kid_white_attempt_1.jpg")
+        and not submission["white_background"]
+        for submission in mock_replicate.variant_submissions
+    )
+    assert any(
+        submission["source_path"].endswith("female_kid_white_attempt_1.jpg")
+        and submission["white_background"]
+        for submission in mock_replicate.variant_submissions
+    )
+
+
+def test_rerunning_variant_stage_reuses_existing_assets_without_duplicates(db_session):
+    run = _create_variant_run(db_session)
+    mock_replicate = VariantCapableReplicate()
+    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    repo = Repository(db_session)
+    entry = repo.get_entry(result.entry_id)
+    assert entry is not None
+    _, _, _, first_assets, _ = repo.run_details(run.id)
+    first_variant_assets = [
+        asset for asset in first_assets
+        if asset.stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}
+    ]
+
+    runner._run_person_variants(run=repo.get_run(run.id), entry=entry, winner_attempt=1)
+
+    _, _, _, second_assets, _ = repo.run_details(run.id)
+    second_variant_assets = [
+        asset for asset in second_assets
+        if asset.stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}
+    ]
+    assert len(second_variant_assets) == len(first_variant_assets)

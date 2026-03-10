@@ -15,6 +15,14 @@ function prettyValue(value) {
   return String(value)
 }
 
+function profileStateLabel(item) {
+  if (!item || typeof item !== 'object') return '-'
+  const profile = item.profile || {}
+  const parts = [profile.gender, profile.age, profile.skin_color].filter(Boolean)
+  const branchRole = item.branch_role ? ` (${item.branch_role})` : ''
+  return `${parts.join(' / ') || item.profile_description || 'profile'}${branchRole}`
+}
+
 function summarizeNode(node) {
   if (!node) return []
   const response = node.responseJson || {}
@@ -78,11 +86,15 @@ function summarizeNode(node) {
 
   if (node.id === 'stage4_variant_generate' || node.id === 'stage5_variant_white_bg') {
     const progress = response.progress || {}
+    const completedProfiles = Array.isArray(response.completed_profiles) ? response.completed_profiles : []
+    const failedProfiles = Array.isArray(response.failed_profiles) ? response.failed_profiles : []
     return [
       ['Completed variants', progress.completed_count ?? 0],
       ['In flight', progress.in_flight_count ?? 0],
       ['Remaining', progress.remaining_count ?? '-'],
       ['Failed', progress.failed_count ?? 0],
+      ['Completed profiles', completedProfiles.length > 0 ? completedProfiles.map(profileStateLabel).join(', ') : '-'],
+      ['Failed profiles', failedProfiles.length > 0 ? failedProfiles.map(profileStateLabel).join(', ') : '-'],
     ]
   }
 
@@ -126,6 +138,17 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
   const hasPromptLineage = Boolean(node.promptText || node.promptNeedsPerson || (node.promptRaw && Object.keys(node.promptRaw).length))
   const hasQuality = Boolean(node.score || (node.scoreRubric && Object.keys(node.scoreRubric).length))
   const assetContentUrl = buildAssetContentUrl(node.asset)
+  const variantProgress = node.responseJson?.progress || {}
+  const completedVariantProfiles = Array.isArray(node.responseJson?.completed_profiles) ? node.responseJson.completed_profiles : []
+  const submittedVariantProfiles = Array.isArray(node.responseJson?.submitted_profiles) ? node.responseJson.submitted_profiles : []
+  const failedVariantProfiles = Array.isArray(node.responseJson?.failed_profiles) ? node.responseJson.failed_profiles : []
+  const completedVariantKeys = new Set(completedVariantProfiles.map((item) => JSON.stringify(item.profile || {})))
+  const failedVariantKeys = new Set(failedVariantProfiles.map((item) => JSON.stringify(item.profile || {})))
+  const pendingVariantProfiles = submittedVariantProfiles.filter((item) => {
+    const key = JSON.stringify(item.profile || {})
+    return !completedVariantKeys.has(key) && !failedVariantKeys.has(key)
+  })
+  const hasVariantStage = node.id === 'stage4_variant_generate' || node.id === 'stage5_variant_white_bg'
 
   return (
     <div className="run-node-detail">
@@ -185,6 +208,51 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           ))}
         </section>
       </div>
+
+      {hasVariantStage ? (
+        <section className="run-node-wide-card">
+          <h4>Variant Progress</h4>
+          <p><strong>Completed:</strong> {variantProgress.completed_count ?? 0}</p>
+          <p><strong>In flight:</strong> {variantProgress.in_flight_count ?? 0}</p>
+          <p><strong>Remaining:</strong> {variantProgress.remaining_count ?? 0}</p>
+          <p><strong>Failed:</strong> {variantProgress.failed_count ?? 0}</p>
+          {completedVariantProfiles.length > 0 ? (
+            <>
+              <p><strong>Completed profiles:</strong></p>
+              <ul>
+                {completedVariantProfiles.map((item) => (
+                  <li key={`done-${JSON.stringify(item.profile || {})}`}>{profileStateLabel(item)}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {pendingVariantProfiles.length > 0 ? (
+            <>
+              <p><strong>Pending / in flight:</strong></p>
+              <ul>
+                {pendingVariantProfiles.map((item) => (
+                  <li key={`pending-${JSON.stringify(item.profile || {})}`}>{profileStateLabel(item)}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {failedVariantProfiles.length > 0 ? (
+            <>
+              <p><strong>Failed profiles:</strong></p>
+              <ul>
+                {failedVariantProfiles.map((item) => (
+                  <li key={`failed-${JSON.stringify(item.profile || {})}`}>
+                    {profileStateLabel(item)}{item.error ? ` - ${item.error}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {completedVariantProfiles.length === 0 && pendingVariantProfiles.length === 0 && failedVariantProfiles.length === 0 ? (
+            <p>No variant profile activity recorded yet.</p>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="run-node-wide-card">
         <h4>AI Instruction</h4>
