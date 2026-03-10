@@ -61,8 +61,17 @@ def _profile_label(item: dict) -> str:
     parts = [str(profile.get("gender") or "").strip(), str(profile.get("age") or "").strip(), str(profile.get("skin_color") or "").strip()]
     label = "/".join(part for part in parts if part)
     branch_role = str(item.get("branch_role") or "").strip() if isinstance(item, dict) else ""
+    prediction_status = str(item.get("prediction_status") or "").strip() if isinstance(item, dict) else ""
+    prediction_id = str(item.get("prediction_id") or "").strip() if isinstance(item, dict) else ""
+    suffix_parts: list[str] = []
     if branch_role:
-        return f"{label or 'profile'} ({branch_role})"
+        suffix_parts.append(branch_role)
+    if prediction_status:
+        suffix_parts.append(prediction_status)
+    if prediction_id:
+        suffix_parts.append(prediction_id[:10])
+    if suffix_parts:
+        return f"{label or 'profile'} ({'; '.join(suffix_parts)})"
     return label or "profile"
 
 

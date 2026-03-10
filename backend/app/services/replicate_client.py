@@ -19,12 +19,13 @@ class ReplicateClient:
         if not self.settings.replicate_cf_base_url:
             raise RuntimeError("REPLICATE_CF_BASE_URL must be configured")
 
-    def _headers(self, *, wait_seconds: int = 60) -> dict[str, str]:
+    def _headers(self, *, wait_seconds: int | None = 60) -> dict[str, str]:
         headers = {
             "Authorization": f"Bearer {self.settings.replicate_api_token}",
             "Content-Type": "application/json",
         }
-        headers["Prefer"] = f"wait={max(0, int(wait_seconds))}"
+        if wait_seconds is not None and int(wait_seconds) > 0:
+            headers["Prefer"] = f"wait={int(wait_seconds)}"
         return headers
 
     def _request(
@@ -34,7 +35,7 @@ class ReplicateClient:
         *,
         json_body: dict[str, Any] | None = None,
         timeout: int = 180,
-        wait_seconds: int = 60,
+        wait_seconds: int | None = 60,
     ) -> dict[str, Any]:
         def _call() -> dict[str, Any]:
             response = requests.request(
@@ -53,18 +54,25 @@ class ReplicateClient:
             retryable=(requests.RequestException,),
         )
 
-    def _create_prediction(self, model_path: str, payload_input: dict[str, Any], *, wait_seconds: int = 60) -> dict[str, Any]:
+    def _create_prediction(
+        self,
+        model_path: str,
+        payload_input: dict[str, Any],
+        *,
+        wait_seconds: int | None = 60,
+        timeout: int = 180,
+    ) -> dict[str, Any]:
         url = f"{self.settings.replicate_cf_base_url}/v1/models/{model_path}/predictions"
-        return self._request("POST", url, json_body={"input": payload_input}, wait_seconds=wait_seconds)
+        return self._request("POST", url, json_body={"input": payload_input}, wait_seconds=wait_seconds, timeout=timeout)
 
     def get_prediction(self, prediction_id: str) -> dict[str, Any]:
         url = f"{self.settings.replicate_cf_base_url}/v1/predictions/{prediction_id}"
-        return self._request("GET", url, timeout=90, wait_seconds=0)
+        return self._request("GET", url, timeout=90, wait_seconds=None)
 
     def _poll_prediction(self, prediction_id: str, max_tries: int = 90, interval: float = 2.0) -> dict[str, Any]:
         url = f"{self.settings.replicate_cf_base_url}/v1/predictions/{prediction_id}"
         for _ in range(max_tries):
-            data = self._request("GET", url, timeout=90, wait_seconds=0)
+            data = self._request("GET", url, timeout=90, wait_seconds=None)
             status = data.get("status")
             if status in {"succeeded", "failed", "canceled"}:
                 return data
@@ -286,7 +294,8 @@ class ReplicateClient:
                 "aspect_ratio": "match_input_image",
                 "output_format": "jpg",
             },
-            wait_seconds=0,
+            wait_seconds=None,
+            timeout=30,
         )
 
     def download_image(self, url: str) -> bytes:

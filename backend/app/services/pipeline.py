@@ -797,6 +797,8 @@ class PipelineRunner:
             source_profile: dict[str, str] | None = None,
             profile_description: str | None = None,
             error: str = "",
+            prediction_id: str = "",
+            prediction_status: str = "",
         ) -> dict[str, Any]:
             item = {
                 "profile": profile,
@@ -805,6 +807,10 @@ class PipelineRunner:
             }
             if source_profile:
                 item["source_profile"] = source_profile
+            if prediction_id:
+                item["prediction_id"] = prediction_id
+            if prediction_status:
+                item["prediction_status"] = prediction_status
             if error:
                 item["error"] = error
             return item
@@ -830,16 +836,25 @@ class PipelineRunner:
             branch_role: str,
             source_profile: dict[str, str] | None = None,
             profile_description: str | None = None,
+            prediction_id: str = "",
+            prediction_status: str = "",
         ) -> None:
-            submitted_profiles_by_stage[stage_name].setdefault(
-                profile_key(profile),
+            key = profile_key(profile)
+            item = submitted_profiles_by_stage[stage_name].setdefault(
+                key,
                 profile_state_item(
                     profile=profile,
                     branch_role=branch_role,
                     source_profile=source_profile,
                     profile_description=profile_description,
+                    prediction_id=prediction_id,
+                    prediction_status=prediction_status,
                 ),
             )
+            if prediction_id:
+                item["prediction_id"] = prediction_id
+            if prediction_status:
+                item["prediction_status"] = prediction_status
 
         def mark_completed(
             stage_name: str,
@@ -1229,6 +1244,15 @@ class PipelineRunner:
                     prediction_id = str(created.get("id") or "").strip()
                     status = str(created.get("status", "")).strip().lower()
                     if status == "succeeded":
+                        mark_submitted(
+                            stage_name,
+                            profile=profile,
+                            branch_role=branch_role,
+                            source_profile=meta.get("source_profile"),
+                            profile_description=meta.get("profile_description"),
+                            prediction_id=prediction_id,
+                            prediction_status=status,
+                        )
                         submit_materialization_task(
                             materialization_executor,
                             materialization_futures,
@@ -1254,6 +1278,15 @@ class PipelineRunner:
                             error="variant prediction submission returned no prediction id",
                         )
                     else:
+                        mark_submitted(
+                            stage_name,
+                            profile=profile,
+                            branch_role=branch_role,
+                            source_profile=meta.get("source_profile"),
+                            profile_description=meta.get("profile_description"),
+                            prediction_id=prediction_id,
+                            prediction_status=status or "submitted",
+                        )
                         active_predictions[prediction_id] = meta
                     made_progress = True
 
