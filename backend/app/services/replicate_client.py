@@ -221,6 +221,7 @@ class ReplicateClient:
         prompt = (
             "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
             f"Change only the main person so the image clearly shows a {profile_description}. "
+            "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
             f"{background_instruction} Keep exactly one clear central person. "
             f'The image must still clearly represent the concept "{word}" for AAC users. '
             "Do not add text, watermark, or extra people."

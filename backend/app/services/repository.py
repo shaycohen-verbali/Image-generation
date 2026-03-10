@@ -328,6 +328,27 @@ class Repository:
         origin_url: str,
         model_name: str,
     ) -> Asset:
+        existing = self.db.execute(
+            select(Asset)
+            .where(Asset.run_id == run_id)
+            .where(Asset.stage_name == stage_name)
+            .where(Asset.attempt == attempt)
+            .where(Asset.file_name == file_name)
+            .limit(1)
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.abs_path = abs_path
+            existing.mime_type = mime_type
+            existing.sha256 = sha256
+            existing.width = width
+            existing.height = height
+            existing.origin_url = origin_url
+            existing.model_name = model_name
+            self.db.add(existing)
+            self.db.commit()
+            self.db.refresh(existing)
+            return existing
+
         asset = Asset(
             run_id=run_id,
             stage_name=stage_name,
@@ -345,6 +366,23 @@ class Repository:
         self.db.commit()
         self.db.refresh(asset)
         return asset
+
+    def get_asset_by_file_name(
+        self,
+        *,
+        run_id: str,
+        stage_name: str,
+        attempt: int,
+        file_name: str,
+    ) -> Asset | None:
+        return self.db.execute(
+            select(Asset)
+            .where(Asset.run_id == run_id)
+            .where(Asset.stage_name == stage_name)
+            .where(Asset.attempt == attempt)
+            .where(Asset.file_name == file_name)
+            .limit(1)
+        ).scalar_one_or_none()
 
     def add_score(
         self,

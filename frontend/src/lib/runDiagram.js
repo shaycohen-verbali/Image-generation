@@ -61,6 +61,22 @@ const STAGE_DEFINITIONS = [
     retryPolicy: 'API retry + stage retry',
   },
   {
+    id: 'stage4_variant_generate',
+    label: 'Stage 5 Variant Finals',
+    provider: 'Replicate: nano-banana-2',
+    inputs: ['winner final image', 'male branch variations', 'optional female seed branch'],
+    expected: ['male variants', 'female seed image', 'female-derived final variants'],
+    retryPolicy: 'API retry + resumable stage retry',
+  },
+  {
+    id: 'stage5_variant_white_bg',
+    label: 'Stage 6 Variant White BG',
+    provider: 'Replicate: nano-banana-2',
+    inputs: ['winner white-background image', 'male branch variations', 'optional female seed branch'],
+    expected: ['male white-bg variants', 'female white-bg seed', 'female-derived white-bg variants'],
+    retryPolicy: 'API retry + resumable stage retry',
+  },
+  {
     id: 'completed',
     label: 'Completed',
     provider: 'System',
@@ -78,7 +94,11 @@ const FLOW_EDGES = [
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
   { from: 'quality_gate', to: 'stage4_background', label: 'winner selected', fromPort: 'top', toPort: 'left' },
-  { from: 'stage4_background', to: 'completed', label: 'final', fromPort: 'right', toPort: 'left' },
+  { from: 'stage4_background', to: 'completed', label: 'base ready / no extra variants', fromPort: 'right', toPort: 'left' },
+  { from: 'stage4_background', to: 'stage4_variant_generate', label: 'base final + optional female seed', fromPort: 'right', toPort: 'left' },
+  { from: 'stage4_background', to: 'stage5_variant_white_bg', label: 'base white bg + optional female seed', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage4_variant_generate', to: 'completed', label: 'variant finals ready', fromPort: 'right', toPort: 'left' },
+  { from: 'stage5_variant_white_bg', to: 'completed', label: 'variant white-bg ready', fromPort: 'right', toPort: 'left' },
 ]
 
 const STATUS_LABELS = {
@@ -197,6 +217,17 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
     return 'queued'
   }
 
+  if (stageId === 'stage4_variant_generate' || stageId === 'stage5_variant_white_bg') {
+    const winnerAttempt = Number(run.optimization_attempt || 0)
+    const isCompleted = String(run.status || '').startsWith('completed_')
+    if (isCompleted && winnerAttempt > 0 && attempt !== winnerAttempt && !stageResult) return 'skipped'
+    if (run.status === 'completed_pass' && !stageResult) return 'skipped'
+    if (isCurrentAttemptStage) return 'running'
+    if (stageResult) return asStageStatus(stageResult.status)
+    if (score && score.pass_fail === false) return 'skipped'
+    return 'queued'
+  }
+
   if (stageId === 'completed') {
     if (run.status === 'completed_pass' && attempt === Number(run.optimization_attempt || 0)) return 'ok'
     if ((run.status === 'completed_fail_threshold' || run.status === 'failed_technical') && attempt === Number(run.optimization_attempt || 0)) return 'error'
@@ -217,6 +248,8 @@ function nodeSubtitle(stageId, run, score, attempt) {
   if (stageId === 'quality_gate' && score) {
     return `Score ${score.score_0_100}${score.pass_fail ? ' (pass)' : ' (fail)'}`
   }
+  if (stageId === 'stage4_variant_generate') return 'Final variants'
+  if (stageId === 'stage5_variant_white_bg') return 'White-bg variants'
   return ''
 }
 
@@ -386,6 +419,34 @@ function aiInstructionForStage({
     }
   }
 
+  if (stageId === 'stage4_variant_generate') {
+    const branchPlan = safeObject(safeObject(stage3Result?.response_json).decision)
+    const payload = {
+      selected_model: 'google/nano-banana-2',
+      source_image: safeText(safeObject(stage3Result?.response_json).generation?.output || '') || '<stage3 winner image>',
+      branching_rule: 'Start from the male winner image. If female is selected, create the first female image, then derive all female variants from that female seed.',
+      profile_plan: safeObject(safeObject(stage3Result?.request_json).branch_plan),
+      white_background: false,
+    }
+    return {
+      text: JSON.stringify(payload, null, 2),
+      source: Object.keys(branchPlan).length ? 'backend variant branch payload' : 'backend variant branch template',
+    }
+  }
+
+  if (stageId === 'stage5_variant_white_bg') {
+    const payload = {
+      selected_model: 'google/nano-banana-2',
+      source_image: '<stage4 white-background winner image>',
+      branching_rule: 'Start from the white-background base image. If female is selected, create the first female white-background image, then derive all female white-background variants from that seed.',
+      white_background: true,
+    }
+    return {
+      text: JSON.stringify(payload, null, 2),
+      source: 'backend variant branch template',
+    }
+  }
+
   return { text: 'No AI instruction for this system-only block.', source: 'system transition' }
 }
 
@@ -406,7 +467,7 @@ export function getAvailableAttempts(detail) {
     if (attempt > 0) attempts.add(attempt)
   })
   detail.assets.forEach((asset) => {
-    if (asset.stage_name !== 'stage3_upgraded' && asset.stage_name !== 'stage4_white_bg') return
+    if (!['stage3_upgraded', 'stage4_white_bg', 'stage4_variant_generate', 'stage5_variant_white_bg'].includes(asset.stage_name)) return
     const attempt = Number(asset.attempt || 0)
     if (attempt > 0) attempts.add(attempt)
   })
@@ -442,6 +503,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage3Result = stageIndex.get(makeKey('stage3_upgrade', attempt))
   const qualityResult = stageIndex.get(makeKey('quality_gate', attempt))
   const stage4Result = stageIndex.get(makeKey('stage4_background', attempt))
+  const stage4VariantResult = stageIndex.get(makeKey('stage4_variant_generate', attempt))
+  const stage5VariantResult = stageIndex.get(makeKey('stage5_variant_white_bg', attempt))
 
   const stage1Prompt = promptIndex.get(makeKey('stage1_prompt', 0))
   const stage3Prompt = promptIndex.get(makeKey('stage3_upgrade', attempt))
@@ -449,6 +512,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage2Asset = assetIndex.get(makeKey('stage2_draft', 0))
   const stage3Asset = assetIndex.get(makeKey('stage3_upgraded', attempt))
   const stage4Asset = assetIndex.get(makeKey('stage4_white_bg', attempt))
+  const stage4VariantAsset = assetIndex.get(makeKey('stage4_variant_generate', attempt))
+  const stage5VariantAsset = assetIndex.get(makeKey('stage5_variant_white_bg', attempt))
 
   const score = scoreIndex.get(attempt)
   const stage3Response = safeObject(stage3Result?.response_json)
@@ -555,12 +620,34 @@ export function buildRunDiagram(detail, selectedAttempt) {
       attempt,
     },
     {
+      id: 'stage4_variant_generate',
+      stageResult: stage4VariantResult,
+      promptRecord: stage3Prompt || null,
+      requestPayload: safeObject(stage4VariantResult?.request_json),
+      responsePayload: safeObject(stage4VariantResult?.response_json),
+      asset: stage4VariantAsset || null,
+      model: stage4VariantAsset?.model_name || 'google/nano-banana-2',
+      score: score || null,
+      attempt,
+    },
+    {
+      id: 'stage5_variant_white_bg',
+      stageResult: stage5VariantResult,
+      promptRecord: stage3Prompt || null,
+      requestPayload: safeObject(stage5VariantResult?.request_json),
+      responsePayload: safeObject(stage5VariantResult?.response_json),
+      asset: stage5VariantAsset || null,
+      model: stage5VariantAsset?.model_name || 'google/nano-banana-2',
+      score: score || null,
+      attempt,
+    },
+    {
       id: 'completed',
       stageResult: null,
       promptRecord: null,
       requestPayload: {},
       responsePayload: {},
-      asset: stage4Asset || stage3Asset || null,
+      asset: stage5VariantAsset || stage4VariantAsset || stage4Asset || stage3Asset || null,
       model: '',
       score: score || null,
       attempt,

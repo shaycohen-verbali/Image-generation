@@ -262,6 +262,8 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
         provider = "replicate"
         variants = response_json.get("variants")
         variant_count = len(variants) if isinstance(variants, list) else 0
+        if variant_count <= 0:
+            return []
         estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0) * variant_count
         label = "Character Variant Final Images" if stage_name == "stage4_variant_generate" else "Character Variant White Background"
         return [
@@ -273,6 +275,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
                 model=model,
                 estimated_cost_usd=estimated_cost_usd,
                 estimate_basis="provider image-price estimate",
+                unit_count=variant_count,
             )
         ]
 

@@ -45,8 +45,8 @@ function prettyStage(stage) {
   if (stage === 'stage3_upgrade') return 'Stage 3: Improve + generate'
   if (stage === 'quality_gate') return 'Quality check'
   if (stage === 'stage4_background') return 'Stage 4: White background'
-  if (stage === 'stage4_variant_generate') return 'Variant generation'
-  if (stage === 'stage5_variant_white_bg') return 'Variant white background'
+  if (stage === 'stage4_variant_generate') return 'Stage 5: Variant finals'
+  if (stage === 'stage5_variant_white_bg') return 'Stage 6: Variant white background'
   if (stage === 'completed') return 'Completed'
   return stage || '-'
 }
@@ -134,7 +134,8 @@ function currentNodeId(detail) {
   if (stage === 'stage3_upgrade') return 'stage3_generate'
   if (stage === 'quality_gate') return 'quality_gate'
   if (stage === 'stage4_background') return 'stage4_background'
-  if (stage === 'stage4_variant_generate' || stage === 'stage5_variant_white_bg') return 'stage4_background'
+  if (stage === 'stage4_variant_generate') return 'stage4_variant_generate'
+  if (stage === 'stage5_variant_white_bg') return 'stage5_variant_white_bg'
   if (stage === 'completed') return 'completed'
   return ''
 }
@@ -660,7 +661,9 @@ export default function RunExecutionDiagram({
       stage3_generate: { x: 760, y: 425 },
       quality_gate: { x: 1160, y: 235 },
       stage4_background: { x: 1540, y: 120 },
-      completed: { x: 1910, y: 120 },
+      stage4_variant_generate: { x: 1910, y: 40 },
+      stage5_variant_white_bg: { x: 1910, y: 280 },
+      completed: { x: 2280, y: 160 },
     }[node.id] || { x: 40, y: 185 }
 
     const badge =
@@ -668,7 +671,9 @@ export default function RunExecutionDiagram({
       node.id === 'stage3_prompt_upgrade' ||
       node.id === 'stage3_generate' ||
       node.id === 'quality_gate' ||
-      node.id === 'stage4_background'
+      node.id === 'stage4_background' ||
+      node.id === 'stage4_variant_generate' ||
+      node.id === 'stage5_variant_white_bg'
         ? `Attempt ${selectedAttempt}`
         : ''
 
@@ -826,7 +831,7 @@ export default function RunExecutionDiagram({
         <div className="run-detail-section-grid">
           <div className="run-help-card">
             <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
-            <p>Flow: Stage 1 prompt + initial person guess -> Stage 2 draft -> Stage 3 critique validates whether a person is actually needed -> Stage 3 prompt/image enforce the resolved style -> Quality Gate -> winner selection -> Stage 4 white background.</p>
+            <p>Flow: Stage 1 prompt + initial person guess -> Stage 2 draft -> Stage 3 critique validates whether a person is actually needed -> Stage 3 prompt/image enforce the resolved style -> Quality Gate -> winner selection -> Stage 4 white background -> Stage 5 final-image profile branches -> Stage 6 white-background profile branches.</p>
             <p>If quality fails and attempts remain, the system loops from Quality Gate back to Stage 3 for the next attempt.</p>
           </div>
 
@@ -845,7 +850,7 @@ export default function RunExecutionDiagram({
           <WorkflowCanvas
             nodes={canvasNodes}
             edges={diagram.edges}
-            width={2200}
+            width={2580}
             height={640}
             selectedNodeId={selectedNodeId}
             onSelectNode={setSelectedNodeId}

@@ -109,6 +109,10 @@ def profile_label(profile: dict[str, str]) -> str:
     return f"{gender}, {age}, {skin} skin"
 
 
+def profile_key(profile: dict[str, str]) -> str:
+    return f"{profile.get('gender', '')}:{profile.get('age', '')}:{profile.get('skin_color', '')}"
+
+
 def profile_prompt_fragment(profile: dict[str, str]) -> str:
     gender = str(profile.get("gender", "") or "").strip().lower()
     age = str(profile.get("age", "") or "").strip().lower()
@@ -132,19 +136,19 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
     age_guidance = {
         "toddler": (
             "make the age unmistakably toddler, around 2 to 4 years old, with a very short small body, a noticeably larger head "
-            "relative to the body, round baby-faced cheeks, and preschool-child proportions"
+            "relative to the body, short toddler limbs, a tiny torso, a low standing height, round baby-faced cheeks, and preschool-child proportions"
         ),
         "kid": (
             "make the age unmistakably a young kid, around 5 to 9 years old, with elementary-school child proportions, a clearly "
-            "young face, and a body that is taller and older than a toddler but still clearly not pre-teen"
+            "young face, a child-sized torso, shorter limbs than a tween, and a body that is taller and older than a toddler but still clearly not pre-teen"
         ),
         "tween": (
             "make the age unmistakably a tween, around 10 to 14 years old, with clearly taller pre-teen proportions, longer limbs, "
-            "a less baby-faced look, and age cues that read older than a kid but younger than a teenager"
+            "a longer leg-to-torso ratio, a less baby-faced look, and age cues that read older than a kid but younger than a teenager"
         ),
         "teenager": (
             "make the age unmistakably a teenager, around 15 to 18 years old, with clearly older adolescent proportions, a taller "
-            "body, a more mature face, and visual age cues that do not read as a child"
+            "body, longer limbs, a more mature face, near-adolescent body size, and visual age cues that do not read as a child"
         ),
     }.get(age, "make the age visually obvious")
 
@@ -163,7 +167,8 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
 
     return (
         f"{subject} with {skin} skin; {age_guidance}; {gender_guidance}; {skin_guidance}; "
-        "preserve the AAC concept and make the age, gender, and skin-color variation obvious at a glance"
+        "preserve the AAC concept and make the age, gender, and skin-color variation obvious at a glance; "
+        "make the age difference visible in full-body proportions and height, not only in the face"
     )
 
 
@@ -189,6 +194,31 @@ def all_selected_profiles(entry: Any) -> list[dict[str, str]]:
 def additional_variant_profiles(entry: Any) -> list[dict[str, str]]:
     profiles = all_selected_profiles(entry)
     return profiles[1:] if profiles else []
+
+
+def variant_branch_plan(entry: Any) -> dict[str, Any]:
+    default = entry_default_profile(entry)
+    female_anchor = {
+        "gender": "female",
+        "age": DEFAULT_AGE,
+        "skin_color": DEFAULT_SKIN_COLOR,
+    }
+    plan = {
+        "base_profile": default,
+        "male_variants": [],
+        "female_seed": None,
+        "female_variants": [],
+    }
+    for profile in additional_variant_profiles(entry):
+        key = profile_key(profile)
+        if profile.get("gender") == "female":
+            if key == profile_key(female_anchor):
+                plan["female_seed"] = profile
+            else:
+                plan["female_variants"].append(profile)
+            continue
+        plan["male_variants"].append(profile)
+    return plan
 
 
 def dump_option_set(values: list[str]) -> str:

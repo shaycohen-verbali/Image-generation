@@ -91,17 +91,19 @@ export default function SubmitPage() {
   }
 
   const onRun = async () => {
-    if (!lastEntryId) {
-      setMessage('Create an entry first')
+    if (!form.word.trim() || !form.part_of_sentence.trim()) {
+      setMessage('Enter the word and part of sentence first')
       return
     }
-    setMessage('Queueing run...')
+    setMessage('Saving current entry and queueing run...')
     try {
+      const entry = await createEntry(form)
+      setLastEntryId(entry.id)
       await updateConfig({
         prompt_engineer_mode: promptEngineerMode,
         responses_prompt_engineer_model: promptEngineerModel,
       })
-      const runs = await createRuns({ entry_ids: [lastEntryId] })
+      const runs = await createRuns({ entry_ids: [entry.id] })
       setMessage(`Queued run ${runs[0].id}`)
     } catch (error) {
       setMessage(`Error: ${error.message}`)

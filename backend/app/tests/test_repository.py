@@ -73,3 +73,46 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
     assert config.visual_style_id
     assert config.visual_style_name
     assert config.visual_style_prompt_block
+
+
+def test_add_asset_is_idempotent_by_run_stage_attempt_and_file_name(db_session) -> None:
+    repo = Repository(db_session)
+    entry = repo.create_entry(
+        {
+            "word": "soccer",
+            "part_of_sentence": "verb",
+            "category": "",
+            "context": "",
+            "boy_or_girl": "male",
+            "batch": "1",
+        }
+    )
+    run = repo.create_runs([entry.id], quality_threshold=95, max_optimization_attempts=3)[0]
+    first = repo.add_asset(
+        run_id=run.id,
+        stage_name="stage4_variant_generate",
+        attempt=1,
+        file_name="stage4_variant_soccer_male_kid_white_attempt_1.jpg",
+        abs_path="/tmp/first.jpg",
+        mime_type="image/jpeg",
+        sha256="abc",
+        width=1200,
+        height=896,
+        origin_url="https://example.com/first.jpg",
+        model_name="google/nano-banana-2",
+    )
+    second = repo.add_asset(
+        run_id=run.id,
+        stage_name="stage4_variant_generate",
+        attempt=1,
+        file_name="stage4_variant_soccer_male_kid_white_attempt_1.jpg",
+        abs_path="/tmp/second.jpg",
+        mime_type="image/jpeg",
+        sha256="def",
+        width=1200,
+        height=896,
+        origin_url="https://example.com/second.jpg",
+        model_name="google/nano-banana-2",
+    )
+    assert first.id == second.id
+    assert second.abs_path == "/tmp/second.jpg"
