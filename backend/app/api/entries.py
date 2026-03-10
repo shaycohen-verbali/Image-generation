@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.schemas import EntryCreate, EntryImportResponse, EntryImportRowResult, EntryOut
 from app.services.csv_service import parse_entries_csv, validate_entry_row
+from app.services.person_profiles import entry_age_options, entry_gender_options, entry_skin_color_options
 from app.services.repository import Repository
 
 router = APIRouter(prefix="/api/v1/entries", tags=["entries"])
@@ -22,6 +23,9 @@ def create_entry(payload: EntryCreate, db: Session = Depends(db_dependency)) -> 
         category=entry.category,
         context=entry.context,
         boy_or_girl=entry.boy_or_girl,
+        person_gender_options=entry_gender_options(entry),
+        person_age_options=entry_age_options(entry),
+        person_skin_color_options=entry_skin_color_options(entry),
         batch=entry.batch,
         created_at=entry.created_at,
         updated_at=entry.updated_at,
@@ -90,6 +94,9 @@ def list_entries(
             category=entry.category,
             context=entry.context,
             boy_or_girl=entry.boy_or_girl,
+            person_gender_options=entry_gender_options(entry),
+            person_age_options=entry_age_options(entry),
+            person_skin_color_options=entry_skin_color_options(entry),
             batch=entry.batch,
             created_at=entry.created_at,
             updated_at=entry.updated_at,

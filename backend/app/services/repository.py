@@ -9,6 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Export, Prompt, Run, RuntimeConfig, Score, StageResult
 from app.services.model_catalog import normalize_prompt_engineer_model, normalize_stage3_generation_model, normalize_vision_model
+from app.services.person_profiles import (
+    DEFAULT_AGE,
+    DEFAULT_GENDER,
+    DEFAULT_SKIN_COLOR,
+    dump_option_set,
+    normalize_option_set,
+)
 from app.services.prompt_templates import (
     DEFAULT_STAGE1_PROMPT_TEMPLATE,
     DEFAULT_STAGE3_PROMPT_TEMPLATE,
@@ -82,15 +89,34 @@ class Repository:
 
         existing = self.db.execute(select(Entry).where(Entry.id == entry_id)).scalar_one_or_none()
         if existing:
+            gender_options = normalize_option_set(payload.get("person_gender_options", []), ("male", "female"), DEFAULT_GENDER)
+            age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+            skin_options = normalize_option_set(payload.get("person_skin_color_options", []), ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
+            existing.context = payload.get("context", "").strip()
+            existing.boy_or_girl = gender_options[0]
+            existing.person_gender_options_json = dump_option_set(gender_options)
+            existing.person_age_options_json = dump_option_set(age_options)
+            existing.person_skin_color_options_json = dump_option_set(skin_options)
+            existing.batch = str(payload.get("batch", "")).strip()
+            existing.source_row_hash = row_hash
+            self.db.add(existing)
+            self.db.commit()
+            self.db.refresh(existing)
             return existing
 
+        gender_options = normalize_option_set(payload.get("person_gender_options", []), ("male", "female"), DEFAULT_GENDER)
+        age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+        skin_options = normalize_option_set(payload.get("person_skin_color_options", []), ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
         entry = Entry(
             id=entry_id,
             word=payload["word"].strip(),
             part_of_sentence=payload["part_of_sentence"].strip(),
             category=payload["category"].strip(),
             context=payload.get("context", "").strip(),
-            boy_or_girl=payload.get("boy_or_girl", "").strip(),
+            boy_or_girl=gender_options[0],
+            person_gender_options_json=dump_option_set(gender_options),
+            person_age_options_json=dump_option_set(age_options),
+            person_skin_color_options_json=dump_option_set(skin_options),
             batch=str(payload.get("batch", "")).strip(),
             source_row_hash=row_hash,
         )

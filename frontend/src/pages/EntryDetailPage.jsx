@@ -5,12 +5,16 @@ const stagePriority = {
   stage2_draft: 1,
   stage3_upgraded: 2,
   stage4_white_bg: 3,
+  stage4_variant_generate: 4,
+  stage5_variant_white_bg: 5,
 }
 
 function stageTitle(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
   if (stageName === 'stage4_white_bg') return 'Stage 4 White Background'
+  if (stageName === 'stage4_variant_generate') return 'Character Variant Final'
+  if (stageName === 'stage5_variant_white_bg') return 'Character Variant White Background'
   return stageName
 }
 

@@ -11,6 +11,9 @@ COLUMN_ALIASES = {
     "category": ["category"],
     "context": ["context"],
     "boy_or_girl": ["boy or girl", "boy_or_girl"],
+    "person_gender_options": ["gender", "person_gender_options"],
+    "person_age_options": ["age", "person_age_options"],
+    "person_skin_color_options": ["skin color", "skin_color", "person_skin_color_options"],
     "batch": ["batch"],
 }
 
@@ -40,6 +43,9 @@ def parse_entries_csv(content: bytes) -> list[dict[str, str]]:
             "category": _pick(row, COLUMN_ALIASES["category"]),
             "context": _pick(row, COLUMN_ALIASES["context"]),
             "boy_or_girl": _pick(row, COLUMN_ALIASES["boy_or_girl"]),
+            "person_gender_options": [value.strip() for value in _pick(row, COLUMN_ALIASES["person_gender_options"]).split("|") if value.strip()],
+            "person_age_options": [value.strip() for value in _pick(row, COLUMN_ALIASES["person_age_options"]).split("|") if value.strip()],
+            "person_skin_color_options": [value.strip() for value in _pick(row, COLUMN_ALIASES["person_skin_color_options"]).split("|") if value.strip()],
             "batch": _pick(row, COLUMN_ALIASES["batch"]),
         }
         rows.append(parsed)

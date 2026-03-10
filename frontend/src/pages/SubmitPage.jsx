@@ -2,12 +2,17 @@ import React, { useEffect, useState } from 'react'
 import { createEntry, createRuns, getConfig, importCsv, updateConfig } from '../lib/api'
 
 export default function SubmitPage() {
+  const defaultGender = 'male'
+  const defaultAge = 'kid'
+  const defaultSkinColor = 'white'
   const [form, setForm] = useState({
     word: '',
     part_of_sentence: '',
     category: '',
     context: '',
-    boy_or_girl: '',
+    person_gender_options: [defaultGender],
+    person_age_options: [defaultAge],
+    person_skin_color_options: [defaultSkinColor],
     batch: '',
   })
   const [lastEntryId, setLastEntryId] = useState('')
@@ -19,6 +24,26 @@ export default function SubmitPage() {
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
+
+  const toggleOption = (field, option, { locked = false } = {}) => {
+    if (locked) return
+    setForm((current) => {
+      const currentValues = Array.isArray(current[field]) ? current[field] : []
+      const nextValues = currentValues.includes(option)
+        ? currentValues.filter((value) => value !== option)
+        : [...currentValues, option]
+      return {
+        ...current,
+        [field]: nextValues,
+      }
+    })
+  }
+
+  const selectedGenderCount = form.person_gender_options.length
+  const selectedAgeCount = form.person_age_options.length
+  const selectedSkinCount = form.person_skin_color_options.length
+  const selectedCombinationCount = selectedGenderCount * selectedAgeCount * selectedSkinCount
+  const extraVariantCount = Math.max(0, selectedCombinationCount - 1)
 
   useEffect(() => {
     let mounted = true
@@ -165,10 +190,97 @@ export default function SubmitPage() {
             Context
             <input value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} />
           </label>
-          <label>
-            Boy or girl
-            <input value={form.boy_or_girl} onChange={(e) => setForm({ ...form, boy_or_girl: e.target.value })} />
-          </label>
+          <div className="form-grid option-group-card">
+            <div>
+              <strong>Person Variants</strong>
+              <p className="config-help-text">
+                The base run always uses `male`, `kid (5-9)`, and `White`. Any extra checked options create additional final-image variants and white-background variants only when the concept requires a person.
+              </p>
+            </div>
+            <fieldset className="checkbox-group">
+              <legend>Gender</legend>
+              <label className="checkbox-option checkbox-option-locked">
+                <input type="checkbox" checked readOnly disabled />
+                <span>Male (default base run)</span>
+              </label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={form.person_gender_options.includes('female')}
+                  onChange={() => toggleOption('person_gender_options', 'female')}
+                />
+                <span>Female</span>
+              </label>
+            </fieldset>
+            <fieldset className="checkbox-group">
+              <legend>Age</legend>
+              <label className="checkbox-option checkbox-option-locked">
+                <input type="checkbox" checked readOnly disabled />
+                <span>Kid (5-9) (default base run)</span>
+              </label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={form.person_age_options.includes('toddler')}
+                  onChange={() => toggleOption('person_age_options', 'toddler')}
+                />
+                <span>Toddler (2-4)</span>
+              </label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={form.person_age_options.includes('tween')}
+                  onChange={() => toggleOption('person_age_options', 'tween')}
+                />
+                <span>Tween (10-14)</span>
+              </label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={form.person_age_options.includes('teenager')}
+                  onChange={() => toggleOption('person_age_options', 'teenager')}
+                />
+                <span>Teenager (15-18)</span>
+              </label>
+            </fieldset>
+            <fieldset className="checkbox-group">
+              <legend>Skin color</legend>
+              <label className="checkbox-option checkbox-option-locked">
+                <input type="checkbox" checked readOnly disabled />
+                <span>White (default base run)</span>
+              </label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={form.person_skin_color_options.includes('black')}
+                  onChange={() => toggleOption('person_skin_color_options', 'black')}
+                />
+                <span>Black</span>
+              </label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={form.person_skin_color_options.includes('asian')}
+                  onChange={() => toggleOption('person_skin_color_options', 'asian')}
+                />
+                <span>Asian</span>
+              </label>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={form.person_skin_color_options.includes('brown')}
+                  onChange={() => toggleOption('person_skin_color_options', 'brown')}
+                />
+                <span>Brown</span>
+              </label>
+            </fieldset>
+            <p className="config-help-text">
+              Selected combinations: {selectedCombinationCount} total person profile{selectedCombinationCount === 1 ? '' : 's'}.
+              {extraVariantCount > 0
+                ? ` This means ${extraVariantCount} additional final-image variant${extraVariantCount === 1 ? '' : 's'} plus ${extraVariantCount} additional white-background variant${extraVariantCount === 1 ? '' : 's'}.`
+                : ' No extra person variants will be created beyond the base run.'}
+            </p>
+          </div>
           <label>
             Batch
             <input value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} />

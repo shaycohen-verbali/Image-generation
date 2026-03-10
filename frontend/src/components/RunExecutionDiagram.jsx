@@ -45,6 +45,8 @@ function prettyStage(stage) {
   if (stage === 'stage3_upgrade') return 'Stage 3: Improve + generate'
   if (stage === 'quality_gate') return 'Quality check'
   if (stage === 'stage4_background') return 'Stage 4: White background'
+  if (stage === 'stage4_variant_generate') return 'Variant generation'
+  if (stage === 'stage5_variant_white_bg') return 'Variant white background'
   if (stage === 'completed') return 'Completed'
   return stage || '-'
 }
@@ -86,6 +88,8 @@ const assetStageOrder = {
   stage2_draft: 1,
   stage3_upgraded: 2,
   stage4_white_bg: 3,
+  stage4_variant_generate: 4,
+  stage5_variant_white_bg: 5,
 }
 
 const IMAGE_FILTER = {
@@ -106,6 +110,8 @@ function stageImageLabel(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
   if (stageName === 'stage4_white_bg') return 'Stage 4 White Background'
+  if (stageName === 'stage4_variant_generate') return 'Character Variant Final'
+  if (stageName === 'stage5_variant_white_bg') return 'Character Variant White Background'
   return stageName || 'Image'
 }
 
@@ -128,6 +134,7 @@ function currentNodeId(detail) {
   if (stage === 'stage3_upgrade') return 'stage3_generate'
   if (stage === 'quality_gate') return 'quality_gate'
   if (stage === 'stage4_background') return 'stage4_background'
+  if (stage === 'stage4_variant_generate' || stage === 'stage5_variant_white_bg') return 'stage4_background'
   if (stage === 'completed') return 'completed'
   return ''
 }
@@ -605,7 +612,7 @@ export default function RunExecutionDiagram({
   const imageCreationFailed = (() => {
     if (detail.run.status === 'failed_technical') return true
     return stages.some((stage) => {
-      if (!['stage2_draft', 'stage3_upgrade', 'stage4_background'].includes(stage.stage_name)) return false
+      if (!['stage2_draft', 'stage3_upgrade', 'stage4_background', 'stage4_variant_generate', 'stage5_variant_white_bg'].includes(stage.stage_name)) return false
       const status = String(stage.status || '').toLowerCase()
       return status.includes('error') || status.includes('fail')
     })
@@ -634,10 +641,11 @@ export default function RunExecutionDiagram({
       return allRunAssets.filter((asset) => asset.stage_name === 'stage2_draft')
     }
     if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
-      return allRunAssets.filter((asset) => asset.stage_name === 'stage4_white_bg')
+      return allRunAssets.filter((asset) => ['stage4_white_bg', 'stage5_variant_white_bg'].includes(asset.stage_name))
     }
     return allRunAssets.filter((asset) => {
       if (asset.stage_name === 'stage2_draft') return true
+      if (asset.stage_name === 'stage4_variant_generate') return Number(asset.attempt || 0) === selectedAttempt
       return Number(asset.attempt || 0) === selectedAttempt
     })
   })()
@@ -736,7 +744,7 @@ export default function RunExecutionDiagram({
             <div className="section-head-row">
               <div>
                 <h4>Image Gallery</h4>
-                <p>Filter by draft, attempt, or final white-background output.</p>
+                <p>Filter by draft, selected attempt, or white-background outputs including any character variants.</p>
               </div>
             </div>
             <div className="attempt-chip-row">
@@ -767,8 +775,8 @@ export default function RunExecutionDiagram({
             </div>
             <div className="run-help-card compact-help-card">
               {imageFilter === IMAGE_FILTER.DRAFT ? <p>Showing only Stage 2 draft images.</p> : null}
-              {imageFilter === IMAGE_FILTER.ATTEMPT ? <p>Showing Attempt {selectedAttempt} plus the original draft for comparison.</p> : null}
-              {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND ? <p>Showing only the winner image after background removal.</p> : null}
+              {imageFilter === IMAGE_FILTER.ATTEMPT ? <p>Showing Attempt {selectedAttempt}, the original draft, and any extra character-profile finals for that winning attempt.</p> : null}
+              {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND ? <p>Showing the white-background winner plus any extra character-profile white-background variants.</p> : null}
               {winnerStage4Asset ? <p>Winner attempt: <strong>{winnerStage4Asset.attempt}</strong></p> : null}
             </div>
           </section>

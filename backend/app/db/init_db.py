@@ -19,6 +19,7 @@ DEFAULT_PARALLEL_RUNS = 10
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_entry_columns()
     _ensure_runtime_config_columns()
     settings = get_settings()
     with SessionLocal() as db:
@@ -108,6 +109,20 @@ def _ensure_runtime_config_columns() -> None:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage1_prompt_template TEXT NOT NULL DEFAULT ''"))
         if "stage3_prompt_template" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
+
+
+def _ensure_entry_columns() -> None:
+    if not str(engine.url).startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(entries)")).fetchall()
+        existing = {row[1] for row in rows}
+        if "person_gender_options_json" not in existing:
+            conn.execute(text("ALTER TABLE entries ADD COLUMN person_gender_options_json TEXT NOT NULL DEFAULT '[\"male\"]'"))
+        if "person_age_options_json" not in existing:
+            conn.execute(text("ALTER TABLE entries ADD COLUMN person_age_options_json TEXT NOT NULL DEFAULT '[\"kid\"]'"))
+        if "person_skin_color_options_json" not in existing:
+            conn.execute(text("ALTER TABLE entries ADD COLUMN person_skin_color_options_json TEXT NOT NULL DEFAULT '[\"white\"]'"))
 
 
 if __name__ == "__main__":

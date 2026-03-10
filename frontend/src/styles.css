@@ -116,6 +116,43 @@ body {
   color: #425560;
 }
 
+.option-group-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.checkbox-group {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.checkbox-group legend {
+  padding: 0 6px;
+  font-weight: 800;
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.checkbox-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.checkbox-option-locked {
+  opacity: 0.9;
+}
+
 .inline-fields {
   display: flex;
   gap: 8px;

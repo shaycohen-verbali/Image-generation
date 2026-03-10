@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models import Entry
+from app.services.person_profiles import entry_default_profile, profile_label, profile_prompt_fragment
 
 
 DEFAULT_VISUAL_STYLE_ID = "warm_watercolor_storybook_kids_v3"
@@ -81,7 +82,7 @@ DEFAULT_STAGE1_PROMPT_TEMPLATE = (
     "Word: {word}\n"
     "Part of speech: {part_of_sentence}\n"
     "Category: {category}\n"
-    "If a person is present, use a: {boy_or_girl}\n\n"
+    "If a person is present, use this default person profile: {person_profile}\n\n"
     "Decision rule:\n"
     "- If a person is needed for AAC clarity, the prompt should use an illustration and make the person central.\n"
     "- If a person is not needed for AAC clarity, the prompt should be photorealistic and should not include a person.\n\n"
@@ -101,7 +102,7 @@ DEFAULT_STAGE3_PROMPT_TEMPLATE = (
     "word: {word}\n"
     "part of sentence: {part_of_sentence}\n"
     "Category: {category}\n"
-    "If a person is present, use a {boy_or_girl} as the person.\n\n"
+    "If a person is present, use this default person profile: {person_profile}\n\n"
     "Current decision from the system: {resolved_need_person_reasoning}\n"
     "Resolved person-needed decision: {resolved_need_person}\n"
     "Resolved render style: {render_style_mode}\n"
@@ -182,13 +183,13 @@ def render_style_mode_for_need_person(need_person: str | None) -> str:
     return "illustration" if normalize_need_person(need_person) == "yes" else "photorealistic"
 
 
-def person_instruction_for_need_person(need_person: str | None, *, boy_or_girl: str = "") -> str:
+def person_instruction_for_need_person(need_person: str | None, *, person_profile: str = "") -> str:
     normalized = normalize_need_person(need_person)
     if normalized == "yes":
-        preferred_person = str(boy_or_girl or "").strip()
+        preferred_person = str(person_profile or "").strip()
         if preferred_person:
             return (
-                f"A person is required for clarity. Include one clear central person and use a {preferred_person}. "
+                f"A person is required for clarity. Include one clear central person using this profile: {preferred_person}. "
                 "Do not let extra people or background activity compete with the main meaning."
             )
         return "A person is required for clarity. Include one clear central person and avoid extra distracting people."
@@ -222,7 +223,7 @@ def resolve_person_decision(
     initial_need_person: str | None,
     person_needed_for_clarity: str | None = None,
     person_presence_problem: str | None = None,
-    boy_or_girl: str = "",
+    person_profile: str = "",
     illustration_style_id: str = DEFAULT_VISUAL_STYLE_ID,
     illustration_style_name: str = DEFAULT_VISUAL_STYLE_NAME,
     illustration_style_block: str = DEFAULT_VISUAL_STYLE_PROMPT_BLOCK,
@@ -256,7 +257,7 @@ def resolve_person_decision(
         "person_presence_problem": presence_problem or "none",
         "resolved_need_person": resolved,
         "resolved_need_person_reasoning": reason,
-        "person_decision_instruction": person_instruction_for_need_person(resolved, boy_or_girl=boy_or_girl),
+        "person_decision_instruction": person_instruction_for_need_person(resolved, person_profile=person_profile),
         **style,
     }
 
@@ -270,7 +271,7 @@ def apply_render_decision_to_prompt(
     part_of_sentence: str = "",
     category: str = "",
     context: str = "",
-    boy_or_girl: str = "",
+    person_profile: str = "",
     illustration_style_id: str = DEFAULT_VISUAL_STYLE_ID,
     illustration_style_name: str = DEFAULT_VISUAL_STYLE_NAME,
     illustration_style_block: str = DEFAULT_VISUAL_STYLE_PROMPT_BLOCK,
@@ -289,7 +290,7 @@ def apply_render_decision_to_prompt(
         "person_presence_problem": "none",
         "resolved_need_person": normalized_need_person,
         "resolved_need_person_reasoning": resolved_need_person_reasoning,
-        "person_decision_instruction": person_instruction_for_need_person(normalized_need_person, boy_or_girl=boy_or_girl),
+        "person_decision_instruction": person_instruction_for_need_person(normalized_need_person, person_profile=person_profile),
         **style,
     }
     normalized_source_prompt = _strip_style_conflicts(prompt_text, decision["render_style_mode"]) or str(prompt_text or "").strip()
@@ -319,6 +320,7 @@ def build_stage1_prompt(
     visual_style_name: str = DEFAULT_VISUAL_STYLE_NAME,
     visual_style_block: str = DEFAULT_VISUAL_STYLE_PROMPT_BLOCK,
 ) -> str:
+    default_profile = entry_default_profile(entry)
     return _render_with_visual_style(
         template_text or DEFAULT_STAGE1_PROMPT_TEMPLATE,
         {
@@ -327,6 +329,7 @@ def build_stage1_prompt(
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
             "boy_or_girl": entry.boy_or_girl,
+            "person_profile": profile_label(default_profile),
             "photorealistic_hint": _photorealistic_hint(),
             "visual_style_id": visual_style_id,
             "visual_style_name": visual_style_name,
@@ -356,6 +359,7 @@ def build_stage3_prompt(
     render_style_mode: str = "photorealistic",
     person_decision_instruction: str = "A person is not required for clarity. Do not include any person in the image.",
 ) -> str:
+    default_profile = entry_default_profile(entry)
     return _render_with_visual_style(
         template_text or DEFAULT_STAGE3_PROMPT_TEMPLATE,
         {
@@ -367,6 +371,7 @@ def build_stage3_prompt(
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
             "boy_or_girl": entry.boy_or_girl,
+            "person_profile": profile_label(default_profile),
             "photorealistic_hint": _photorealistic_hint(),
             "visual_style_id": visual_style_id,
             "visual_style_name": visual_style_name,
@@ -383,3 +388,7 @@ def build_stage3_prompt(
         visual_style_name=visual_style_name,
         visual_style_block=visual_style_block,
     )
+
+
+def default_person_profile_for_prompt(entry: Entry) -> str:
+    return profile_prompt_fragment(entry_default_profile(entry))

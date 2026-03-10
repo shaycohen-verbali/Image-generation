@@ -14,6 +14,9 @@ class EntryCreate(BaseModel):
     category: str = ""
     context: str = ""
     boy_or_girl: str = ""
+    person_gender_options: list[str] = Field(default_factory=lambda: ["male"])
+    person_age_options: list[str] = Field(default_factory=lambda: ["kid"])
+    person_skin_color_options: list[str] = Field(default_factory=lambda: ["white"])
     batch: str = ""
 
 
@@ -24,6 +27,9 @@ class EntryOut(BaseModel):
     category: str
     context: str
     boy_or_girl: str
+    person_gender_options: list[str] = Field(default_factory=list)
+    person_age_options: list[str] = Field(default_factory=list)
+    person_skin_color_options: list[str] = Field(default_factory=list)
     batch: str
     created_at: datetime
     updated_at: datetime

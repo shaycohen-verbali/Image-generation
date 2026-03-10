@@ -18,6 +18,9 @@ def make_entry() -> Entry:
         category="food",
         context="at the beach",
         boy_or_girl="girl",
+        person_gender_options_json='["male","female"]',
+        person_age_options_json='["kid","toddler"]',
+        person_skin_color_options_json='["white","brown"]',
         batch="",
         source_row_hash="hash",
     )
@@ -53,7 +56,7 @@ def test_resolve_person_decision_can_override_stage1_hypothesis() -> None:
         initial_need_person="no",
         person_needed_for_clarity="yes",
         person_presence_problem="missing_person",
-        boy_or_girl="girl",
+        person_profile="male, kid (5-9), White skin",
     )
     assert decision["resolved_need_person"] == "yes"
     assert decision["render_style_mode"] == "illustration"
@@ -68,7 +71,7 @@ def test_apply_render_decision_to_prompt_enforces_photorealistic_without_person(
         part_of_sentence="noun",
         category="",
         context="at the beach",
-        boy_or_girl="girl",
+        person_profile="male, kid (5-9), White skin",
     )
     assert decision["render_style_mode"] == "photorealistic"
     assert "Do not include any person" in enforced_prompt
@@ -85,7 +88,7 @@ def test_apply_render_decision_to_prompt_enforces_illustration_with_person() -> 
         part_of_sentence="verb",
         category="",
         context="at the beach",
-        boy_or_girl="girl",
+        person_profile="male, kid (5-9), White skin",
     )
     assert decision["render_style_mode"] == "illustration"
     assert "Create an illustration for the AAC concept" in enforced_prompt

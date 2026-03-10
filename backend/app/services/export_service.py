@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import Asset
+from app.services.person_profiles import entry_age_options, entry_gender_options, entry_skin_color_options
 from app.services.repository import Repository
 from app.services.storage import exports_root
 from app.services.utils import sanitize_filename
@@ -158,14 +159,30 @@ class ExportService:
         with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             for run, _entry in runs_data:
                 _, _, _, assets, _ = self.repo.run_details(run.id)
-                preferred_attempt = int(run.optimization_attempt or 0) if stage_name in {"stage3_upgraded", "stage4_white_bg"} else 0
-                selected = self._latest_asset_for_stage(assets, stage_name, preferred_attempt=preferred_attempt)
-                if selected is None:
-                    continue
-                asset_path = Path(selected.abs_path)
-                if asset_path.exists():
-                    base_slug = self._base_asset_slug(_entry.word, _entry.part_of_sentence, _entry.category, _entry.boy_or_girl)
-                    archive.write(asset_path, arcname=self._unique_export_name(base_slug, run.id, selected))
+                base_slug = self._base_asset_slug(_entry.word, _entry.part_of_sentence, _entry.category, _entry.boy_or_girl)
+                if stage_name == "stage4_white_bg":
+                    selected_assets: list[Asset] = []
+                    preferred_attempt = int(run.optimization_attempt or 0)
+                    selected = self._latest_asset_for_stage(assets, "stage4_white_bg", preferred_attempt=preferred_attempt)
+                    if selected is not None:
+                        selected_assets.append(selected)
+                    selected_assets.extend(asset for asset in assets if asset.stage_name == "stage5_variant_white_bg")
+                elif stage_name == "stage3_upgraded":
+                    selected_assets = []
+                    preferred_attempt = int(run.optimization_attempt or 0)
+                    selected = self._latest_asset_for_stage(assets, "stage3_upgraded", preferred_attempt=preferred_attempt)
+                    if selected is not None:
+                        selected_assets.append(selected)
+                    selected_assets.extend(asset for asset in assets if asset.stage_name == "stage4_variant_generate")
+                else:
+                    preferred_attempt = 0
+                    selected = self._latest_asset_for_stage(assets, stage_name, preferred_attempt=preferred_attempt)
+                    selected_assets = [selected] if selected is not None else []
+
+                for selected in selected_assets:
+                    asset_path = Path(selected.abs_path)
+                    if asset_path.exists():
+                        archive.write(asset_path, arcname=self._unique_export_name(base_slug, run.id, selected))
 
     @staticmethod
     def _base_asset_slug(word: str, part_of_sentence: str, category: str, boy_or_girl: str = "") -> str:
@@ -218,6 +235,9 @@ class ExportService:
                         "category": entry.category,
                         "context": entry.context,
                         "boy_or_girl": entry.boy_or_girl,
+                        "person_gender_options": entry_gender_options(entry),
+                        "person_age_options": entry_age_options(entry),
+                        "person_skin_color_options": entry_skin_color_options(entry),
                         "batch": entry.batch,
                     },
                     "stages": [

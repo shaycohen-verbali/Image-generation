@@ -255,6 +255,25 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
             )
         ]
 
+    if stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}:
+        model = _first_text(response_json.get("model"), "google/nano-banana-2")
+        provider = "replicate"
+        variants = response_json.get("variants")
+        variant_count = len(variants) if isinstance(variants, list) else 0
+        estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0) * variant_count
+        label = "Character Variant Final Images" if stage_name == "stage4_variant_generate" else "Character Variant White Background"
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label=label,
+                attempt=attempt,
+                provider=provider,
+                model=model,
+                estimated_cost_usd=estimated_cost_usd,
+                estimate_basis="provider image-price estimate",
+            )
+        ]
+
     if stage_name == "stage3_generate":
         generation = _json_dict(response_json.get("generation"))
         model = _first_text(response_json.get("generation_model"), generation.get("model"), response_json.get("generation_model_selected"))

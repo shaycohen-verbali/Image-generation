@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Prompt, Run, StageResult
 from app.services.openai_client import AssistantRunFailedError, OpenAIClient
+from app.services.person_profiles import additional_variant_profiles, profile_prompt_fragment
 from app.services.prompt_templates import (
     apply_render_decision_to_prompt,
     build_stage1_prompt,
     build_stage3_prompt,
+    default_person_profile_for_prompt,
     normalize_need_person,
     resolve_person_decision,
 )
@@ -155,6 +157,12 @@ class PipelineRunner:
             raise RuntimeError("unknown stage execution error")
         raise error
 
+    @staticmethod
+    def _variant_suffix(profile: dict[str, str]) -> str:
+        return sanitize_filename(
+            f"{profile.get('gender', 'person')}_{profile.get('age', 'age')}_{profile.get('skin_color', 'skin')}"
+        )
+
     def process_run(self, run_id: str) -> Run:
         run = self.repo.get_run(run_id)
         if run is None:
@@ -239,7 +247,7 @@ class PipelineRunner:
                 part_of_sentence=entry.part_of_sentence,
                 category=entry.category,
                 context=entry.context,
-                boy_or_girl=entry.boy_or_girl,
+                person_profile=default_person_profile_for_prompt(entry),
                 illustration_style_id=runtime_config.visual_style_id,
                 illustration_style_name=runtime_config.visual_style_name,
                 illustration_style_block=runtime_config.visual_style_prompt_block,
@@ -405,6 +413,14 @@ class PipelineRunner:
                 winner_score=best_score,
             ),
         )
+        self._execute_with_stage_retry(
+            retry_limit,
+            lambda: self._run_person_variants(
+                run=run,
+                entry=entry,
+                winner_attempt=best_attempt,
+            ),
+        )
 
         if best_score >= run.quality_threshold:
             status = "completed_pass"
@@ -467,7 +483,7 @@ class PipelineRunner:
             initial_need_person=initial_need_person,
             person_needed_for_clarity=str(analysis.get("person_needed_for_clarity", "")),
             person_presence_problem=str(analysis.get("person_presence_problem", "none")),
-            boy_or_girl=entry.boy_or_girl,
+            person_profile=default_person_profile_for_prompt(entry),
             illustration_style_id=runtime_config.visual_style_id,
             illustration_style_name=runtime_config.visual_style_name,
             illustration_style_block=runtime_config.visual_style_prompt_block,
@@ -524,7 +540,7 @@ class PipelineRunner:
             part_of_sentence=entry.part_of_sentence,
             category=entry.category,
             context=entry.context,
-            boy_or_girl=entry.boy_or_girl,
+            person_profile=default_person_profile_for_prompt(entry),
             illustration_style_id=runtime_config.visual_style_id,
             illustration_style_name=runtime_config.visual_style_name,
             illustration_style_block=runtime_config.visual_style_prompt_block,
@@ -641,6 +657,140 @@ class PipelineRunner:
                 "status": "ok",
                 "provider": "openai+replicate",
                 "latency_ms": round((perf_counter() - start) * 1000, 2),
+            },
+        )
+
+    def _run_person_variants(self, *, run: Run, entry: Entry, winner_attempt: int) -> None:
+        stage3_result = self.db.execute(
+            select(StageResult)
+            .where(StageResult.run_id == run.id)
+            .where(StageResult.stage_name == "stage3_upgrade")
+            .where(StageResult.attempt == winner_attempt)
+            .limit(1)
+        ).scalar_one_or_none()
+        if stage3_result is None:
+            return
+
+        stage3_response = json.loads(stage3_result.response_json) if stage3_result.response_json else {}
+        decision = stage3_response.get("decision", {}) if isinstance(stage3_response, dict) else {}
+        if normalize_need_person(str(decision.get("resolved_need_person", "no"))) != "yes":
+            return
+
+        profiles = additional_variant_profiles(entry)
+        if not profiles:
+            return
+
+        upgraded_asset = self._asset_for_attempt(run.id, "stage3_upgraded", winner_attempt)
+        if upgraded_asset is None:
+            raise RuntimeError(f"Missing stage3 upgraded image for variant generation attempt {winner_attempt}")
+
+        with_background_variants: list[dict[str, Any]] = []
+        self.repo.update_run(run, current_stage="stage4_variant_generate")
+        for profile in profiles:
+            profile_description = profile_prompt_fragment(profile)
+            profile_suffix = self._variant_suffix(profile)
+            variant_result = self.replicate.nano_banana_profile_variant(
+                Path(upgraded_asset.abs_path),
+                word=entry.word,
+                profile_description=profile_description,
+            )
+            if variant_result.get("status") != "succeeded":
+                raise RuntimeError(f"Variant generation failed for {profile_suffix}: {variant_result.get('status')}")
+            variant_url = self.replicate.extract_output_url(variant_result)
+            if not variant_url:
+                raise RuntimeError(f"No output URL for variant {profile_suffix}")
+
+            variant_bytes = self.replicate.download_image(variant_url)
+            variant_filename = f"stage4_variant_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
+            variant_asset = self._save_asset(
+                run_id=run.id,
+                stage_name="stage4_variant_generate",
+                attempt=winner_attempt,
+                filename=variant_filename,
+                image_bytes=variant_bytes,
+                origin_url=variant_url,
+                model_name="google/nano-banana-2",
+            )
+            with_background_variants.append(
+                {
+                    "profile": profile,
+                    "profile_description": profile_description,
+                    "asset": {
+                        "id": variant_asset.id,
+                        "file_name": variant_asset.file_name,
+                        "abs_path": variant_asset.abs_path,
+                        "origin_url": variant_asset.origin_url,
+                    },
+                    "response": variant_result,
+                }
+            )
+
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage4_variant_generate",
+            attempt=winner_attempt,
+            status="ok",
+            request_json={
+                "winner_attempt": winner_attempt,
+                "source_asset": upgraded_asset.abs_path,
+                "profiles": profiles,
+                "variant_count": len(with_background_variants),
+            },
+            response_json={
+                "model": "google/nano-banana-2",
+                "variants": with_background_variants,
+            },
+        )
+
+        self.repo.update_run(run, current_stage="stage5_variant_white_bg")
+        white_bg_variants: list[dict[str, Any]] = []
+        for variant in with_background_variants:
+            profile = variant["profile"]
+            profile_suffix = self._variant_suffix(profile)
+            white_bg_result = self.replicate.nano_banana_white_bg(Path(variant["asset"]["abs_path"]), entry.word)
+            if white_bg_result.get("status") != "succeeded":
+                raise RuntimeError(f"Variant white background failed for {profile_suffix}: {white_bg_result.get('status')}")
+            white_bg_url = self.replicate.extract_output_url(white_bg_result)
+            if not white_bg_url:
+                raise RuntimeError(f"No white background URL for variant {profile_suffix}")
+
+            white_bg_bytes = self.replicate.download_image(white_bg_url)
+            white_bg_filename = f"stage5_variant_white_bg_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
+            white_bg_asset = self._save_asset(
+                run_id=run.id,
+                stage_name="stage5_variant_white_bg",
+                attempt=winner_attempt,
+                filename=white_bg_filename,
+                image_bytes=white_bg_bytes,
+                origin_url=white_bg_url,
+                model_name="google/nano-banana-2",
+            )
+            white_bg_variants.append(
+                {
+                    "profile": profile,
+                    "profile_description": variant["profile_description"],
+                    "asset": {
+                        "id": white_bg_asset.id,
+                        "file_name": white_bg_asset.file_name,
+                        "abs_path": white_bg_asset.abs_path,
+                        "origin_url": white_bg_asset.origin_url,
+                    },
+                    "response": white_bg_result,
+                }
+            )
+
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage5_variant_white_bg",
+            attempt=winner_attempt,
+            status="ok",
+            request_json={
+                "winner_attempt": winner_attempt,
+                "variant_count": len(white_bg_variants),
+            },
+            response_json={
+                "model": "google/nano-banana-2",
+                "variants": white_bg_variants,
             },
         )
 

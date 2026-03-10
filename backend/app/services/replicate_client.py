@@ -205,6 +205,24 @@ class ReplicateClient:
             },
         )
 
+    def nano_banana_profile_variant(self, image_path: Path, *, word: str, profile_description: str) -> dict[str, Any]:
+        prompt = (
+            "Using the provided image as the base, keep the same AAC concept, composition, visual style, lighting, props, "
+            "and background. Change only the main person so the image clearly shows a "
+            f"{profile_description}. Keep exactly one clear central person, preserve concept clarity for the word "
+            f'"{word}", and do not add text or extra people.'
+        )
+        image_input = self._to_data_uri(image_path)
+        return self._run_prediction(
+            "google/nano-banana-2",
+            {
+                "prompt": prompt,
+                "image_input": [image_input],
+                "aspect_ratio": "match_input_image",
+                "output_format": "jpg",
+            },
+        )
+
     def download_image(self, url: str) -> bytes:
         def _call() -> bytes:
             response = requests.get(url, timeout=180)
