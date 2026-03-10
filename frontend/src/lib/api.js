@@ -8,6 +8,17 @@ export function buildApiUrl(path) {
   return `${API_ROOT}/${path}`
 }
 
+export function buildAssetContentUrl(assetOrId) {
+  const assetId =
+    typeof assetOrId === 'string'
+      ? assetOrId
+      : assetOrId && typeof assetOrId === 'object'
+        ? assetOrId.id
+        : ''
+  if (!assetId) return ''
+  return buildApiUrl(`/api/v1/assets/${assetId}/content`)
+}
+
 async function parseResponse(response) {
   if (!response.ok) {
     const text = await response.text()

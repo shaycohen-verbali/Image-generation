@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { buildAssetContentUrl } from '../lib/api'
 
 function shortHash(value) {
   if (!value) return ''
@@ -124,6 +125,7 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
   const decision = node.responseJson?.decision || node.requestJson || {}
   const hasPromptLineage = Boolean(node.promptText || node.promptNeedsPerson || (node.promptRaw && Object.keys(node.promptRaw).length))
   const hasQuality = Boolean(node.score || (node.scoreRubric && Object.keys(node.scoreRubric).length))
+  const assetContentUrl = buildAssetContentUrl(node.asset)
 
   return (
     <div className="run-node-detail">
@@ -329,16 +331,16 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           <p><strong>Mime:</strong> {node.asset.mime_type || 'N/A'}</p>
           <p><strong>Dimensions:</strong> {node.asset.width || '-'} x {node.asset.height || '-'}</p>
           <p><strong>SHA256:</strong> {shortHash(node.asset.sha256)}</p>
-          {node.asset.origin_url ? (
+          {assetContentUrl ? (
             <p>
-              <a href={node.asset.origin_url} target="_blank" rel="noreferrer">
-                Open source image URL
+              <a href={assetContentUrl} target="_blank" rel="noreferrer">
+                Open stored image
               </a>
             </p>
           ) : null}
-          {node.asset.origin_url ? (
+          {assetContentUrl ? (
             <div className="run-node-image">
-              <img src={node.asset.origin_url} alt={`${node.label} output`} />
+              <img src={assetContentUrl} alt={`${node.label} output`} />
             </div>
           ) : null}
         </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
+import { buildAssetContentUrl, getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
 import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 
@@ -417,12 +417,12 @@ export default function RunsPage() {
               <pre>{JSON.stringify(detail.run, null, 2)}</pre>
 
               <h3>Final Image</h3>
-              {finalAsset?.origin_url ? (
+              {finalAsset?.id ? (
                 <div className="asset-card">
-                  <img className="asset-image" src={finalAsset.origin_url} alt="Final white background output" />
+                  <img className="asset-image" src={buildAssetContentUrl(finalAsset)} alt="Final white background output" />
                   <div className="asset-meta">
                     <p>{finalAsset.file_name}</p>
-                    <a href={finalAsset.origin_url} target="_blank" rel="noreferrer">
+                    <a href={buildAssetContentUrl(finalAsset)} target="_blank" rel="noreferrer">
                       Open Full Image
                     </a>
                   </div>
@@ -437,16 +437,16 @@ export default function RunsPage() {
                   {sortedAssets.map((asset) => (
                     <div key={asset.id} className="asset-card">
                       <h4>{stageTitle(asset.stage_name)}</h4>
-                      {asset.origin_url ? (
-                        <img className="asset-image" src={asset.origin_url} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
+                      {asset.id ? (
+                        <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
                       ) : (
                         <p>Image URL unavailable.</p>
                       )}
                       <div className="asset-meta">
                         <p>Attempt: {asset.attempt}</p>
                         <p>Model: {asset.model_name}</p>
-                        {asset.origin_url ? (
-                          <a href={asset.origin_url} target="_blank" rel="noreferrer">
+                        {asset.id ? (
+                          <a href={buildAssetContentUrl(asset)} target="_blank" rel="noreferrer">
                             Open Image
                           </a>
                         ) : null}

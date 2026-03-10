@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import RunNodeDetailCard from './RunNodeDetailCard'
 import WorkflowCanvas from './WorkflowCanvas'
 import { buildRunDiagram, getAvailableAttempts } from '../lib/runDiagram'
+import { buildAssetContentUrl } from '../lib/api'
 
 function runDetailStateKey(runId) {
   return `aac:run-detail:${runId || 'unknown'}`
@@ -252,7 +253,7 @@ function renderOverviewSection({
   const estimatedCostPerImage = run.estimated_cost_per_image_usd
   const imageCount = Number(run.image_count || 0)
   const meterPercent = Math.max(3, Math.min(100, Math.round((estimatedTotalCost / 1.0) * 100)))
-  const finalImageUrl = winnerStage4Asset?.origin_url || finalAsset?.origin_url || ''
+  const finalImageUrl = buildAssetContentUrl(winnerStage4Asset || finalAsset)
   const costSummary = safeObject(detail.cost_summary)
   const costBreakdown = safeArray(costSummary.stage_costs)
   const estimateNote = String(costSummary.estimate_note || '').trim()
@@ -804,8 +805,8 @@ export default function RunExecutionDiagram({
                 {filteredRunAssets.map((asset) => (
                   <div key={asset.id} className="asset-card run-asset-card">
                     <h4>{stageImageLabel(asset.stage_name)}</h4>
-                    {asset.origin_url ? (
-                      <img className="asset-image" src={asset.origin_url} alt={`${asset.stage_name} ${attemptLabel(asset)}`} />
+                    {asset.id ? (
+                      <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} ${attemptLabel(asset)}`} />
                     ) : (
                       <p className="asset-meta-empty">Image URL unavailable.</p>
                     )}
@@ -813,8 +814,8 @@ export default function RunExecutionDiagram({
                       <p><strong>{attemptLabel(asset)}</strong></p>
                       <p>{asset.file_name || '-'}</p>
                       <p>{asset.model_name || '-'}</p>
-                      {asset.origin_url ? (
-                        <a href={asset.origin_url} target="_blank" rel="noreferrer">
+                      {asset.id ? (
+                        <a href={buildAssetContentUrl(asset)} target="_blank" rel="noreferrer">
                           Open Full Image
                         </a>
                       ) : null}
