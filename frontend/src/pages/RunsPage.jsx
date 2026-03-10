@@ -27,6 +27,48 @@ function setStoredRunId(runId) {
   }
 }
 
+function dedupeById(items) {
+  const map = new Map()
+  ;(Array.isArray(items) ? items : []).forEach((item) => {
+    if (!item || !item.id) return
+    map.set(item.id, item)
+  })
+  return Array.from(map.values())
+}
+
+function dedupeCostRows(items) {
+  const map = new Map()
+  ;(Array.isArray(items) ? items : []).forEach((item) => {
+    if (!item) return
+    const key = `${item.stage_name || 'stage'}:${item.attempt || 0}:${item.model || ''}:${item.estimate_basis || ''}`
+    map.set(key, item)
+  })
+  return Array.from(map.values())
+}
+
+function mergeRunDetail(previous, next) {
+  if (!next) return previous
+  if (!previous) return next
+  if (!previous.run || !next.run || previous.run.id !== next.run.id) return next
+  return {
+    ...previous,
+    ...next,
+    run: { ...previous.run, ...next.run },
+    stages: dedupeById([...(previous.stages || []), ...(next.stages || [])]),
+    prompts: dedupeById([...(previous.prompts || []), ...(next.prompts || [])]),
+    assets: dedupeById([...(previous.assets || []), ...(next.assets || [])]),
+    scores: dedupeById([...(previous.scores || []), ...(next.scores || [])]),
+    cost_summary: {
+      ...(previous.cost_summary || {}),
+      ...(next.cost_summary || {}),
+      stage_costs: dedupeCostRows([
+        ...((previous.cost_summary || {}).stage_costs || []),
+        ...((next.cost_summary || {}).stage_costs || []),
+      ]),
+    },
+  }
+}
+
 function stageTitle(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
@@ -104,7 +146,7 @@ export default function RunsPage() {
   async function loadRunDetail(runId) {
     try {
       const data = await getRun(runId)
-      setDetail(data)
+      setDetail((previous) => mergeRunDetail(previous, data))
     } catch (error) {
       setMessage(`Error loading detail: ${error.message}`)
     }

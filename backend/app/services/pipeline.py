@@ -694,45 +694,56 @@ class PipelineRunner:
             raise RuntimeError(f"Missing white background winner image for variant generation attempt {winner_attempt}")
 
         with_background_variants: list[dict[str, Any]] = []
+        white_bg_variants: list[dict[str, Any]] = []
         self.repo.update_run(run, current_stage="stage4_variant_generate")
-        with ThreadPoolExecutor(max_workers=self._variant_pool_size(len(profiles))) as executor:
+        tasks: list[tuple[str, dict[str, str], Path, bool]] = []
+        for profile in profiles:
+            tasks.append(("stage4_variant_generate", profile, Path(upgraded_asset.abs_path), False))
+            tasks.append(("stage5_variant_white_bg", profile, Path(white_bg_asset.abs_path), True))
+
+        with ThreadPoolExecutor(max_workers=self._variant_pool_size(len(tasks))) as executor:
             futures = {
                 executor.submit(
                     self._generate_profile_variant_payload,
-                    Path(upgraded_asset.abs_path),
+                    source_path,
                     entry.word,
                     profile,
-                    False,
-                ): profile
-                for profile in profiles
+                    white_background,
+                ): (stage_name, profile, white_background)
+                for stage_name, profile, source_path, white_background in tasks
             }
             for future in as_completed(futures):
-                profile = futures[future]
+                stage_name, profile, white_background = futures[future]
                 profile_suffix = self._variant_suffix(profile)
                 payload = future.result()
-                variant_filename = f"stage4_variant_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
+                if stage_name == "stage4_variant_generate":
+                    variant_filename = f"stage4_variant_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
+                else:
+                    variant_filename = f"stage5_variant_white_bg_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
                 variant_asset = self._save_asset(
                     run_id=run.id,
-                    stage_name="stage4_variant_generate",
+                    stage_name=stage_name,
                     attempt=winner_attempt,
                     filename=variant_filename,
                     image_bytes=payload["image_bytes"],
                     origin_url=payload["origin_url"],
                     model_name=payload["model_name"],
                 )
-                with_background_variants.append(
-                    {
-                        "profile": profile,
-                        "profile_description": payload["profile_description"],
-                        "asset": {
-                            "id": variant_asset.id,
-                            "file_name": variant_asset.file_name,
-                            "abs_path": variant_asset.abs_path,
-                            "origin_url": variant_asset.origin_url,
-                        },
-                        "response": payload["response"],
-                    }
-                )
+                item = {
+                    "profile": profile,
+                    "profile_description": payload["profile_description"],
+                    "asset": {
+                        "id": variant_asset.id,
+                        "file_name": variant_asset.file_name,
+                        "abs_path": variant_asset.abs_path,
+                        "origin_url": variant_asset.origin_url,
+                    },
+                    "response": payload["response"],
+                }
+                if stage_name == "stage4_variant_generate":
+                    with_background_variants.append(item)
+                else:
+                    white_bg_variants.append(item)
 
         self._record_stage(
             run_id=run.id,
@@ -747,51 +758,12 @@ class PipelineRunner:
             },
             response_json={
                 "model": "google/nano-banana-2",
+                "source_asset": upgraded_asset.abs_path,
                 "variants": with_background_variants,
             },
         )
 
         self.repo.update_run(run, current_stage="stage5_variant_white_bg")
-        white_bg_variants: list[dict[str, Any]] = []
-        with ThreadPoolExecutor(max_workers=self._variant_pool_size(len(profiles))) as executor:
-            futures = {
-                executor.submit(
-                    self._generate_profile_variant_payload,
-                    Path(white_bg_asset.abs_path),
-                    entry.word,
-                    profile,
-                    True,
-                ): profile
-                for profile in profiles
-            }
-            for future in as_completed(futures):
-                profile = futures[future]
-                profile_suffix = self._variant_suffix(profile)
-                payload = future.result()
-                variant_filename = f"stage5_variant_white_bg_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
-                variant_asset = self._save_asset(
-                    run_id=run.id,
-                    stage_name="stage5_variant_white_bg",
-                    attempt=winner_attempt,
-                    filename=variant_filename,
-                    image_bytes=payload["image_bytes"],
-                    origin_url=payload["origin_url"],
-                    model_name=payload["model_name"],
-                )
-                white_bg_variants.append(
-                    {
-                        "profile": profile,
-                        "profile_description": payload["profile_description"],
-                        "asset": {
-                            "id": variant_asset.id,
-                            "file_name": variant_asset.file_name,
-                            "abs_path": variant_asset.abs_path,
-                            "origin_url": variant_asset.origin_url,
-                        },
-                        "response": payload["response"],
-                    }
-                )
-
         self._record_stage(
             run_id=run.id,
             stage_name="stage5_variant_white_bg",
