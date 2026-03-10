@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -871,7 +871,7 @@ class PipelineRunner:
 
         def submit_variant_task(
             executor: ThreadPoolExecutor,
-            futures: dict[Any, dict[str, Any]],
+            submission_futures: dict[Any, dict[str, Any]],
             *,
             stage_name: str,
             profile: dict[str, str],
@@ -894,21 +894,28 @@ class PipelineRunner:
                 )
                 return
             future = executor.submit(
-                self._generate_profile_variant_payload,
+                self._submit_profile_variant_prediction,
                 source_path,
                 entry.word,
                 profile,
                 white_background,
             )
-            futures[future] = {
+            submission_futures[future] = {
                 "stage_name": stage_name,
                 "profile": profile,
                 "branch_role": branch_role,
                 "source_profile": source_profile,
+                "white_background": white_background,
             }
 
-        def stage_active_count(futures: dict[Any, dict[str, Any]], stage_name: str) -> int:
-            return sum(1 for meta in futures.values() if meta.get("stage_name") == stage_name)
+        def stage_active_count(
+            submission_futures: dict[Any, dict[str, Any]],
+            active_predictions: dict[str, dict[str, Any]],
+            stage_name: str,
+        ) -> int:
+            submission_count = sum(1 for meta in submission_futures.values() if meta.get("stage_name") == stage_name)
+            prediction_count = sum(1 for meta in active_predictions.values() if meta.get("stage_name") == stage_name)
+            return submission_count + prediction_count
 
         task_count = (
             len(branch_plan["male_variants"]) * 2
@@ -916,11 +923,81 @@ class PipelineRunner:
             + len(branch_plan["female_variants"]) * 2
         )
         with ThreadPoolExecutor(max_workers=self._variant_pool_size(task_count)) as executor:
-            futures: dict[Any, dict[str, Any]] = {}
+            submission_futures: dict[Any, dict[str, Any]] = {}
+            active_predictions: dict[str, dict[str, Any]] = {}
+
+            def handle_prediction_result(meta: dict[str, Any], prediction_result: dict[str, Any]) -> None:
+                nonlocal female_final_seed_asset, female_white_seed_asset
+                stage_name = meta["stage_name"]
+                profile = meta["profile"]
+                branch_role = meta["branch_role"]
+                source_profile = meta["source_profile"]
+                white_background = bool(meta.get("white_background", False))
+                profile_description = str(meta.get("profile_description") or profile_prompt_fragment(profile))
+                try:
+                    payload = self._materialize_profile_variant_payload(
+                        prediction_result,
+                        profile=profile,
+                        profile_description=profile_description,
+                        white_background=white_background,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    append_failure(stage_name, profile=profile, branch_role=branch_role, error=str(exc))
+                    return
+
+                variant_asset = self._save_asset(
+                    run_id=run.id,
+                    stage_name=stage_name,
+                    attempt=winner_attempt,
+                    filename=self._variant_filename(stage_name, entry, profile, winner_attempt),
+                    image_bytes=payload["image_bytes"],
+                    origin_url=payload["origin_url"],
+                    model_name=payload["model_name"],
+                )
+                append_variant_item(
+                    stage_name,
+                    self._variant_stage_item(
+                        asset=variant_asset,
+                        profile=profile,
+                        profile_description=payload["profile_description"],
+                        branch_role=branch_role,
+                        source_profile=source_profile,
+                        response=payload["response"],
+                    ),
+                )
+
+                if branch_role == "female_seed" and female_seed_profile:
+                    if stage_name == "stage4_variant_generate":
+                        female_final_seed_asset = variant_asset
+                        for next_profile in branch_plan["female_variants"]:
+                            submit_variant_task(
+                                executor,
+                                submission_futures,
+                                stage_name="stage4_variant_generate",
+                                profile=next_profile,
+                                source_path=Path(variant_asset.abs_path),
+                                white_background=False,
+                                branch_role="female_variant",
+                                source_profile=female_seed_profile,
+                            )
+                    else:
+                        female_white_seed_asset = variant_asset
+                        for next_profile in branch_plan["female_variants"]:
+                            submit_variant_task(
+                                executor,
+                                submission_futures,
+                                stage_name="stage5_variant_white_bg",
+                                profile=next_profile,
+                                source_path=Path(variant_asset.abs_path),
+                                white_background=True,
+                                branch_role="female_variant",
+                                source_profile=female_seed_profile,
+                            )
+
             for profile in branch_plan["male_variants"]:
                 submit_variant_task(
                     executor,
-                    futures,
+                    submission_futures,
                     stage_name="stage4_variant_generate",
                     profile=profile,
                     source_path=Path(upgraded_asset.abs_path),
@@ -930,7 +1007,7 @@ class PipelineRunner:
                 )
                 submit_variant_task(
                     executor,
-                    futures,
+                    submission_futures,
                     stage_name="stage5_variant_white_bg",
                     profile=profile,
                     source_path=Path(white_bg_asset.abs_path),
@@ -942,7 +1019,7 @@ class PipelineRunner:
             if female_seed_profile and female_final_seed_asset is None:
                 submit_variant_task(
                     executor,
-                    futures,
+                    submission_futures,
                     stage_name="stage4_variant_generate",
                     profile=female_seed_profile,
                     source_path=Path(upgraded_asset.abs_path),
@@ -953,7 +1030,7 @@ class PipelineRunner:
             if female_seed_profile and female_white_seed_asset is None:
                 submit_variant_task(
                     executor,
-                    futures,
+                    submission_futures,
                     stage_name="stage5_variant_white_bg",
                     profile=female_seed_profile,
                     source_path=Path(white_bg_asset.abs_path),
@@ -966,7 +1043,7 @@ class PipelineRunner:
                 for profile in branch_plan["female_variants"]:
                     submit_variant_task(
                         executor,
-                        futures,
+                        submission_futures,
                         stage_name="stage4_variant_generate",
                         profile=profile,
                         source_path=Path(female_final_seed_asset.abs_path),
@@ -978,7 +1055,7 @@ class PipelineRunner:
                 for profile in branch_plan["female_variants"]:
                     submit_variant_task(
                         executor,
-                        futures,
+                        submission_futures,
                         stage_name="stage5_variant_white_bg",
                         profile=profile,
                         source_path=Path(female_white_seed_asset.abs_path),
@@ -987,74 +1064,72 @@ class PipelineRunner:
                         source_profile=female_seed_profile,
                     )
 
-            sync_variant_progress("stage4_variant_generate", active_count=stage_active_count(futures, "stage4_variant_generate"))
-            sync_variant_progress("stage5_variant_white_bg", active_count=stage_active_count(futures, "stage5_variant_white_bg"))
+            sync_variant_progress(
+                "stage4_variant_generate",
+                active_count=stage_active_count(submission_futures, active_predictions, "stage4_variant_generate"),
+            )
+            sync_variant_progress(
+                "stage5_variant_white_bg",
+                active_count=stage_active_count(submission_futures, active_predictions, "stage5_variant_white_bg"),
+            )
 
-            while futures:
-                for future in as_completed(list(futures.keys())):
-                    meta = futures.pop(future)
+            while submission_futures or active_predictions:
+                made_progress = False
+
+                done_submissions = [future for future in list(submission_futures.keys()) if future.done()]
+                for future in done_submissions:
+                    meta = submission_futures.pop(future)
                     stage_name = meta["stage_name"]
                     profile = meta["profile"]
                     branch_role = meta["branch_role"]
-                    source_profile = meta["source_profile"]
                     try:
-                        payload = future.result()
+                        submitted = future.result()
                     except Exception as exc:  # noqa: BLE001
                         append_failure(stage_name, profile=profile, branch_role=branch_role, error=str(exc))
-                        sync_variant_progress(stage_name, active_count=stage_active_count(futures, stage_name))
+                        made_progress = True
                         continue
 
-                    variant_asset = self._save_asset(
-                        run_id=run.id,
-                        stage_name=stage_name,
-                        attempt=winner_attempt,
-                        filename=self._variant_filename(stage_name, entry, profile, winner_attempt),
-                        image_bytes=payload["image_bytes"],
-                        origin_url=payload["origin_url"],
-                        model_name=payload["model_name"],
-                    )
-                    append_variant_item(
-                        stage_name,
-                        self._variant_stage_item(
-                            asset=variant_asset,
+                    meta["profile_description"] = submitted["profile_description"]
+                    created = submitted["created"]
+                    prediction_id = str(created.get("id") or "").strip()
+                    status = str(created.get("status", "")).strip().lower()
+                    if status in {"succeeded", "failed", "canceled"}:
+                        handle_prediction_result(meta, created)
+                    elif not prediction_id:
+                        append_failure(
+                            stage_name,
                             profile=profile,
-                            profile_description=payload["profile_description"],
                             branch_role=branch_role,
-                            source_profile=source_profile,
-                            response=payload["response"],
-                        ),
-                    )
+                            error="variant prediction submission returned no prediction id",
+                        )
+                    else:
+                        active_predictions[prediction_id] = meta
+                    made_progress = True
 
-                    if branch_role == "female_seed" and female_seed_profile:
-                        if stage_name == "stage4_variant_generate":
-                            female_final_seed_asset = variant_asset
-                            for next_profile in branch_plan["female_variants"]:
-                                submit_variant_task(
-                                    executor,
-                                    futures,
-                                    stage_name="stage4_variant_generate",
-                                    profile=next_profile,
-                                    source_path=Path(variant_asset.abs_path),
-                                    white_background=False,
-                                    branch_role="female_variant",
-                                    source_profile=female_seed_profile,
-                                )
-                        else:
-                            female_white_seed_asset = variant_asset
-                            for next_profile in branch_plan["female_variants"]:
-                                submit_variant_task(
-                                    executor,
-                                    futures,
-                                    stage_name="stage5_variant_white_bg",
-                                    profile=next_profile,
-                                    source_path=Path(variant_asset.abs_path),
-                                    white_background=True,
-                                    branch_role="female_variant",
-                                    source_profile=female_seed_profile,
-                                )
+                finished_prediction_ids: list[str] = []
+                for prediction_id, meta in list(active_predictions.items()):
+                    prediction_result = self.replicate.get_prediction(prediction_id)
+                    status = str(prediction_result.get("status", "")).strip().lower()
+                    if status not in {"succeeded", "failed", "canceled"}:
+                        continue
+                    finished_prediction_ids.append(prediction_id)
+                    handle_prediction_result(meta, prediction_result)
+                    made_progress = True
 
-                    sync_variant_progress(stage_name, active_count=stage_active_count(futures, stage_name))
-                    break
+                for prediction_id in finished_prediction_ids:
+                    active_predictions.pop(prediction_id, None)
+
+                sync_variant_progress(
+                    "stage4_variant_generate",
+                    active_count=stage_active_count(submission_futures, active_predictions, "stage4_variant_generate"),
+                )
+                sync_variant_progress(
+                    "stage5_variant_white_bg",
+                    active_count=stage_active_count(submission_futures, active_predictions, "stage5_variant_white_bg"),
+                )
+
+                if not made_progress:
+                    sleep(1.0)
 
         final_stage_status = "error" if with_background_failures else "ok"
         white_stage_status = "error" if white_bg_failures else "ok"
@@ -1069,7 +1144,7 @@ class PipelineRunner:
                 + [failure["error"] for failure in white_bg_failures]
             ))
 
-    def _generate_profile_variant_payload(
+    def _submit_profile_variant_prediction(
         self,
         image_path: Path,
         word: str,
@@ -1077,27 +1152,40 @@ class PipelineRunner:
         white_background: bool,
     ) -> dict[str, Any]:
         profile_description = profile_prompt_fragment(profile)
-        result = self.replicate.nano_banana_profile_variant(
+        created = self.replicate.submit_nano_banana_profile_variant(
             image_path,
             word=word,
             profile_description=profile_description,
             white_background=white_background,
         )
+        return {
+            "profile_description": profile_description,
+            "created": created,
+        }
+
+    def _materialize_profile_variant_payload(
+        self,
+        prediction_result: dict[str, Any],
+        *,
+        profile: dict[str, str],
+        profile_description: str,
+        white_background: bool,
+    ) -> dict[str, Any]:
         profile_suffix = self._variant_suffix(profile)
-        if result.get("status") != "succeeded":
+        if prediction_result.get("status") != "succeeded":
             stage_label = "white background variant" if white_background else "variant generation"
-            raise RuntimeError(f"{stage_label} failed for {profile_suffix}: {result.get('status')}")
-        output_url = self.replicate.extract_output_url(result)
+            raise RuntimeError(f"{stage_label} failed for {profile_suffix}: {prediction_result.get('status')}")
+        output_url = self.replicate.extract_output_url(prediction_result)
         if not output_url:
             stage_label = "white background variant" if white_background else "variant generation"
             raise RuntimeError(f"No output URL for {stage_label} {profile_suffix}")
         image_bytes = self.replicate.download_image(output_url)
         return {
             "profile_description": profile_description,
-            "response": result,
+            "response": prediction_result,
             "origin_url": output_url,
             "image_bytes": image_bytes,
-            "model_name": "google/nano-banana-2",
+            "model_name": str(prediction_result.get("model") or "google/nano-banana-2"),
         }
 
     def _run_stage4_attempt(self, *, run: Run, entry: Entry, winner_attempt: int, winner_score: float) -> None:

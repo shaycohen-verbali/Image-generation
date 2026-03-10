@@ -19,16 +19,31 @@ class ReplicateClient:
         if not self.settings.replicate_cf_base_url:
             raise RuntimeError("REPLICATE_CF_BASE_URL must be configured")
 
-    def _headers(self) -> dict[str, str]:
-        return {
+    def _headers(self, *, wait_seconds: int = 60) -> dict[str, str]:
+        headers = {
             "Authorization": f"Bearer {self.settings.replicate_api_token}",
             "Content-Type": "application/json",
-            "Prefer": "wait=60",
         }
+        headers["Prefer"] = f"wait={max(0, int(wait_seconds))}"
+        return headers
 
-    def _request(self, method: str, url: str, *, json_body: dict[str, Any] | None = None, timeout: int = 180) -> dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        timeout: int = 180,
+        wait_seconds: int = 60,
+    ) -> dict[str, Any]:
         def _call() -> dict[str, Any]:
-            response = requests.request(method, url, headers=self._headers(), json=json_body, timeout=timeout)
+            response = requests.request(
+                method,
+                url,
+                headers=self._headers(wait_seconds=wait_seconds),
+                json=json_body,
+                timeout=timeout,
+            )
             response.raise_for_status()
             return response.json()
 
@@ -38,14 +53,18 @@ class ReplicateClient:
             retryable=(requests.RequestException,),
         )
 
-    def _create_prediction(self, model_path: str, payload_input: dict[str, Any]) -> dict[str, Any]:
+    def _create_prediction(self, model_path: str, payload_input: dict[str, Any], *, wait_seconds: int = 60) -> dict[str, Any]:
         url = f"{self.settings.replicate_cf_base_url}/v1/models/{model_path}/predictions"
-        return self._request("POST", url, json_body={"input": payload_input})
+        return self._request("POST", url, json_body={"input": payload_input}, wait_seconds=wait_seconds)
+
+    def get_prediction(self, prediction_id: str) -> dict[str, Any]:
+        url = f"{self.settings.replicate_cf_base_url}/v1/predictions/{prediction_id}"
+        return self._request("GET", url, timeout=90, wait_seconds=0)
 
     def _poll_prediction(self, prediction_id: str, max_tries: int = 90, interval: float = 2.0) -> dict[str, Any]:
         url = f"{self.settings.replicate_cf_base_url}/v1/predictions/{prediction_id}"
         for _ in range(max_tries):
-            data = self._request("GET", url, timeout=90)
+            data = self._request("GET", url, timeout=90, wait_seconds=0)
             status = data.get("status")
             if status in {"succeeded", "failed", "canceled"}:
                 return data
@@ -235,6 +254,39 @@ class ReplicateClient:
                 "aspect_ratio": "match_input_image",
                 "output_format": "jpg",
             },
+        )
+
+    def submit_nano_banana_profile_variant(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, Any]:
+        background_instruction = (
+            "Keep the background pure solid white and keep the subject cleanly isolated on white."
+            if white_background
+            else "Keep the same background scene, composition, lighting, and props."
+        )
+        prompt = (
+            "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+            f"Change only the main person so the image clearly shows a {profile_description}. "
+            "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
+            f"{background_instruction} Keep exactly one clear central person. "
+            f'The image must still clearly represent the concept "{word}" for AAC users. '
+            "Do not add text, watermark, or extra people."
+        )
+        image_input = self._to_data_uri(image_path)
+        return self._create_prediction(
+            "google/nano-banana-2",
+            {
+                "prompt": prompt,
+                "image_input": [image_input],
+                "aspect_ratio": "match_input_image",
+                "output_format": "jpg",
+            },
+            wait_seconds=0,
         )
 
     def download_image(self, url: str) -> bytes:
