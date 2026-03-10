@@ -286,8 +286,8 @@ export default function RunsPage() {
                   <th>Status</th>
                   <th>Score</th>
                   <th>Attempt</th>
-                  <th>Cost</th>
-                  <th>Avg / image</th>
+                  <th>Est. cost</th>
+                  <th>Est. avg / image</th>
                   <th>Retry</th>
                 </tr>
               </thead>

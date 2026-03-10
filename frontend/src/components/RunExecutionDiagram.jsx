@@ -153,6 +153,19 @@ function formatUsd(value) {
   return `$${Number(value).toFixed(4)}`
 }
 
+function humanEstimateBasis(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'official token pricing') return 'Official token pricing'
+  if (normalized === 'provider image-price estimate') return 'Image price estimate'
+  return value || '-'
+}
+
+function humanAttemptLabel(value) {
+  const attempt = Number(value || 0)
+  if (attempt <= 0) return 'Base'
+  return `Attempt ${attempt}`
+}
+
 function safeArray(value) {
   return Array.isArray(value) ? value.filter(Boolean) : []
 }
@@ -232,6 +245,9 @@ function renderOverviewSection({
   const imageCount = Number(run.image_count || 0)
   const meterPercent = Math.max(3, Math.min(100, Math.round((estimatedTotalCost / 1.0) * 100)))
   const finalImageUrl = winnerStage4Asset?.origin_url || finalAsset?.origin_url || ''
+  const costSummary = safeObject(detail.cost_summary)
+  const costBreakdown = safeArray(costSummary.stage_costs)
+  const estimateNote = String(costSummary.estimate_note || '').trim()
 
   return (
     <div className="run-detail-section-grid">
@@ -292,7 +308,7 @@ function renderOverviewSection({
           <div className="cost-meter" aria-label="Estimated job cost">
             <div className="cost-meter-fill" style={{ width: `${meterPercent}%` }} />
           </div>
-          <p className="cost-meter-caption">Estimate only. Based on stored token usage and model defaults, not provider invoice totals.</p>
+          <p className="cost-meter-caption">{estimateNote || 'Estimate only. Based on stored token usage and mapped provider pricing, not provider invoice totals.'}</p>
         </article>
         <article className="run-kpi-card">
           <p className="detail-eyebrow">Prompt engineer</p>
@@ -369,6 +385,45 @@ function renderOverviewSection({
           </div>
         </section>
       ) : null}
+
+      <section className="run-overview-card">
+        <div className="section-head-row">
+          <div>
+            <h4>Cost Breakdown</h4>
+            <p>Estimated cost for each provider step in this run.</p>
+          </div>
+        </div>
+        {costBreakdown.length > 0 ? (
+          <div className="table-wrap">
+            <table className="cost-breakdown-table">
+              <thead>
+                <tr>
+                  <th>Step</th>
+                  <th>Attempt</th>
+                  <th>Provider</th>
+                  <th>Model</th>
+                  <th>Basis</th>
+                  <th>Estimated cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {costBreakdown.map((entry, index) => (
+                  <tr key={`${entry.stage_name || 'stage'}-${entry.attempt || 0}-${index}`}>
+                    <td>{entry.stage_label || entry.stage_name || '-'}</td>
+                    <td>{humanAttemptLabel(entry.attempt)}</td>
+                    <td>{entry.provider || '-'}</td>
+                    <td>{entry.model || '-'}</td>
+                    <td>{humanEstimateBasis(entry.estimate_basis)}</td>
+                    <td>{formatUsd(entry.estimated_cost_usd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No cost rows were recorded for this run yet.</p>
+        )}
+      </section>
 
       <section className="run-overview-split">
         <div className="run-overview-card">

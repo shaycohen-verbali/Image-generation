@@ -4,25 +4,30 @@ import json
 from typing import Any
 
 
+# Official pricing references checked on 2026-03-09:
+# - OpenAI: https://openai.com/api/pricing/ and https://platform.openai.com/pricing
+# - Gemini API: https://ai.google.dev/gemini-api/docs/pricing
+# - Vertex AI Imagen: https://cloud.google.com/vertex-ai/generative-ai/pricing#imagen-models
+# Image-generation prices are still estimates because provider invoices are not returned in run payloads.
 OPENAI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4.1-mini": (0.40, 1.60),
-    "gpt-5.4": (2.00, 8.00),
+    "gpt-5.4": (2.50, 15.00),
 }
 
 GEMINI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
-    "gemini-3-flash": (0.35, 1.05),
-    "gemini-3-pro": (3.50, 10.50),
+    "gemini-3-flash": (0.50, 3.00),
+    "gemini-3-pro": (2.00, 12.00),
 }
 
 REPLICATE_IMAGE_RATES_USD: dict[str, float] = {
     "black-forest-labs/flux-schnell": 0.003,
     "black-forest-labs/flux-1.1-pro": 0.040,
     "google/imagen-3-fast": 0.030,
-    "google/imagen-4": 0.060,
-    "google/nano-banana": 0.030,
-    "google/nano-banana-2": 0.040,
-    "google/nano-banana-pro": 0.060,
+    "google/imagen-4": 0.040,
+    "google/nano-banana": 0.039,
+    "google/nano-banana-2": 0.039,
+    "google/nano-banana-pro": 0.134,
 }
 
 
@@ -93,11 +98,34 @@ def _token_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
         return (input_tokens / 1_000_000.0) * input_rate + (output_tokens / 1_000_000.0) * output_rate
     if normalized in GEMINI_MODEL_RATES_PER_MILLION:
         input_rate, output_rate = GEMINI_MODEL_RATES_PER_MILLION[normalized]
+        if normalized == "gemini-3-pro" and input_tokens > 200_000:
+            input_rate, output_rate = 4.00, 18.00
         return (input_tokens / 1_000_000.0) * input_rate + (output_tokens / 1_000_000.0) * output_rate
     return 0.0
 
 
-def estimate_stage_cost(stage_name: str, request_json: dict[str, Any], response_json: dict[str, Any], attempt: int = 0) -> dict[str, Any]:
+def _cost_entry(
+    *,
+    stage_name: str,
+    stage_label: str,
+    attempt: int,
+    provider: str,
+    model: str,
+    estimated_cost_usd: float,
+    estimate_basis: str,
+) -> dict[str, Any]:
+    return {
+        "stage_name": stage_name,
+        "stage_label": stage_label,
+        "attempt": int(attempt or 0),
+        "provider": provider or "unknown",
+        "model": model,
+        "estimated_cost_usd": round(float(estimated_cost_usd), 6),
+        "estimate_basis": estimate_basis,
+    }
+
+
+def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response_json: dict[str, Any], attempt: int = 0) -> list[dict[str, Any]]:
     stage_name = str(stage_name or "")
     request_json = _json_dict(request_json)
     response_json = _json_dict(response_json)
@@ -107,8 +135,6 @@ def estimate_stage_cost(stage_name: str, request_json: dict[str, Any], response_
         _nested(response_json, "analysis_raw", "provider"),
         _nested(response_json, "raw", "provider"),
     )
-    model = ""
-    estimated_cost_usd = 0.0
 
     if stage_name in {"stage1_prompt", "stage3_prompt_upgrade"}:
         raw = _json_dict(response_json.get("raw"))
@@ -116,7 +142,20 @@ def estimate_stage_cost(stage_name: str, request_json: dict[str, Any], response_
         provider = provider or ("google" if str(model).startswith("gemini-") else "openai")
         input_tokens, output_tokens = _extract_gemini_usage(raw) if provider == "google" else _extract_openai_usage({"raw": raw})
         estimated_cost_usd = _token_cost_usd(model, input_tokens, output_tokens)
-    elif stage_name == "stage3_upgrade":
+        label = "Stage 1 Prompt Engineer" if stage_name == "stage1_prompt" else "Stage 3.2 Prompt Engineer"
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label=label,
+                attempt=attempt,
+                provider=provider,
+                model=model,
+                estimated_cost_usd=estimated_cost_usd,
+                estimate_basis="official token pricing",
+            )
+        ]
+
+    if stage_name == "stage3_upgrade":
         analysis_raw = _json_dict(response_json.get("analysis_raw"))
         prompt_engineer = _json_dict(response_json.get("prompt_engineer"))
         prompt_engineer_raw = _json_dict(prompt_engineer.get("raw"))
@@ -131,7 +170,7 @@ def estimate_stage_cost(stage_name: str, request_json: dict[str, Any], response_
         analysis_input_tokens, analysis_output_tokens = (
             _extract_gemini_usage(analysis_raw) if analysis_provider == "google" else _extract_openai_usage(analysis_raw)
         )
-        estimated_cost_usd += _token_cost_usd(analysis_model, analysis_input_tokens, analysis_output_tokens)
+        critique_cost = _token_cost_usd(analysis_model, analysis_input_tokens, analysis_output_tokens)
 
         prompt_model = _first_text(
             prompt_engineer_raw.get("model"),
@@ -142,13 +181,41 @@ def estimate_stage_cost(stage_name: str, request_json: dict[str, Any], response_
         prompt_input_tokens, prompt_output_tokens = (
             _extract_gemini_usage(prompt_engineer_raw) if prompt_provider == "google" else _extract_openai_usage({"raw": prompt_engineer_raw})
         )
-        estimated_cost_usd += _token_cost_usd(prompt_model, prompt_input_tokens, prompt_output_tokens)
+        prompt_cost = _token_cost_usd(prompt_model, prompt_input_tokens, prompt_output_tokens)
 
-        model = _first_text(response_json.get("generation_model"), generation.get("model"), response_json.get("generation_model_selected"))
-        provider = "replicate"
-        estimated_cost_usd += REPLICATE_IMAGE_RATES_USD.get(model, 0.0)
+        generation_model = _first_text(response_json.get("generation_model"), generation.get("model"), response_json.get("generation_model_selected"))
+        generation_cost = REPLICATE_IMAGE_RATES_USD.get(generation_model, 0.0)
+        return [
+            _cost_entry(
+                stage_name="stage3_critique",
+                stage_label="Stage 3.1 Critique",
+                attempt=attempt,
+                provider=analysis_provider,
+                model=analysis_model,
+                estimated_cost_usd=critique_cost,
+                estimate_basis="official token pricing",
+            ),
+            _cost_entry(
+                stage_name="stage3_prompt_engineer",
+                stage_label="Stage 3.2 Prompt Engineer",
+                attempt=attempt,
+                provider=prompt_provider,
+                model=prompt_model,
+                estimated_cost_usd=prompt_cost,
+                estimate_basis="official token pricing",
+            ),
+            _cost_entry(
+                stage_name="stage3_generate",
+                stage_label="Stage 3.3 Image Generation",
+                attempt=attempt,
+                provider="replicate",
+                model=generation_model,
+                estimated_cost_usd=generation_cost,
+                estimate_basis="provider image-price estimate",
+            ),
+        ]
 
-    elif stage_name == "quality_gate":
+    if stage_name == "quality_gate":
         raw = _json_dict(response_json.get("analysis_raw") if stage_name == "stage3_upgrade" else response_json.get("raw"))
         model = _first_text(
             raw.get("model"),
@@ -159,23 +226,53 @@ def estimate_stage_cost(stage_name: str, request_json: dict[str, Any], response_
         provider = provider or _first_text(raw.get("provider"), "google" if str(model).startswith("gemini-") else "openai")
         input_tokens, output_tokens = _extract_gemini_usage(raw) if provider == "google" else _extract_openai_usage(raw)
         estimated_cost_usd = _token_cost_usd(model, input_tokens, output_tokens)
-    elif stage_name in {"stage2_draft", "stage4_background"}:
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label="Quality Gate",
+                attempt=attempt,
+                provider=provider,
+                model=model,
+                estimated_cost_usd=estimated_cost_usd,
+                estimate_basis="official token pricing",
+            )
+        ]
+
+    if stage_name in {"stage2_draft", "stage4_background"}:
         model = _first_text(response_json.get("model"))
         provider = "replicate"
         estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0)
-    elif stage_name == "stage3_generate":
+        label = "Stage 2 Draft Generation" if stage_name == "stage2_draft" else "Stage 4 White Background"
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label=label,
+                attempt=attempt,
+                provider=provider,
+                model=model,
+                estimated_cost_usd=estimated_cost_usd,
+                estimate_basis="provider image-price estimate",
+            )
+        ]
+
+    if stage_name == "stage3_generate":
         generation = _json_dict(response_json.get("generation"))
         model = _first_text(response_json.get("generation_model"), generation.get("model"), response_json.get("generation_model_selected"))
         provider = "replicate"
         estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0)
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label="Stage 3.3 Image Generation",
+                attempt=attempt,
+                provider=provider,
+                model=model,
+                estimated_cost_usd=estimated_cost_usd,
+                estimate_basis="provider image-price estimate",
+            )
+        ]
 
-    return {
-        "stage_name": stage_name,
-        "attempt": int(attempt or 0),
-        "provider": provider or "unknown",
-        "model": model,
-        "estimated_cost_usd": round(float(estimated_cost_usd), 6),
-    }
+    return []
 
 
 def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
@@ -194,9 +291,9 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
             request_json = _json_dict(getattr(stage, "request_json", "{}"))
             response_json = _json_dict(getattr(stage, "response_json", "{}"))
 
-        entry = estimate_stage_cost(stage_name, request_json, response_json, attempt)
-        stage_costs.append(entry)
-        total += float(entry["estimated_cost_usd"])
+        entries = estimate_stage_costs(stage_name, request_json, response_json, attempt)
+        stage_costs.extend(entries)
+        total += sum(float(entry["estimated_cost_usd"]) for entry in entries)
 
     image_count = len(assets or [])
     avg = total / image_count if image_count > 0 else None
@@ -205,4 +302,5 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         "estimated_cost_per_image_usd": round(avg, 6) if avg is not None else None,
         "image_count": image_count,
         "stage_costs": stage_costs,
+        "estimate_note": "Estimated from official OpenAI, Gemini, and Google Imagen pricing checked on 2026-03-09. Replicate-wrapped image steps are mapped to the closest published provider pricing, not invoice totals.",
     }
