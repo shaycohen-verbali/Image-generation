@@ -110,10 +110,61 @@ def profile_label(profile: dict[str, str]) -> str:
 
 
 def profile_prompt_fragment(profile: dict[str, str]) -> str:
-    gender = GENDER_LABELS.get(profile.get("gender", ""), profile.get("gender", "person"))
-    age = AGE_LABELS.get(profile.get("age", ""), profile.get("age", "child"))
+    gender = str(profile.get("gender", "") or "").strip().lower()
+    age = str(profile.get("age", "") or "").strip().lower()
     skin = SKIN_COLOR_LABELS.get(profile.get("skin_color", ""), profile.get("skin_color", ""))
-    return f"{gender} {age} with {skin} skin"
+
+    if gender == "female":
+        subject = {
+            "toddler": "female toddler girl",
+            "kid": "school-age girl",
+            "tween": "pre-teen girl",
+            "teenager": "teenage girl",
+        }.get(age, "female person")
+    else:
+        subject = {
+            "toddler": "male toddler boy",
+            "kid": "school-age boy",
+            "tween": "pre-teen boy",
+            "teenager": "teenage boy",
+        }.get(age, "male person")
+
+    age_guidance = {
+        "toddler": (
+            "make the age unmistakably toddler, around 2 to 4 years old, with a very short small body, a noticeably larger head "
+            "relative to the body, round baby-faced cheeks, and preschool-child proportions"
+        ),
+        "kid": (
+            "make the age unmistakably a young kid, around 5 to 9 years old, with elementary-school child proportions, a clearly "
+            "young face, and a body that is taller and older than a toddler but still clearly not pre-teen"
+        ),
+        "tween": (
+            "make the age unmistakably a tween, around 10 to 14 years old, with clearly taller pre-teen proportions, longer limbs, "
+            "a less baby-faced look, and age cues that read older than a kid but younger than a teenager"
+        ),
+        "teenager": (
+            "make the age unmistakably a teenager, around 15 to 18 years old, with clearly older adolescent proportions, a taller "
+            "body, a more mature face, and visual age cues that do not read as a child"
+        ),
+    }.get(age, "make the age visually obvious")
+
+    gender_guidance = {
+        "female": (
+            "make the person visibly female in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
+            "presentation clearly readable as female"
+        ),
+        "male": (
+            "make the person visibly male in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
+            "presentation clearly readable as male"
+        ),
+    }.get(gender, "make the gender visually clear")
+
+    skin_guidance = f"use clearly visible {skin} skin tone cues that remain natural and readable"
+
+    return (
+        f"{subject} with {skin} skin; {age_guidance}; {gender_guidance}; {skin_guidance}; "
+        "preserve the AAC concept and make the age, gender, and skin-color variation obvious at a glance"
+    )
 
 
 def all_selected_profiles(entry: Any) -> list[dict[str, str]]:

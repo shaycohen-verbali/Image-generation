@@ -88,3 +88,38 @@ def test_summarize_run_costs_uses_assets_for_average_per_image() -> None:
     assert summary["estimated_cost_per_image_usd"] == 0.021
     assert len(summary["stage_costs"]) == 2
     assert "estimate_note" in summary
+
+
+def test_summarize_run_costs_counts_saved_variant_assets_before_stage_summary_exists() -> None:
+    summary = summarize_run_costs(
+        [
+            {
+                "stage_name": "stage2_draft",
+                "attempt": 0,
+                "request_json": {},
+                "response_json": {"model": "black-forest-labs/flux-schnell"},
+            }
+        ],
+        assets=[
+            {"id": "a1", "stage_name": "stage2_draft", "attempt": 0, "model_name": "black-forest-labs/flux-schnell"},
+            {"id": "a2", "stage_name": "stage4_variant_generate", "attempt": 1, "model_name": "google/nano-banana-2"},
+            {"id": "a3", "stage_name": "stage4_variant_generate", "attempt": 1, "model_name": "google/nano-banana-2"},
+            {"id": "a4", "stage_name": "stage5_variant_white_bg", "attempt": 1, "model_name": "google/nano-banana-2"},
+        ],
+    )
+
+    assert summary["image_count"] == 4
+    assert summary["estimated_total_cost_usd"] == 0.12
+    assert summary["estimated_cost_per_image_usd"] == 0.03
+    assert any(
+        row["stage_name"] == "stage4_variant_generate"
+        and row["estimated_cost_usd"] == 0.078
+        and row["unit_count"] == 2
+        for row in summary["stage_costs"]
+    )
+    assert any(
+        row["stage_name"] == "stage5_variant_white_bg"
+        and row["estimated_cost_usd"] == 0.039
+        and row["unit_count"] == 1
+        for row in summary["stage_costs"]
+    )

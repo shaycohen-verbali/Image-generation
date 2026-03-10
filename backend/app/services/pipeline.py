@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
 from pathlib import Path
@@ -162,6 +163,11 @@ class PipelineRunner:
         return sanitize_filename(
             f"{profile.get('gender', 'person')}_{profile.get('age', 'age')}_{profile.get('skin_color', 'skin')}"
         )
+
+    def _variant_pool_size(self, variant_count: int) -> int:
+        runtime_config = self.repo.get_runtime_config()
+        configured = int(getattr(runtime_config, "max_parallel_runs", 1) or 1)
+        return max(1, min(variant_count, configured))
 
     def process_run(self, run_id: str) -> Run:
         run = self.repo.get_run(run_id)
@@ -683,47 +689,50 @@ class PipelineRunner:
         upgraded_asset = self._asset_for_attempt(run.id, "stage3_upgraded", winner_attempt)
         if upgraded_asset is None:
             raise RuntimeError(f"Missing stage3 upgraded image for variant generation attempt {winner_attempt}")
+        white_bg_asset = self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt)
+        if white_bg_asset is None:
+            raise RuntimeError(f"Missing white background winner image for variant generation attempt {winner_attempt}")
 
         with_background_variants: list[dict[str, Any]] = []
         self.repo.update_run(run, current_stage="stage4_variant_generate")
-        for profile in profiles:
-            profile_description = profile_prompt_fragment(profile)
-            profile_suffix = self._variant_suffix(profile)
-            variant_result = self.replicate.nano_banana_profile_variant(
-                Path(upgraded_asset.abs_path),
-                word=entry.word,
-                profile_description=profile_description,
-            )
-            if variant_result.get("status") != "succeeded":
-                raise RuntimeError(f"Variant generation failed for {profile_suffix}: {variant_result.get('status')}")
-            variant_url = self.replicate.extract_output_url(variant_result)
-            if not variant_url:
-                raise RuntimeError(f"No output URL for variant {profile_suffix}")
-
-            variant_bytes = self.replicate.download_image(variant_url)
-            variant_filename = f"stage4_variant_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
-            variant_asset = self._save_asset(
-                run_id=run.id,
-                stage_name="stage4_variant_generate",
-                attempt=winner_attempt,
-                filename=variant_filename,
-                image_bytes=variant_bytes,
-                origin_url=variant_url,
-                model_name="google/nano-banana-2",
-            )
-            with_background_variants.append(
-                {
-                    "profile": profile,
-                    "profile_description": profile_description,
-                    "asset": {
-                        "id": variant_asset.id,
-                        "file_name": variant_asset.file_name,
-                        "abs_path": variant_asset.abs_path,
-                        "origin_url": variant_asset.origin_url,
-                    },
-                    "response": variant_result,
-                }
-            )
+        with ThreadPoolExecutor(max_workers=self._variant_pool_size(len(profiles))) as executor:
+            futures = {
+                executor.submit(
+                    self._generate_profile_variant_payload,
+                    Path(upgraded_asset.abs_path),
+                    entry.word,
+                    profile,
+                    False,
+                ): profile
+                for profile in profiles
+            }
+            for future in as_completed(futures):
+                profile = futures[future]
+                profile_suffix = self._variant_suffix(profile)
+                payload = future.result()
+                variant_filename = f"stage4_variant_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
+                variant_asset = self._save_asset(
+                    run_id=run.id,
+                    stage_name="stage4_variant_generate",
+                    attempt=winner_attempt,
+                    filename=variant_filename,
+                    image_bytes=payload["image_bytes"],
+                    origin_url=payload["origin_url"],
+                    model_name=payload["model_name"],
+                )
+                with_background_variants.append(
+                    {
+                        "profile": profile,
+                        "profile_description": payload["profile_description"],
+                        "asset": {
+                            "id": variant_asset.id,
+                            "file_name": variant_asset.file_name,
+                            "abs_path": variant_asset.abs_path,
+                            "origin_url": variant_asset.origin_url,
+                        },
+                        "response": payload["response"],
+                    }
+                )
 
         self._record_stage(
             run_id=run.id,
@@ -744,40 +753,44 @@ class PipelineRunner:
 
         self.repo.update_run(run, current_stage="stage5_variant_white_bg")
         white_bg_variants: list[dict[str, Any]] = []
-        for variant in with_background_variants:
-            profile = variant["profile"]
-            profile_suffix = self._variant_suffix(profile)
-            white_bg_result = self.replicate.nano_banana_white_bg(Path(variant["asset"]["abs_path"]), entry.word)
-            if white_bg_result.get("status") != "succeeded":
-                raise RuntimeError(f"Variant white background failed for {profile_suffix}: {white_bg_result.get('status')}")
-            white_bg_url = self.replicate.extract_output_url(white_bg_result)
-            if not white_bg_url:
-                raise RuntimeError(f"No white background URL for variant {profile_suffix}")
-
-            white_bg_bytes = self.replicate.download_image(white_bg_url)
-            white_bg_filename = f"stage5_variant_white_bg_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
-            white_bg_asset = self._save_asset(
-                run_id=run.id,
-                stage_name="stage5_variant_white_bg",
-                attempt=winner_attempt,
-                filename=white_bg_filename,
-                image_bytes=white_bg_bytes,
-                origin_url=white_bg_url,
-                model_name="google/nano-banana-2",
-            )
-            white_bg_variants.append(
-                {
-                    "profile": profile,
-                    "profile_description": variant["profile_description"],
-                    "asset": {
-                        "id": white_bg_asset.id,
-                        "file_name": white_bg_asset.file_name,
-                        "abs_path": white_bg_asset.abs_path,
-                        "origin_url": white_bg_asset.origin_url,
-                    },
-                    "response": white_bg_result,
-                }
-            )
+        with ThreadPoolExecutor(max_workers=self._variant_pool_size(len(profiles))) as executor:
+            futures = {
+                executor.submit(
+                    self._generate_profile_variant_payload,
+                    Path(white_bg_asset.abs_path),
+                    entry.word,
+                    profile,
+                    True,
+                ): profile
+                for profile in profiles
+            }
+            for future in as_completed(futures):
+                profile = futures[future]
+                profile_suffix = self._variant_suffix(profile)
+                payload = future.result()
+                variant_filename = f"stage5_variant_white_bg_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
+                variant_asset = self._save_asset(
+                    run_id=run.id,
+                    stage_name="stage5_variant_white_bg",
+                    attempt=winner_attempt,
+                    filename=variant_filename,
+                    image_bytes=payload["image_bytes"],
+                    origin_url=payload["origin_url"],
+                    model_name=payload["model_name"],
+                )
+                white_bg_variants.append(
+                    {
+                        "profile": profile,
+                        "profile_description": payload["profile_description"],
+                        "asset": {
+                            "id": variant_asset.id,
+                            "file_name": variant_asset.file_name,
+                            "abs_path": variant_asset.abs_path,
+                            "origin_url": variant_asset.origin_url,
+                        },
+                        "response": payload["response"],
+                    }
+                )
 
         self._record_stage(
             run_id=run.id,
@@ -790,9 +803,41 @@ class PipelineRunner:
             },
             response_json={
                 "model": "google/nano-banana-2",
+                "source_asset": white_bg_asset.abs_path,
                 "variants": white_bg_variants,
             },
         )
+
+    def _generate_profile_variant_payload(
+        self,
+        image_path: Path,
+        word: str,
+        profile: dict[str, str],
+        white_background: bool,
+    ) -> dict[str, Any]:
+        profile_description = profile_prompt_fragment(profile)
+        result = self.replicate.nano_banana_profile_variant(
+            image_path,
+            word=word,
+            profile_description=profile_description,
+            white_background=white_background,
+        )
+        profile_suffix = self._variant_suffix(profile)
+        if result.get("status") != "succeeded":
+            stage_label = "white background variant" if white_background else "variant generation"
+            raise RuntimeError(f"{stage_label} failed for {profile_suffix}: {result.get('status')}")
+        output_url = self.replicate.extract_output_url(result)
+        if not output_url:
+            stage_label = "white background variant" if white_background else "variant generation"
+            raise RuntimeError(f"No output URL for {stage_label} {profile_suffix}")
+        image_bytes = self.replicate.download_image(output_url)
+        return {
+            "profile_description": profile_description,
+            "response": result,
+            "origin_url": output_url,
+            "image_bytes": image_bytes,
+            "model_name": "google/nano-banana-2",
+        }
 
     def _run_stage4_attempt(self, *, run: Run, entry: Entry, winner_attempt: int, winner_score: float) -> None:
         upgraded_asset = self._asset_for_attempt(run.id, "stage3_upgraded", winner_attempt)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any
 
 
@@ -122,6 +123,7 @@ def _cost_entry(
         "model": model,
         "estimated_cost_usd": round(float(estimated_cost_usd), 6),
         "estimate_basis": estimate_basis,
+        "unit_count": 1,
     }
 
 
@@ -297,6 +299,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
 def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
     stage_costs: list[dict[str, Any]] = []
     total = 0.0
+    counted_variant_units: Counter[tuple[str, int]] = Counter()
 
     for stage in stages:
         if isinstance(stage, dict):
@@ -313,8 +316,55 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         entries = estimate_stage_costs(stage_name, request_json, response_json, attempt)
         stage_costs.extend(entries)
         total += sum(float(entry["estimated_cost_usd"]) for entry in entries)
+        if stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}:
+            variants = response_json.get("variants")
+            variant_count = len(variants) if isinstance(variants, list) else 0
+            counted_variant_units[(stage_name, attempt)] += variant_count
 
-    image_count = len(assets or [])
+    asset_list = list(assets or [])
+    variant_assets_by_stage_attempt: dict[tuple[str, int], list[Any]] = {}
+    for asset in asset_list:
+        if isinstance(asset, dict):
+            stage_name = str(asset.get("stage_name", ""))
+            attempt = int(asset.get("attempt") or 0)
+            model_name = str(asset.get("model_name") or "")
+        else:
+            stage_name = str(getattr(asset, "stage_name", "") or "")
+            attempt = int(getattr(asset, "attempt", 0) or 0)
+            model_name = str(getattr(asset, "model_name", "") or "")
+        if stage_name not in {"stage4_variant_generate", "stage5_variant_white_bg"}:
+            continue
+        variant_assets_by_stage_attempt.setdefault((stage_name, attempt), []).append(asset)
+
+    for key, stage_assets in variant_assets_by_stage_attempt.items():
+        stage_name, attempt = key
+        actual_count = len(stage_assets)
+        missing_count = actual_count - counted_variant_units[key]
+        if missing_count <= 0:
+            continue
+        first_asset = stage_assets[0]
+        if isinstance(first_asset, dict):
+            model_name = str(first_asset.get("model_name") or "google/nano-banana-2")
+        else:
+            model_name = str(getattr(first_asset, "model_name", "") or "google/nano-banana-2")
+        unit_price = REPLICATE_IMAGE_RATES_USD.get(model_name, 0.0)
+        estimated_cost_usd = unit_price * missing_count
+        label = "Character Variant Final Images" if stage_name == "stage4_variant_generate" else "Character Variant White Background"
+        stage_costs.append(
+            {
+                "stage_name": stage_name,
+                "stage_label": label,
+                "attempt": attempt,
+                "provider": "replicate",
+                "model": model_name,
+                "estimated_cost_usd": round(float(estimated_cost_usd), 6),
+                "estimate_basis": "provider image-price estimate from saved variant assets",
+                "unit_count": missing_count,
+            }
+        )
+        total += estimated_cost_usd
+
+    image_count = len(asset_list)
     avg = total / image_count if image_count > 0 else None
     return {
         "estimated_total_cost_usd": round(total, 6),

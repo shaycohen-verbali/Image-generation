@@ -407,6 +407,7 @@ function renderOverviewSection({
                 <tr>
                   <th>Step</th>
                   <th>Attempt</th>
+                  <th>Units</th>
                   <th>Provider</th>
                   <th>Model</th>
                   <th>Basis</th>
@@ -418,6 +419,7 @@ function renderOverviewSection({
                   <tr key={`${entry.stage_name || 'stage'}-${entry.attempt || 0}-${index}`}>
                     <td>{entry.stage_label || entry.stage_name || '-'}</td>
                     <td>{humanAttemptLabel(entry.attempt)}</td>
+                    <td>{Number(entry.unit_count || 1)}</td>
                     <td>{entry.provider || '-'}</td>
                     <td>{entry.model || '-'}</td>
                     <td>{humanEstimateBasis(entry.estimate_basis)}</td>

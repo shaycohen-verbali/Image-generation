@@ -205,12 +205,25 @@ class ReplicateClient:
             },
         )
 
-    def nano_banana_profile_variant(self, image_path: Path, *, word: str, profile_description: str) -> dict[str, Any]:
+    def nano_banana_profile_variant(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, Any]:
+        background_instruction = (
+            "Keep the background pure solid white and keep the subject cleanly isolated on white."
+            if white_background
+            else "Keep the same background scene, composition, lighting, and props."
+        )
         prompt = (
-            "Using the provided image as the base, keep the same AAC concept, composition, visual style, lighting, props, "
-            "and background. Change only the main person so the image clearly shows a "
-            f"{profile_description}. Keep exactly one clear central person, preserve concept clarity for the word "
-            f'"{word}", and do not add text or extra people.'
+            "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+            f"Change only the main person so the image clearly shows a {profile_description}. "
+            f"{background_instruction} Keep exactly one clear central person. "
+            f'The image must still clearly represent the concept "{word}" for AAC users. '
+            "Do not add text, watermark, or extra people."
         )
         image_input = self._to_data_uri(image_path)
         return self._run_prediction(
