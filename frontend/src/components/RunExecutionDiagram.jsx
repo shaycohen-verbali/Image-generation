@@ -231,6 +231,7 @@ function renderOverviewSection({
   const estimatedCostPerImage = run.estimated_cost_per_image_usd
   const imageCount = Number(run.image_count || 0)
   const meterPercent = Math.max(3, Math.min(100, Math.round((estimatedTotalCost / 1.0) * 100)))
+  const finalImageUrl = winnerStage4Asset?.origin_url || finalAsset?.origin_url || ''
 
   return (
     <div className="run-detail-section-grid">
