@@ -165,9 +165,9 @@ class PipelineRunner:
         )
 
     def _variant_pool_size(self, variant_count: int) -> int:
-        runtime_config = self.repo.get_runtime_config()
-        configured = int(getattr(runtime_config, "max_parallel_runs", 1) or 1)
-        return max(1, min(variant_count, configured))
+        # Variant expansion is an in-run fanout step, not the same control as max_parallel_runs.
+        # Let the whole batch execute concurrently, with a hard safety cap to avoid runaway threads.
+        return max(1, min(variant_count, 64))
 
     def _variant_filename(self, stage_name: str, entry: Entry, profile: dict[str, str], winner_attempt: int) -> str:
         profile_suffix = self._variant_suffix(profile)
@@ -213,6 +213,7 @@ class PipelineRunner:
         variants: list[dict[str, Any]],
         failures: list[dict[str, Any]],
         status: str,
+        active_count: int = 0,
     ) -> None:
         self._record_stage(
             run_id=run_id,
@@ -230,6 +231,12 @@ class PipelineRunner:
             response_json={
                 "model": "google/nano-banana-2",
                 "source_asset": source_asset,
+                "progress": {
+                    "completed_count": len(variants),
+                    "failed_count": len(failures),
+                    "in_flight_count": active_count,
+                    "remaining_count": max(0, len(planned_profiles) - len(variants) - len(failures)),
+                },
                 "variants": variants,
                 "failures": failures,
             },
@@ -845,7 +852,7 @@ class PipelineRunner:
                 female_seed_profile or branch_plan["base_profile"],
             )
 
-        def sync_variant_progress(stage_name: str, status: str = "running") -> None:
+        def sync_variant_progress(stage_name: str, status: str = "running", active_count: int = 0) -> None:
             self._record_variant_stage_progress(
                 run_id=run.id,
                 stage_name=stage_name,
@@ -856,6 +863,7 @@ class PipelineRunner:
                 variants=with_background_variants if stage_name == "stage4_variant_generate" else white_bg_variants,
                 failures=with_background_failures if stage_name == "stage4_variant_generate" else white_bg_failures,
                 status=status,
+                active_count=active_count,
             )
 
         sync_variant_progress("stage4_variant_generate")
@@ -898,6 +906,9 @@ class PipelineRunner:
                 "branch_role": branch_role,
                 "source_profile": source_profile,
             }
+
+        def stage_active_count(futures: dict[Any, dict[str, Any]], stage_name: str) -> int:
+            return sum(1 for meta in futures.values() if meta.get("stage_name") == stage_name)
 
         task_count = (
             len(branch_plan["male_variants"]) * 2
@@ -976,6 +987,9 @@ class PipelineRunner:
                         source_profile=female_seed_profile,
                     )
 
+            sync_variant_progress("stage4_variant_generate", active_count=stage_active_count(futures, "stage4_variant_generate"))
+            sync_variant_progress("stage5_variant_white_bg", active_count=stage_active_count(futures, "stage5_variant_white_bg"))
+
             while futures:
                 for future in as_completed(list(futures.keys())):
                     meta = futures.pop(future)
@@ -987,7 +1001,7 @@ class PipelineRunner:
                         payload = future.result()
                     except Exception as exc:  # noqa: BLE001
                         append_failure(stage_name, profile=profile, branch_role=branch_role, error=str(exc))
-                        sync_variant_progress(stage_name)
+                        sync_variant_progress(stage_name, active_count=stage_active_count(futures, stage_name))
                         continue
 
                     variant_asset = self._save_asset(
@@ -1039,14 +1053,14 @@ class PipelineRunner:
                                     source_profile=female_seed_profile,
                                 )
 
-                    sync_variant_progress(stage_name)
+                    sync_variant_progress(stage_name, active_count=stage_active_count(futures, stage_name))
                     break
 
         final_stage_status = "error" if with_background_failures else "ok"
         white_stage_status = "error" if white_bg_failures else "ok"
-        sync_variant_progress("stage4_variant_generate", final_stage_status)
+        sync_variant_progress("stage4_variant_generate", final_stage_status, active_count=0)
         self.repo.update_run(run, current_stage="stage5_variant_white_bg")
-        sync_variant_progress("stage5_variant_white_bg", white_stage_status)
+        sync_variant_progress("stage5_variant_white_bg", white_stage_status, active_count=0)
         if with_background_failures or white_bg_failures:
             if with_background_failures:
                 self.repo.update_run(run, current_stage="stage4_variant_generate")

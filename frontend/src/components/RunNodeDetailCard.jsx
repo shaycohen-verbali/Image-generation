@@ -75,6 +75,16 @@ function summarizeNode(node) {
     ]
   }
 
+  if (node.id === 'stage4_variant_generate' || node.id === 'stage5_variant_white_bg') {
+    const progress = response.progress || {}
+    return [
+      ['Completed variants', progress.completed_count ?? 0],
+      ['In flight', progress.in_flight_count ?? 0],
+      ['Remaining', progress.remaining_count ?? '-'],
+      ['Failed', progress.failed_count ?? 0],
+    ]
+  }
+
   return [
     ['Stage status', node.stageStatus || node.status || '-'],
     ['Recorded at', node.stageCreatedAt || '-'],
