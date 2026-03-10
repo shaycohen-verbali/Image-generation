@@ -565,12 +565,24 @@ export default function RunExecutionDiagram({
   const diagram = useMemo(() => buildRunDiagram(detail, selectedAttempt), [detail, selectedAttempt])
   const [selectedNodeId, setSelectedNodeId] = useState(initialState.selectedNodeId || currentNodeId(detail) || 'stage3_generate')
   const [showRunJson, setShowRunJson] = useState(false)
+  const [showExecutionLog, setShowExecutionLog] = useState(false)
   const [copyMessage, setCopyMessage] = useState('')
   const [activeTab, setActiveTab] = useState(initialState.activeTab || DETAIL_TABS.OVERVIEW)
 
   async function copyJson(label, value) {
     try {
       await navigator.clipboard.writeText(JSON.stringify(value, null, 2))
+      setCopyMessage(`${label} copied`)
+      window.setTimeout(() => setCopyMessage(''), 1800)
+    } catch (_error) {
+      setCopyMessage(`Could not copy ${label.toLowerCase()}`)
+      window.setTimeout(() => setCopyMessage(''), 1800)
+    }
+  }
+
+  async function copyText(label, value) {
+    try {
+      await navigator.clipboard.writeText(String(value || ''))
       setCopyMessage(`${label} copied`)
       window.setTimeout(() => setCopyMessage(''), 1800)
     } catch (_error) {
@@ -1029,6 +1041,23 @@ export default function RunExecutionDiagram({
                 winnerStage4Attempt: winnerStage4Asset ? Number(winnerStage4Asset.attempt || 0) : null,
               })}
             </p>
+          </div>
+
+          <div className="run-debug-card">
+            <div>
+              <h4>Execution Log</h4>
+              <p>Copy this while the run is active. It gives a compact step-by-step view of stage progress, variant counts, saved assets, and scores.</p>
+            </div>
+            <div className="run-debug-actions">
+              <button type="button" onClick={() => copyText('Execution log', detail.execution_log || '')}>
+                Copy execution log
+              </button>
+              <button type="button" onClick={() => setShowExecutionLog((value) => !value)}>
+                {showExecutionLog ? 'Hide execution log' : 'Show execution log'}
+              </button>
+            </div>
+            {copyMessage ? <p className="run-debug-copy-message">{copyMessage}</p> : null}
+            {showExecutionLog ? <pre>{detail.execution_log || 'No execution log available yet.'}</pre> : null}
           </div>
 
           <div className="run-debug-card">

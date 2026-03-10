@@ -27,6 +27,19 @@ async function parseResponse(response) {
   return response.json()
 }
 
+async function fetchJson(url, options = {}, retries = 0) {
+  try {
+    const response = await fetch(url, options)
+    return await parseResponse(response)
+  } catch (error) {
+    if (retries > 0 && error instanceof TypeError) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350))
+      return fetchJson(url, options, retries - 1)
+    }
+    throw error
+  }
+}
+
 export async function createEntry(payload) {
   const response = await fetch(`${API_BASE}/entries`, {
     method: 'POST',
@@ -48,8 +61,7 @@ export async function importCsv(file) {
 
 export async function listEntries(filters = {}) {
   const query = new URLSearchParams(filters)
-  const response = await fetch(`${API_BASE}/entries?${query.toString()}`)
-  return parseResponse(response)
+  return fetchJson(`${API_BASE}/entries?${query.toString()}`, {}, 1)
 }
 
 export async function createRuns(payload) {
@@ -63,13 +75,11 @@ export async function createRuns(payload) {
 
 export async function listRuns(filters = {}) {
   const query = new URLSearchParams(filters)
-  const response = await fetch(`${API_BASE}/runs?${query.toString()}`)
-  return parseResponse(response)
+  return fetchJson(`${API_BASE}/runs?${query.toString()}`, {}, 1)
 }
 
 export async function getRun(runId) {
-  const response = await fetch(`${API_BASE}/runs/${runId}`)
-  return parseResponse(response)
+  return fetchJson(`${API_BASE}/runs/${runId}`, {}, 1)
 }
 
 export async function retryRun(runId) {
@@ -92,8 +102,7 @@ export async function getExport(exportId) {
 }
 
 export async function getConfig() {
-  const response = await fetch(`${API_BASE}/config`)
-  return parseResponse(response)
+  return fetchJson(`${API_BASE}/config`, {}, 1)
 }
 
 export async function updateConfig(payload) {

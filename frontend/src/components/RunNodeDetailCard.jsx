@@ -62,7 +62,7 @@ function summarizeNode(node) {
     return [
       ['Generation model', generation.model || node.model || '-'],
       ['Status', generation.status || node.stageStatus || '-'],
-      ['Output URL', generation.output || node.asset?.origin_url || '-'],
+      ['Output URL', generation.output || (node.asset ? buildAssetContentUrl(node.asset) : '-') || '-'],
     ]
   }
 
@@ -80,7 +80,7 @@ function summarizeNode(node) {
     return [
       ['Background model', response.model || node.model || '-'],
       ['Status', response.status || node.stageStatus || '-'],
-      ['Winner output', response.output || node.asset?.origin_url || '-'],
+      ['Winner output', response.output || (node.asset ? buildAssetContentUrl(node.asset) : '-') || '-'],
     ]
   }
 

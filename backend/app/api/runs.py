@@ -54,6 +54,74 @@ def _run_out(run, entry, *, cost_summary: dict | None = None) -> RunOut:
     )
 
 
+def _profile_label(item: dict) -> str:
+    profile = item.get("profile") if isinstance(item, dict) else {}
+    if not isinstance(profile, dict):
+        profile = {}
+    parts = [str(profile.get("gender") or "").strip(), str(profile.get("age") or "").strip(), str(profile.get("skin_color") or "").strip()]
+    label = "/".join(part for part in parts if part)
+    branch_role = str(item.get("branch_role") or "").strip() if isinstance(item, dict) else ""
+    if branch_role:
+        return f"{label or 'profile'} ({branch_role})"
+    return label or "profile"
+
+
+def _build_execution_log(run, stages: list, assets: list, scores: list) -> str:
+    lines = [
+        (
+            f"run_id={run.id} status={run.status} current_stage={run.current_stage} "
+            f"attempt={run.optimization_attempt} tech_retries={run.technical_retry_count} "
+            f"updated_at={run.updated_at.isoformat()}"
+        )
+    ]
+    for stage in stages:
+        request_json = _json_dict(stage.request_json)
+        response_json = _json_dict(stage.response_json)
+        line = f"{stage.created_at.isoformat()} stage={stage.stage_name} attempt={stage.attempt} status={stage.status}"
+        if stage.stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}:
+            progress = response_json.get("progress") if isinstance(response_json.get("progress"), dict) else {}
+            line += (
+                f" completed={int(progress.get('completed_count') or 0)}"
+                f" in_flight={int(progress.get('in_flight_count') or 0)}"
+                f" remaining={int(progress.get('remaining_count') or 0)}"
+                f" failed={int(progress.get('failed_count') or 0)}"
+            )
+            submitted_profiles = response_json.get("submitted_profiles")
+            completed_profiles = response_json.get("completed_profiles")
+            failed_profiles = response_json.get("failed_profiles")
+            if isinstance(submitted_profiles, list) and submitted_profiles:
+                line += f" submitted=[{', '.join(_profile_label(item) for item in submitted_profiles[:8])}]"
+            if isinstance(completed_profiles, list) and completed_profiles:
+                line += f" completed_profiles=[{', '.join(_profile_label(item) for item in completed_profiles[:8])}]"
+            if isinstance(failed_profiles, list) and failed_profiles:
+                line += f" failed_profiles=[{', '.join(_profile_label(item) for item in failed_profiles[:8])}]"
+        elif stage.stage_name == "quality_gate":
+            rubric = response_json.get("rubric") if isinstance(response_json.get("rubric"), dict) else {}
+            if "score" in rubric:
+                line += f" score={rubric.get('score')}"
+        elif stage.stage_name == "stage3_upgrade":
+            decision = response_json.get("decision") if isinstance(response_json.get("decision"), dict) else {}
+            if decision:
+                line += (
+                    f" resolved_need_person={decision.get('resolved_need_person', '')}"
+                    f" render_style={decision.get('render_style_mode', '')}"
+                )
+        if stage.error_detail:
+            line += f" error={stage.error_detail}"
+        lines.append(line)
+
+    for asset in assets:
+        lines.append(
+            f"{asset.created_at.isoformat()} asset stage={asset.stage_name} attempt={asset.attempt} file={asset.file_name} model={asset.model_name}"
+        )
+
+    for score in scores:
+        lines.append(
+            f"{score.created_at.isoformat()} score stage={score.stage_name} attempt={score.attempt} value={score.score_0_100} pass={score.pass_fail}"
+        )
+    return "\n".join(lines)
+
+
 @router.post("", response_model=list[RunOut])
 def create_runs(payload: RunsCreateRequest, db: Session = Depends(db_dependency)) -> list[RunOut]:
     repo = Repository(db)
@@ -163,6 +231,7 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
             for score in scores
         ],
         cost_summary=cost_summary,
+        execution_log=_build_execution_log(run, stages, assets, scores),
     )
 
 

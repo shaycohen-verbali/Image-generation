@@ -103,12 +103,22 @@ export default function RunsPage() {
   const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
   const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
   const selectedRunIdRef = useRef('')
+  const runsRef = useRef([])
+  const detailStateRef = useRef(null)
   const detailRef = useRef(null)
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
     setStoredRunId(selectedRunId)
   }, [selectedRunId])
+
+  useEffect(() => {
+    runsRef.current = runs
+  }, [runs])
+
+  useEffect(() => {
+    detailStateRef.current = detail
+  }, [detail])
 
   const query = useMemo(() => {
     const next = {}
@@ -143,7 +153,8 @@ export default function RunsPage() {
     return (asset.attempt || 0) >= (latest.attempt || 0) ? asset : latest
   }, null)
 
-  async function loadRunDetail(runId) {
+  async function loadRunDetail(runId, { isPolling = false } = {}) {
+    if (!runId) return
     try {
       const data = await getRun(runId)
       if (selectedRunIdRef.current && selectedRunIdRef.current !== runId) {
@@ -151,6 +162,9 @@ export default function RunsPage() {
       }
       setDetail((previous) => mergeRunDetail(previous, data))
     } catch (error) {
+      if (isPolling && detailStateRef.current?.run?.id === runId) {
+        return
+      }
       setMessage(`Error loading detail: ${error.message}`)
     }
   }
@@ -162,36 +176,33 @@ export default function RunsPage() {
   }
 
   function selectRun(runId, options = {}) {
+    if (detailStateRef.current?.run?.id !== runId) {
+      setDetail(null)
+    }
     setSelectedRunId(runId)
     selectedRunIdRef.current = runId
-    loadRunDetail(runId)
     if (options.scrollToDetail) {
       scrollToDetail()
     }
   }
 
-  async function refresh() {
+  async function refreshRuns({ isPolling = false } = {}) {
     try {
       const data = await listRuns(query)
       setRuns(data)
-      setMessage(`Loaded ${data.length} runs`)
 
       const activeRunId = selectedRunIdRef.current
       if (!activeRunId && data.length > 0) {
         setSelectedRunId(data[0].id)
         selectedRunIdRef.current = data[0].id
         setStoredRunId(data[0].id)
-        loadRunDetail(data[0].id)
       } else if (activeRunId) {
         const exists = data.some((run) => run.id === activeRunId)
-        if (exists) {
-          loadRunDetail(activeRunId)
-        } else if (data.length > 0) {
+        if (!exists && data.length > 0) {
           setSelectedRunId(data[0].id)
           selectedRunIdRef.current = data[0].id
           setStoredRunId(data[0].id)
-          loadRunDetail(data[0].id)
-        } else {
+        } else if (!exists) {
           setSelectedRunId('')
           selectedRunIdRef.current = ''
           setStoredRunId('')
@@ -199,7 +210,10 @@ export default function RunsPage() {
         }
       }
     } catch (error) {
-      setMessage(`Error: ${error.message}`)
+      if (isPolling && (runsRef.current.length > 0 || detailStateRef.current?.run)) {
+        return
+      }
+      setMessage(`Error loading runs: ${error.message}`)
     }
   }
 
@@ -246,16 +260,31 @@ export default function RunsPage() {
   }, [])
 
   useEffect(() => {
-    refresh()
-    const timer = setInterval(refresh, 3000)
+    refreshRuns()
+    const timer = setInterval(() => refreshRuns({ isPolling: true }), 10000)
     return () => clearInterval(timer)
-  }, [query.status])
+  }, [query])
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setDetail(null)
+      return undefined
+    }
+    loadRunDetail(selectedRunId)
+    const timer = setInterval(() => {
+      const activeRunId = selectedRunIdRef.current
+      if (activeRunId) {
+        loadRunDetail(activeRunId, { isPolling: true })
+      }
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [selectedRunId])
 
   const onRetry = async (runId) => {
     try {
       await retryRun(runId)
       setMessage(`Run ${runId} queued for retry`)
-      refresh()
+      refreshRuns()
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }

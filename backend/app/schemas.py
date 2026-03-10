@@ -133,6 +133,7 @@ class RunDetailOut(BaseModel):
     assets: list[AssetOut]
     scores: list[ScoreOut]
     cost_summary: dict[str, Any] = Field(default_factory=dict)
+    execution_log: str = ""
 
 
 class RetryRunResponse(BaseModel):
