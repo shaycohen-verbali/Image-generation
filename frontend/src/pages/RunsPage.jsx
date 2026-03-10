@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
+import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 
 const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
@@ -336,29 +337,31 @@ export default function RunsPage() {
           {!detail ? (
             <p>Select a run row to see details.</p>
           ) : algoDiagramEnabled ? (
-            <RunExecutionDiagram
-              detail={detail}
-              assistantName={assistantName}
-              promptEngineerConfig={{
-                promptEngineerMode,
-                setPromptEngineerMode,
-                responsesPromptEngineerModel,
-                setResponsesPromptEngineerModel,
-                responsesVectorStoreId,
-                setResponsesVectorStoreId,
-                visualStyleId,
-                setVisualStyleId,
-                visualStyleName,
-                setVisualStyleName,
-                visualStylePromptBlock,
-                setVisualStylePromptBlock,
-                stage1PromptTemplate,
-                setStage1PromptTemplate,
-                stage3PromptTemplate,
-                setStage3PromptTemplate,
-              }}
-              onSavePromptEngineerConfig={onSavePromptEngineerConfig}
-            />
+            <PageErrorBoundary resetKey={`${detail?.run?.id || ''}:${detail?.run?.updated_at || ''}`}>
+              <RunExecutionDiagram
+                detail={detail}
+                assistantName={assistantName}
+                promptEngineerConfig={{
+                  promptEngineerMode,
+                  setPromptEngineerMode,
+                  responsesPromptEngineerModel,
+                  setResponsesPromptEngineerModel,
+                  responsesVectorStoreId,
+                  setResponsesVectorStoreId,
+                  visualStyleId,
+                  setVisualStyleId,
+                  visualStyleName,
+                  setVisualStyleName,
+                  visualStylePromptBlock,
+                  setVisualStylePromptBlock,
+                  stage1PromptTemplate,
+                  setStage1PromptTemplate,
+                  stage3PromptTemplate,
+                  setStage3PromptTemplate,
+                }}
+                onSavePromptEngineerConfig={onSavePromptEngineerConfig}
+              />
+            </PageErrorBoundary>
           ) : (
             <>
               <h3>Run</h3>

@@ -1031,6 +1031,20 @@ pre {
   grid-column: span 2;
 }
 
+.page-error-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.page-error-card h3,
+.page-error-card p {
+  margin: 0;
+}
+
 .run-kpi-card,
 .run-overview-card,
 .run-attempt-overview-card,
