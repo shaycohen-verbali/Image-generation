@@ -146,6 +146,9 @@ export default function RunsPage() {
   async function loadRunDetail(runId) {
     try {
       const data = await getRun(runId)
+      if (selectedRunIdRef.current && selectedRunIdRef.current !== runId) {
+        return
+      }
       setDetail((previous) => mergeRunDetail(previous, data))
     } catch (error) {
       setMessage(`Error loading detail: ${error.message}`)

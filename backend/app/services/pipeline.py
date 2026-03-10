@@ -696,6 +696,41 @@ class PipelineRunner:
         with_background_variants: list[dict[str, Any]] = []
         white_bg_variants: list[dict[str, Any]] = []
         self.repo.update_run(run, current_stage="stage4_variant_generate")
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage4_variant_generate",
+            attempt=winner_attempt,
+            status="running",
+            request_json={
+                "winner_attempt": winner_attempt,
+                "source_asset": upgraded_asset.abs_path,
+                "profiles": profiles,
+                "variant_count": 0,
+                "planned_variant_count": len(profiles),
+            },
+            response_json={
+                "model": "google/nano-banana-2",
+                "source_asset": upgraded_asset.abs_path,
+                "variants": [],
+            },
+        )
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage5_variant_white_bg",
+            attempt=winner_attempt,
+            status="running",
+            request_json={
+                "winner_attempt": winner_attempt,
+                "source_asset": white_bg_asset.abs_path,
+                "variant_count": 0,
+                "planned_variant_count": len(profiles),
+            },
+            response_json={
+                "model": "google/nano-banana-2",
+                "source_asset": white_bg_asset.abs_path,
+                "variants": [],
+            },
+        )
         tasks: list[tuple[str, dict[str, str], Path, bool]] = []
         for profile in profiles:
             tasks.append(("stage4_variant_generate", profile, Path(upgraded_asset.abs_path), False))
@@ -742,8 +777,43 @@ class PipelineRunner:
                 }
                 if stage_name == "stage4_variant_generate":
                     with_background_variants.append(item)
+                    self._record_stage(
+                        run_id=run.id,
+                        stage_name="stage4_variant_generate",
+                        attempt=winner_attempt,
+                        status="running",
+                        request_json={
+                            "winner_attempt": winner_attempt,
+                            "source_asset": upgraded_asset.abs_path,
+                            "profiles": profiles,
+                            "variant_count": len(with_background_variants),
+                            "planned_variant_count": len(profiles),
+                        },
+                        response_json={
+                            "model": "google/nano-banana-2",
+                            "source_asset": upgraded_asset.abs_path,
+                            "variants": with_background_variants,
+                        },
+                    )
                 else:
                     white_bg_variants.append(item)
+                    self._record_stage(
+                        run_id=run.id,
+                        stage_name="stage5_variant_white_bg",
+                        attempt=winner_attempt,
+                        status="running",
+                        request_json={
+                            "winner_attempt": winner_attempt,
+                            "source_asset": white_bg_asset.abs_path,
+                            "variant_count": len(white_bg_variants),
+                            "planned_variant_count": len(profiles),
+                        },
+                        response_json={
+                            "model": "google/nano-banana-2",
+                            "source_asset": white_bg_asset.abs_path,
+                            "variants": white_bg_variants,
+                        },
+                    )
 
         self._record_stage(
             run_id=run.id,
@@ -755,6 +825,7 @@ class PipelineRunner:
                 "source_asset": upgraded_asset.abs_path,
                 "profiles": profiles,
                 "variant_count": len(with_background_variants),
+                "planned_variant_count": len(profiles),
             },
             response_json={
                 "model": "google/nano-banana-2",
@@ -772,6 +843,8 @@ class PipelineRunner:
             request_json={
                 "winner_attempt": winner_attempt,
                 "variant_count": len(white_bg_variants),
+                "planned_variant_count": len(profiles),
+                "source_asset": white_bg_asset.abs_path,
             },
             response_json={
                 "model": "google/nano-banana-2",

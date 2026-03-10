@@ -530,7 +530,7 @@ export default function RunExecutionDiagram({
   useEffect(() => {
     const next = defaultAttempt(detail, attempts)
     setSelectedAttempt((current) => (attempts.includes(current) ? current : next))
-  }, [detail?.run?.id, detail?.run?.updated_at, attempts])
+  }, [detail?.run?.id, attempts])
 
   useEffect(() => {
     if (!diagram.nodes.some((node) => node.id === selectedNodeId)) {
