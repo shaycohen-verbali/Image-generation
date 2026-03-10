@@ -65,6 +65,9 @@ class RunOut(BaseModel):
     max_optimization_attempts: int
     technical_retry_count: int
     error_detail: str
+    estimated_total_cost_usd: float = 0
+    estimated_cost_per_image_usd: float | None = None
+    image_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -123,6 +126,7 @@ class RunDetailOut(BaseModel):
     prompts: list[PromptOut]
     assets: list[AssetOut]
     scores: list[ScoreOut]
+    cost_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class RetryRunResponse(BaseModel):

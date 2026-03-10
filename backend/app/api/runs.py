@@ -16,6 +16,7 @@ from app.schemas import (
     ScoreOut,
     StageResultOut,
 )
+from app.services.cost_estimator import summarize_run_costs
 from app.services.repository import Repository
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
@@ -29,7 +30,8 @@ def _json_dict(value: str) -> dict:
         return {}
 
 
-def _run_out(run, entry) -> RunOut:
+def _run_out(run, entry, *, cost_summary: dict | None = None) -> RunOut:
+    cost_summary = cost_summary or {}
     return RunOut(
         id=run.id,
         entry_id=run.entry_id,
@@ -44,6 +46,9 @@ def _run_out(run, entry) -> RunOut:
         max_optimization_attempts=run.max_optimization_attempts,
         technical_retry_count=run.technical_retry_count,
         error_detail=run.error_detail,
+        estimated_total_cost_usd=float(cost_summary.get("estimated_total_cost_usd") or 0),
+        estimated_cost_per_image_usd=cost_summary.get("estimated_cost_per_image_usd"),
+        image_count=int(cost_summary.get("image_count") or 0),
         created_at=run.created_at,
         updated_at=run.updated_at,
     )
@@ -65,7 +70,8 @@ def create_runs(payload: RunsCreateRequest, db: Session = Depends(db_dependency)
     payload_rows: list[RunOut] = []
     for run in runs:
         entry = repo.get_entry(run.entry_id)
-        payload_rows.append(_run_out(run, entry))
+        _, stages, _, assets, _ = repo.run_details(run.id)
+        payload_rows.append(_run_out(run, entry, cost_summary=summarize_run_costs(stages, assets)))
     return payload_rows
 
 
@@ -82,7 +88,8 @@ def list_runs(
     payload_rows: list[RunOut] = []
     for run in runs:
         entry = repo.get_entry(run.entry_id)
-        payload_rows.append(_run_out(run, entry))
+        _, stages, _, assets, _ = repo.run_details(run.id)
+        payload_rows.append(_run_out(run, entry, cost_summary=summarize_run_costs(stages, assets)))
     return payload_rows
 
 
@@ -94,7 +101,8 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
         raise HTTPException(status_code=404, detail="Run not found")
 
     entry = repo.get_entry(run.entry_id)
-    run_payload = _run_out(run, entry)
+    cost_summary = summarize_run_costs(stages, assets)
+    run_payload = _run_out(run, entry, cost_summary=cost_summary)
 
     return RunDetailOut(
         run=run_payload,
@@ -154,6 +162,7 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
             )
             for score in scores
         ],
+        cost_summary=cost_summary,
     )
 
 

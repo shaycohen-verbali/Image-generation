@@ -285,6 +285,8 @@ export default function RunsPage() {
                   <th>Status</th>
                   <th>Score</th>
                   <th>Attempt</th>
+                  <th>Cost</th>
+                  <th>Avg / image</th>
                   <th>Retry</th>
                 </tr>
               </thead>
@@ -301,6 +303,8 @@ export default function RunsPage() {
                     <td>{run.status}</td>
                     <td>{run.quality_score ?? '-'}</td>
                     <td>{run.optimization_attempt}</td>
+                    <td>{typeof run.estimated_total_cost_usd === 'number' ? `$${Number(run.estimated_total_cost_usd).toFixed(4)}` : '-'}</td>
+                    <td>{run.estimated_cost_per_image_usd != null ? `$${Number(run.estimated_cost_per_image_usd).toFixed(4)}` : '-'}</td>
                     <td>
                       <button
                         onClick={(event) => {

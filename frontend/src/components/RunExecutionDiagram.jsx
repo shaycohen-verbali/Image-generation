@@ -148,6 +148,11 @@ function compactDate(value) {
   return date.toLocaleString()
 }
 
+function formatUsd(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '-'
+  return `$${Number(value).toFixed(4)}`
+}
+
 function safeArray(value) {
   return Array.isArray(value) ? value.filter(Boolean) : []
 }
@@ -222,7 +227,10 @@ function renderOverviewSection({
 }) {
   const run = detail.run
   const latestScore = selectedSummary?.score ?? run.quality_score ?? null
-  const finalImageUrl = winnerStage4Asset?.origin_url || finalAsset?.origin_url || ''
+  const estimatedTotalCost = Number(run.estimated_total_cost_usd || 0)
+  const estimatedCostPerImage = run.estimated_cost_per_image_usd
+  const imageCount = Number(run.image_count || 0)
+  const meterPercent = Math.max(3, Math.min(100, Math.round((estimatedTotalCost / 1.0) * 100)))
 
   return (
     <div className="run-detail-section-grid">
@@ -264,10 +272,27 @@ function renderOverviewSection({
             <span>Run id</span>
             <strong>{run.id}</strong>
           </div>
+          <div className="snapshot-metric">
+            <span>Estimated cost</span>
+            <strong>{formatUsd(estimatedTotalCost)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Avg / image</span>
+            <strong>{formatUsd(estimatedCostPerImage)}</strong>
+          </div>
         </div>
       </section>
 
       <section className="run-kpi-grid">
+        <article className="run-kpi-card run-cost-card">
+          <p className="detail-eyebrow">Job price meter</p>
+          <h4>{formatUsd(estimatedTotalCost)}</h4>
+          <p>{imageCount} image{imageCount === 1 ? '' : 's'} in this run | avg {formatUsd(estimatedCostPerImage)} each</p>
+          <div className="cost-meter" aria-label="Estimated job cost">
+            <div className="cost-meter-fill" style={{ width: `${meterPercent}%` }} />
+          </div>
+          <p className="cost-meter-caption">Estimate only. Based on stored token usage and model defaults, not provider invoice totals.</p>
+        </article>
         <article className="run-kpi-card">
           <p className="detail-eyebrow">Prompt engineer</p>
           <h4>{selectedPromptEngineerMode === 'responses_api' ? (usesGeminiPromptEngineer ? 'Direct model API' : 'Responses API') : 'OpenAI Assistant'}</h4>
