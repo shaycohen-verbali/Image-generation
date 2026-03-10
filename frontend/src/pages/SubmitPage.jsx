@@ -99,10 +99,6 @@ export default function SubmitPage() {
     try {
       const entry = await createEntry(form)
       setLastEntryId(entry.id)
-      await updateConfig({
-        prompt_engineer_mode: promptEngineerMode,
-        responses_prompt_engineer_model: promptEngineerModel,
-      })
       const runs = await createRuns({ entry_ids: [entry.id] })
       setMessage(`Queued run ${runs[0].id}`)
     } catch (error) {
@@ -132,10 +128,6 @@ export default function SubmitPage() {
     }
     setMessage('Queueing imported entries...')
     try {
-      await updateConfig({
-        prompt_engineer_mode: promptEngineerMode,
-        responses_prompt_engineer_model: promptEngineerModel,
-      })
       const runs = await createRuns({ entry_ids: entryIds })
       setMessage(`Queued ${runs.length} runs`)
     } catch (error) {
@@ -165,6 +157,17 @@ export default function SubmitPage() {
       if (updated.stage3_critique_model) setStage3CritiqueModel(updated.stage3_critique_model)
       if (updated.stage3_generate_model) setStage3GenerateModel(updated.stage3_generate_model)
       if (updated.quality_gate_model) setQualityGateModel(updated.quality_gate_model)
+      setMessage(successMessage)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const savePromptEngineerConfig = async (updates, successMessage) => {
+    try {
+      const updated = await updateConfig(updates)
+      if (updated.prompt_engineer_mode) setPromptEngineerMode(updated.prompt_engineer_mode)
+      if (updated.responses_prompt_engineer_model) setPromptEngineerModel(updated.responses_prompt_engineer_model)
       setMessage(successMessage)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
@@ -391,14 +394,36 @@ export default function SubmitPage() {
         <div className="form-grid">
           <label>
             Prompt engineer mode
-            <select value={promptEngineerMode} onChange={(e) => setPromptEngineerMode(e.target.value)}>
+            <select
+              value={promptEngineerMode}
+              onChange={(e) => {
+                const value = e.target.value
+                setPromptEngineerMode(value)
+                setMessage('Saving prompt engineer mode...')
+                savePromptEngineerConfig(
+                  { prompt_engineer_mode: value },
+                  `Saved prompt engineer mode: ${value}`
+                )
+              }}
+            >
               <option value="responses_api">Option 2: Responses API / Direct Model</option>
               <option value="assistant">Option 1: OpenAI Assistant</option>
             </select>
           </label>
           <label>
             Prompt engineer model
-            <select value={promptEngineerModel} onChange={(e) => setPromptEngineerModel(e.target.value)}>
+            <select
+              value={promptEngineerModel}
+              onChange={(e) => {
+                const value = e.target.value
+                setPromptEngineerModel(value)
+                setMessage('Saving prompt engineer model...')
+                savePromptEngineerConfig(
+                  { responses_prompt_engineer_model: value },
+                  `Saved prompt engineer model: ${value}`
+                )
+              }}
+            >
               <option value="gpt-4o-mini">gpt-4o-mini</option>
               <option value="gpt-4.1-mini">gpt-4.1-mini</option>
               <option value="gpt-5.4">gpt-5.4</option>
