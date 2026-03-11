@@ -566,6 +566,7 @@ export default function RunExecutionDiagram({
   const [selectedNodeId, setSelectedNodeId] = useState(initialState.selectedNodeId || currentNodeId(detail) || 'stage3_generate')
   const [showRunJson, setShowRunJson] = useState(false)
   const [showExecutionLog, setShowExecutionLog] = useState(false)
+  const [showDetailedExecutionLog, setShowDetailedExecutionLog] = useState(false)
   const [copyMessage, setCopyMessage] = useState('')
   const [activeTab, setActiveTab] = useState(initialState.activeTab || DETAIL_TABS.OVERVIEW)
 
@@ -1058,6 +1059,23 @@ export default function RunExecutionDiagram({
             </div>
             {copyMessage ? <p className="run-debug-copy-message">{copyMessage}</p> : null}
             {showExecutionLog ? <pre>{detail.execution_log || 'No execution log available yet.'}</pre> : null}
+          </div>
+
+          <div className="run-debug-card">
+            <div>
+              <h4>Detailed Execution Log</h4>
+              <p>Use this to trace the exact variant flow: source image, prompt, Replicate submission, provider responses, poll transitions, and asset save/failure events.</p>
+            </div>
+            <div className="run-debug-actions">
+              <button type="button" onClick={() => copyText('Detailed execution log', detail.detailed_execution_log || '')}>
+                Copy detailed execution log
+              </button>
+              <button type="button" onClick={() => setShowDetailedExecutionLog((value) => !value)}>
+                {showDetailedExecutionLog ? 'Hide detailed execution log' : 'Show detailed execution log'}
+              </button>
+            </div>
+            {copyMessage ? <p className="run-debug-copy-message">{copyMessage}</p> : null}
+            {showDetailedExecutionLog ? <pre>{detail.detailed_execution_log || 'No detailed execution log available yet.'}</pre> : null}
           </div>
 
           <div className="run-debug-card">

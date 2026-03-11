@@ -23,14 +23,14 @@ class MockOpenAI:
     def generate_first_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         return {"first prompt": "simple concept image", "need a person": "no"}, {"raw_text": "ok"}
 
-    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str):
+    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str, **_kwargs):
         return {"challenges": "too generic", "recommendations": "increase clarity"}, {"raw_text": "ok"}
 
     def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         self._upgrade_idx += 1
         return {"upgraded prompt": f"upgraded prompt {self._upgrade_idx}"}, {"raw_text": "ok"}
 
-    def score_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, threshold: int, model: str):
+    def score_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, threshold: int, model: str, **_kwargs):
         score = self._scores[min(self._score_idx, len(self._scores) - 1)]
         self._score_idx += 1
         return (
@@ -79,7 +79,7 @@ class PersonVariantOpenAI(MockOpenAI):
     def generate_first_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         return {"first prompt": "person-centered action image", "need a person": "yes"}, {"raw_text": "ok"}
 
-    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str):
+    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str, **_kwargs):
         return (
             {
                 "challenges": "needs stronger action",
@@ -136,6 +136,24 @@ class MockReplicate:
         if self.stage4_calls in self.nano_fail_attempts:
             return {"status": "failed", "id": f"pred_s4_failed_{self.stage4_calls}"}
         return {"status": "succeeded", "id": f"pred_s4_{self.stage4_calls}", "output": "http://mock/stage4.jpg"}
+
+    def profile_variant_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, object]:
+        return {
+            "model_path": "google/nano-banana-2",
+            "prompt": f"variant prompt for {profile_description}",
+            "source_image_path": image_path.as_posix(),
+            "white_background": white_background,
+            "aspect_ratio": "match_input_image",
+            "output_format": "jpg",
+            "word": word,
+        }
 
     @staticmethod
     def extract_output_url(pred_json: dict):
@@ -526,3 +544,34 @@ def test_rerunning_variant_stage_reuses_existing_assets_without_duplicates(db_se
         if asset.stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}
     ]
     assert len(second_variant_assets) == len(first_variant_assets)
+
+
+def test_variant_events_capture_request_poll_and_save(db_session):
+    run = _create_variant_run(db_session)
+    mock_replicate = VariantCapableReplicate()
+    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    repo = Repository(db_session)
+    events = repo.list_run_events(run.id)
+    assert any(event.event_type == "stage_completed" and event.stage_name == "stage4_background" for event in events)
+    assert any(event.event_type == "stage_started" and event.stage_name == "stage4_variant_generate" for event in events)
+    assert any(event.event_type == "stage_started" and event.stage_name == "stage5_variant_white_bg" for event in events)
+
+    submit_event = next(event for event in events if event.event_type == "variant_submit_finished")
+    submit_payload = json.loads(submit_event.payload_json)
+    assert submit_payload["request"]["model_path"] == "google/nano-banana-2"
+    assert submit_payload["request"]["source_image_path"]
+    assert submit_payload["request"]["prompt"]
+    assert submit_payload["provider_response"]["id"].startswith("pred_variant_")
+
+    poll_event = next(event for event in events if event.event_type == "variant_prediction_polled")
+    poll_payload = json.loads(poll_event.payload_json)
+    assert poll_payload["provider_status"] in {"processing", "succeeded"}
+
+    save_event = next(event for event in events if event.event_type == "variant_asset_saved")
+    save_payload = json.loads(save_event.payload_json)
+    assert save_payload["saved_asset_path"].endswith(".jpg")
+    assert save_payload["provider_response"]["status"] == "succeeded"

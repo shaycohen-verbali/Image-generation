@@ -9,6 +9,7 @@ from app.api.deps import db_dependency
 from app.schemas import (
     AssetOut,
     PromptOut,
+    RunEventOut,
     RetryRunResponse,
     RunDetailOut,
     RunOut,
@@ -75,7 +76,7 @@ def _profile_label(item: dict) -> str:
     return label or "profile"
 
 
-def _build_execution_log(run, stages: list, assets: list, scores: list) -> str:
+def _build_legacy_execution_log(run, stages: list, assets: list, scores: list) -> str:
     lines = [
         (
             f"run_id={run.id} status={run.status} current_stage={run.current_stage} "
@@ -131,6 +132,59 @@ def _build_execution_log(run, stages: list, assets: list, scores: list) -> str:
     return "\n".join(lines)
 
 
+def _compact_event_line(event) -> str:
+    payload = _json_dict(event.payload_json)
+    line = (
+        f"{event.created_at.isoformat()} stage={event.stage_name or '-'} attempt={event.attempt} "
+        f"event={event.event_type} status={event.status}"
+    )
+    profile = payload.get("profile")
+    if isinstance(profile, dict):
+        line += f" profile={_profile_label({'profile': profile, 'branch_role': payload.get('branch_role'), 'prediction_status': payload.get('prediction_status'), 'prediction_id': payload.get('prediction_id')})}"
+    if payload.get("prediction_id"):
+        line += f" prediction_id={payload.get('prediction_id')}"
+    if payload.get("provider_status"):
+        line += f" provider_status={payload.get('provider_status')}"
+    if event.message:
+        line += f" message={event.message}"
+    return line
+
+
+def _detailed_event_lines(event) -> list[str]:
+    payload = _json_dict(event.payload_json)
+    lines = [
+        (
+            f"{event.created_at.isoformat()} stage={event.stage_name or '-'} attempt={event.attempt} "
+            f"event={event.event_type} status={event.status}"
+        )
+    ]
+    if event.message:
+        lines.append(f"message: {event.message}")
+    if payload:
+        lines.append("payload:")
+        lines.append(json.dumps(payload, ensure_ascii=False, indent=2))
+    return lines
+
+
+def _build_event_logs(run, events: list, stages: list, assets: list, scores: list) -> tuple[str, str]:
+    header = (
+        f"run_id={run.id} status={run.status} current_stage={run.current_stage} "
+        f"attempt={run.optimization_attempt} tech_retries={run.technical_retry_count} "
+        f"updated_at={run.updated_at.isoformat()}"
+    )
+    if not events:
+        legacy = _build_legacy_execution_log(run, stages, assets, scores)
+        return legacy, legacy
+
+    compact_lines = [header]
+    detailed_lines = [header]
+    for event in events:
+        compact_lines.append(_compact_event_line(event))
+        detailed_lines.extend(_detailed_event_lines(event))
+        detailed_lines.append("")
+    return "\n".join(compact_lines), "\n".join(line for line in detailed_lines if line is not None)
+
+
 @router.post("", response_model=list[RunOut])
 def create_runs(payload: RunsCreateRequest, db: Session = Depends(db_dependency)) -> list[RunOut]:
     repo = Repository(db)
@@ -176,10 +230,12 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
     run, stages, prompts, assets, scores = repo.run_details(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
+    events = repo.list_run_events(run_id)
 
     entry = repo.get_entry(run.entry_id)
     cost_summary = summarize_run_costs(stages, assets)
     run_payload = _run_out(run, entry, cost_summary=cost_summary)
+    execution_log, detailed_execution_log = _build_event_logs(run, events, stages, assets, scores)
 
     return RunDetailOut(
         run=run_payload,
@@ -195,6 +251,19 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
                 created_at=stage.created_at,
             )
             for stage in stages
+        ],
+        events=[
+            RunEventOut(
+                id=event.id,
+                stage_name=event.stage_name,
+                attempt=event.attempt,
+                event_type=event.event_type,
+                status=event.status,
+                message=event.message,
+                payload_json=_json_dict(event.payload_json),
+                created_at=event.created_at,
+            )
+            for event in events
         ],
         prompts=[
             PromptOut(
@@ -240,7 +309,8 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
             for score in scores
         ],
         cost_summary=cost_summary,
-        execution_log=_build_execution_log(run, stages, assets, scores),
+        execution_log=execution_log,
+        detailed_execution_log=detailed_execution_log,
     )
 
 

@@ -57,6 +57,7 @@ class Run(Base):
 
     entry: Mapped[Entry] = relationship(back_populates="runs")
     stage_results: Mapped[list[StageResult]] = relationship(back_populates="run", cascade="all, delete-orphan")
+    events: Mapped[list[RunEvent]] = relationship(back_populates="run", cascade="all, delete-orphan")
     prompts: Mapped[list[Prompt]] = relationship(back_populates="run", cascade="all, delete-orphan")
     assets: Mapped[list[Asset]] = relationship(back_populates="run", cascade="all, delete-orphan")
     scores: Mapped[list[Score]] = relationship(back_populates="run", cascade="all, delete-orphan")
@@ -80,6 +81,22 @@ class StageResult(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
 
     run: Mapped[Run] = relationship(back_populates="stage_results")
+
+
+class RunEvent(Base):
+    __tablename__ = "run_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"evt_{uuid.uuid4().hex[:24]}")
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    stage_name: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    message: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+
+    run: Mapped[Run] = relationship(back_populates="events")
 
 
 class Prompt(Base):

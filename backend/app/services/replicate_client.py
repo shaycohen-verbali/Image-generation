@@ -240,31 +240,51 @@ class ReplicateClient:
         profile_description: str,
         white_background: bool = False,
     ) -> dict[str, Any]:
-        background_instruction = (
-            "Keep the background pure solid white and keep the subject cleanly isolated on white."
-            if white_background
-            else "Keep the same background scene, composition, lighting, and props."
-        )
-        prompt = (
-            "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
-            f"Change only the main person so the image clearly shows a {profile_description}. "
-            "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
-            f"{background_instruction} Keep exactly one clear central person. "
-            f'The image must still clearly represent the concept "{word}" for AAC users. '
-            "Do not add text, watermark, or extra people."
+        request = self.profile_variant_request_summary(
+            image_path,
+            word=word,
+            profile_description=profile_description,
+            white_background=white_background,
         )
         image_input = self._to_data_uri(image_path)
         return self._run_prediction(
-            "google/nano-banana-2",
+            str(request["model_path"]),
             {
-                "prompt": prompt,
+                "prompt": str(request["prompt"]),
                 "image_input": [image_input],
-                "aspect_ratio": "match_input_image",
-                "output_format": "jpg",
+                "aspect_ratio": str(request["aspect_ratio"]),
+                "output_format": str(request["output_format"]),
             },
         )
 
     def submit_nano_banana_profile_variant(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, Any]:
+        request = self.profile_variant_request_summary(
+            image_path,
+            word=word,
+            profile_description=profile_description,
+            white_background=white_background,
+        )
+        image_input = self._to_data_uri(image_path)
+        return self._create_prediction(
+            str(request["model_path"]),
+            {
+                "prompt": str(request["prompt"]),
+                "image_input": [image_input],
+                "aspect_ratio": str(request["aspect_ratio"]),
+                "output_format": str(request["output_format"]),
+            },
+            wait_seconds=None,
+            timeout=30,
+        )
+
+    def profile_variant_request_summary(
         self,
         image_path: Path,
         *,
@@ -285,18 +305,14 @@ class ReplicateClient:
             f'The image must still clearly represent the concept "{word}" for AAC users. '
             "Do not add text, watermark, or extra people."
         )
-        image_input = self._to_data_uri(image_path)
-        return self._create_prediction(
-            "google/nano-banana-2",
-            {
-                "prompt": prompt,
-                "image_input": [image_input],
-                "aspect_ratio": "match_input_image",
-                "output_format": "jpg",
-            },
-            wait_seconds=None,
-            timeout=30,
-        )
+        return {
+            "model_path": "google/nano-banana-2",
+            "prompt": prompt,
+            "source_image_path": image_path.as_posix(),
+            "white_background": white_background,
+            "aspect_ratio": "match_input_image",
+            "output_format": "jpg",
+        }
 
     def download_image(self, url: str) -> bytes:
         def _call() -> bytes:

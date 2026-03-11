@@ -7,7 +7,7 @@ from sqlalchemy import Select, desc, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Asset, Entry, Export, Prompt, Run, RuntimeConfig, Score, StageResult
+from app.models import Asset, Entry, Export, Prompt, Run, RunEvent, RuntimeConfig, Score, StageResult
 from app.services.model_catalog import normalize_prompt_engineer_model, normalize_stage3_generation_model, normalize_vision_model
 from app.services.person_profiles import (
     DEFAULT_AGE,
@@ -287,6 +287,40 @@ class Repository:
         self.db.commit()
         self.db.refresh(record)
         return record
+
+    def add_run_event(
+        self,
+        *,
+        run_id: str,
+        stage_name: str,
+        attempt: int,
+        event_type: str,
+        status: str,
+        message: str,
+        payload_json: dict[str, Any] | None = None,
+    ) -> RunEvent:
+        event = RunEvent(
+            run_id=run_id,
+            stage_name=stage_name,
+            attempt=attempt,
+            event_type=event_type,
+            status=status,
+            message=message,
+            payload_json=_dumps(payload_json or {}),
+        )
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        return event
+
+    def list_run_events(self, run_id: str) -> list[RunEvent]:
+        return list(
+            self.db.execute(
+                select(RunEvent)
+                .where(RunEvent.run_id == run_id)
+                .order_by(RunEvent.created_at.asc())
+            ).scalars()
+        )
 
     def add_prompt(
         self,

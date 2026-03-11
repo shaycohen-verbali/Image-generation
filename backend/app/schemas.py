@@ -126,14 +126,27 @@ class ScoreOut(BaseModel):
     created_at: datetime
 
 
+class RunEventOut(BaseModel):
+    id: str
+    stage_name: str
+    attempt: int
+    event_type: str
+    status: str
+    message: str
+    payload_json: dict[str, Any]
+    created_at: datetime
+
+
 class RunDetailOut(BaseModel):
     run: RunOut
     stages: list[StageResultOut]
+    events: list[RunEventOut]
     prompts: list[PromptOut]
     assets: list[AssetOut]
     scores: list[ScoreOut]
     cost_summary: dict[str, Any] = Field(default_factory=dict)
     execution_log: str = ""
+    detailed_execution_log: str = ""
 
 
 class RetryRunResponse(BaseModel):

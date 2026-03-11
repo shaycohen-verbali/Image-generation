@@ -64,6 +64,27 @@ class PipelineRunner:
             error_detail=error_detail,
         )
 
+    def _record_event(
+        self,
+        *,
+        run_id: str,
+        stage_name: str,
+        attempt: int,
+        event_type: str,
+        status: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        self.repo.add_run_event(
+            run_id=run_id,
+            stage_name=stage_name,
+            attempt=attempt,
+            event_type=event_type,
+            status=status,
+            message=message,
+            payload_json=payload or {},
+        )
+
     def _latest_prompt(self, run_id: str, stage_name: str) -> Prompt | None:
         return self.db.execute(
             select(Prompt)
@@ -268,6 +289,21 @@ class PipelineRunner:
 
         start_stage = run.retry_from_stage or "stage1_prompt"
         run = self.repo.update_run(run, status="running", current_stage=start_stage, retry_from_stage="")
+        self._record_event(
+            run_id=run.id,
+            stage_name=start_stage,
+            attempt=max(0, int(run.optimization_attempt or 0)),
+            event_type="run_started",
+            status="running",
+            message="Run processing started",
+            payload={
+                "entry_id": entry.id,
+                "word": entry.word,
+                "part_of_sentence": entry.part_of_sentence,
+                "category": entry.category,
+                "start_stage": start_stage,
+            },
+        )
 
         try:
             if start_stage in {"stage1_prompt", "queued"}:
@@ -283,6 +319,18 @@ class PipelineRunner:
             self._set_failed_technical(run, run.current_stage, str(exc))
             request_json = getattr(exc, "request_json", {})
             response_json = getattr(exc, "response_json", {})
+            self._record_event(
+                run_id=run.id,
+                stage_name=run.current_stage,
+                attempt=max(1, run.optimization_attempt),
+                event_type="stage_failed",
+                status="error",
+                message=str(exc),
+                payload={
+                    "request_json": request_json if isinstance(request_json, dict) else {},
+                    "response_json": response_json if isinstance(response_json, dict) else {},
+                },
+            )
             self._record_stage(
                 run_id=run.id,
                 stage_name=run.current_stage,
@@ -298,6 +346,15 @@ class PipelineRunner:
 
     def _run_stage1(self, run: Run, entry: Entry, assistant_id: str, retry_limit: int) -> Run:
         run = self.repo.update_run(run, current_stage="stage1_prompt")
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage1_prompt",
+            attempt=0,
+            event_type="stage_started",
+            status="running",
+            message="Stage 1 prompt generation started",
+            payload={"entry_id": entry.id, "assistant_id": assistant_id},
+        )
 
         def _exec():
             start = perf_counter()
@@ -377,6 +434,19 @@ class PipelineRunner:
                     "enforced_prompt_text": enforced_first_prompt,
                 },
             )
+            self._record_event(
+                run_id=run.id,
+                stage_name="stage1_prompt",
+                attempt=0,
+                event_type="stage_completed",
+                status="ok",
+                message="Stage 1 prompt generation completed",
+                payload={
+                    "prompt_engineer_mode": runtime_config.prompt_engineer_mode,
+                    "resolved_need_person": decision.get("resolved_need_person"),
+                    "render_style_mode": decision.get("render_style_mode"),
+                },
+            )
             logger.info(
                 "stage completed",
                 extra={
@@ -396,6 +466,15 @@ class PipelineRunner:
         first_prompt = self._latest_prompt(run.id, "stage1_prompt")
         if first_prompt is None:
             raise RuntimeError("Stage 1 prompt missing for stage 2")
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage2_draft",
+            attempt=0,
+            event_type="stage_started",
+            status="running",
+            message="Stage 2 draft generation started",
+            payload={"source_prompt": first_prompt.prompt_text},
+        )
 
         def _exec():
             start = perf_counter()
@@ -425,6 +504,19 @@ class PipelineRunner:
                 status="ok",
                 request_json={"prompt": first_prompt.prompt_text},
                 response_json=result,
+            )
+            self._record_event(
+                run_id=run.id,
+                stage_name="stage2_draft",
+                attempt=0,
+                event_type="stage_completed",
+                status="ok",
+                message="Stage 2 draft generation completed",
+                payload={
+                    "model": "black-forest-labs/flux-schnell",
+                    "output_url": output_url,
+                    "saved_file": filename,
+                },
             )
             logger.info(
                 "stage completed",
@@ -549,6 +641,20 @@ class PipelineRunner:
         latest_decision = latest_stage3_response.get("decision", {}) if isinstance(latest_stage3_response, dict) else {}
         current_need_person = latest_decision.get("resolved_need_person") or (stage1_prompt.needs_person if stage1_prompt else "no")
         current_render_style_mode = latest_decision.get("render_style_mode") or ("illustration" if normalize_need_person(current_need_person) == "yes" else "photorealistic")
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage3_upgrade",
+            attempt=attempt,
+            event_type="stage_started",
+            status="running",
+            message="Stage 3 upgrade started",
+            payload={
+                "source_asset": critique_source_asset.abs_path,
+                "critique_model": critique_model,
+                "initial_need_person": current_need_person,
+                "current_render_style_mode": current_render_style_mode,
+            },
+        )
 
         start = perf_counter()
         analysis, analysis_raw = self.openai.analyze_image(
@@ -719,6 +825,21 @@ class PipelineRunner:
                 "enforced_prompt_text": enforced_upgraded_prompt,
             },
         )
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage3_upgrade",
+            attempt=attempt,
+            event_type="stage_completed",
+            status="ok",
+            message="Stage 3 upgrade completed",
+            payload={
+                "resolved_need_person": enforced_decision["resolved_need_person"],
+                "render_style_mode": enforced_decision["render_style_mode"],
+                "generation_model": model_name,
+                "saved_file": filename,
+                "output_url": output_url,
+            },
+        )
 
         write_metadata(
             run.id,
@@ -786,9 +907,28 @@ class PipelineRunner:
         submitted_profiles_by_stage: dict[str, dict[str, dict[str, Any]]] = {stage_name: {} for stage_name in stage_names}
         completed_profiles_by_stage: dict[str, dict[str, Any]] = {stage_name: {} for stage_name in stage_names}
         failed_profiles_by_stage: dict[str, dict[str, Any]] = {stage_name: {} for stage_name in stage_names}
+        latest_prediction_statuses: dict[str, str] = {}
 
         def stage_source_asset(stage_name: str) -> str:
             return upgraded_asset.abs_path if stage_name == "stage4_variant_generate" else white_bg_asset.abs_path
+
+        def log_variant_event(
+            *,
+            stage_name: str,
+            event_type: str,
+            status: str,
+            message: str,
+            payload: dict[str, Any] | None = None,
+        ) -> None:
+            self._record_event(
+                run_id=run.id,
+                stage_name=stage_name,
+                attempt=winner_attempt,
+                event_type=event_type,
+                status=status,
+                message=message,
+                payload=payload,
+            )
 
         def profile_state_item(
             *,
@@ -915,6 +1055,19 @@ class PipelineRunner:
             if existing is None:
                 return None
             known_profile_keys[stage_name].add(profile_key(profile))
+            log_variant_event(
+                stage_name=stage_name,
+                event_type="variant_reused",
+                status="ok",
+                message="Existing variant asset reused",
+                payload={
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "source_profile": source_profile or {},
+                    "asset_path": existing.abs_path,
+                    "file_name": existing.file_name,
+                },
+            )
             append_variant_item(
                 stage_name,
                 self._variant_stage_item(
@@ -973,6 +1126,28 @@ class PipelineRunner:
 
         sync_variant_progress("stage4_variant_generate")
         sync_variant_progress("stage5_variant_white_bg")
+        log_variant_event(
+            stage_name="stage4_variant_generate",
+            event_type="stage_started",
+            status="running",
+            message="Stage 5 variant final generation started",
+            payload={
+                "source_asset": upgraded_asset.abs_path,
+                "planned_profiles": profiles,
+                "branch_plan": branch_plan,
+            },
+        )
+        log_variant_event(
+            stage_name="stage5_variant_white_bg",
+            event_type="stage_started",
+            status="running",
+            message="Stage 6 variant white-background generation started",
+            payload={
+                "source_asset": white_bg_asset.abs_path,
+                "planned_profiles": profiles,
+                "branch_plan": branch_plan,
+            },
+        )
 
         def submit_variant_task(
             executor: ThreadPoolExecutor,
@@ -987,6 +1162,17 @@ class PipelineRunner:
         ) -> None:
             key = profile_key(profile)
             if key in known_profile_keys[stage_name]:
+                log_variant_event(
+                    stage_name=stage_name,
+                    event_type="variant_skipped",
+                    status="skipped",
+                    message="Variant skipped because the profile key is already known",
+                    payload={
+                        "profile": profile,
+                        "branch_role": branch_role,
+                        "source_profile": source_profile or {},
+                    },
+                )
                 return
             existing = existing_variant_asset(stage_name, profile)
             if existing is not None:
@@ -1010,6 +1196,24 @@ class PipelineRunner:
                 return
             known_profile_keys[stage_name].add(key)
             profile_description = profile_prompt_fragment(profile)
+            request_summary = self.replicate.profile_variant_request_summary(
+                source_path,
+                word=entry.word,
+                profile_description=profile_description,
+                white_background=white_background,
+            )
+            log_variant_event(
+                stage_name=stage_name,
+                event_type="variant_submit_started",
+                status="running",
+                message="Submitting variant prediction",
+                payload={
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "source_profile": source_profile or {},
+                    "request": request_summary,
+                },
+            )
             mark_submitted(
                 stage_name,
                 profile=profile,
@@ -1051,6 +1255,20 @@ class PipelineRunner:
             meta: dict[str, Any],
             prediction_result: dict[str, Any],
         ) -> None:
+            log_variant_event(
+                stage_name=meta["stage_name"],
+                event_type="variant_materialization_started",
+                status="running",
+                message="Materializing completed variant prediction",
+                payload={
+                    "profile": meta["profile"],
+                    "branch_role": meta["branch_role"],
+                    "source_profile": meta.get("source_profile") or {},
+                    "prediction_id": str(prediction_result.get("id") or ""),
+                    "provider_status": str(prediction_result.get("status") or ""),
+                    "provider_response": prediction_result,
+                },
+            )
             future = executor.submit(
                 self._materialize_profile_variant_payload,
                 prediction_result,
@@ -1127,6 +1345,21 @@ class PipelineRunner:
                     branch_role=branch_role,
                     source_profile=source_profile,
                     profile_description=payload["profile_description"],
+                )
+                log_variant_event(
+                    stage_name=stage_name,
+                    event_type="variant_asset_saved",
+                    status="ok",
+                    message="Variant image downloaded and saved",
+                    payload={
+                        "profile": profile,
+                        "branch_role": branch_role,
+                        "source_profile": source_profile or {},
+                        "saved_asset_path": variant_asset.abs_path,
+                        "file_name": variant_asset.file_name,
+                        "origin_url": payload["origin_url"],
+                        "provider_response": payload["response"],
+                    },
                 )
 
                 if branch_role == "female_seed" and female_seed_profile:
@@ -1236,13 +1469,43 @@ class PipelineRunner:
                             profile_description=meta.get("profile_description"),
                             error=str(exc),
                         )
+                        log_variant_event(
+                            stage_name=stage_name,
+                            event_type="variant_submit_failed",
+                            status="error",
+                            message="Variant prediction submission failed",
+                            payload={
+                                "profile": profile,
+                                "branch_role": branch_role,
+                                "source_profile": meta.get("source_profile") or {},
+                                "error": str(exc),
+                            },
+                        )
                         made_progress = True
                         continue
 
                     meta["profile_description"] = submitted["profile_description"]
+                    meta["request_summary"] = submitted.get("request_summary") or {}
                     created = submitted["created"]
                     prediction_id = str(created.get("id") or "").strip()
                     status = str(created.get("status", "")).strip().lower()
+                    if prediction_id:
+                        latest_prediction_statuses[prediction_id] = status or "submitted"
+                    log_variant_event(
+                        stage_name=stage_name,
+                        event_type="variant_submit_finished",
+                        status="ok" if prediction_id else "error",
+                        message="Variant prediction submission returned",
+                        payload={
+                            "profile": profile,
+                            "branch_role": branch_role,
+                            "source_profile": meta.get("source_profile") or {},
+                            "prediction_id": prediction_id,
+                            "provider_status": status or "submitted",
+                            "request": meta.get("request_summary") or {},
+                            "provider_response": created,
+                        },
+                    )
                     if status == "succeeded":
                         mark_submitted(
                             stage_name,
@@ -1294,6 +1557,21 @@ class PipelineRunner:
                 for prediction_id, meta in list(active_predictions.items()):
                     prediction_result = self.replicate.get_prediction(prediction_id)
                     status = str(prediction_result.get("status", "")).strip().lower()
+                    if latest_prediction_statuses.get(prediction_id) != status:
+                        latest_prediction_statuses[prediction_id] = status
+                        log_variant_event(
+                            stage_name=meta["stage_name"],
+                            event_type="variant_prediction_polled",
+                            status="running" if status not in {"succeeded", "failed", "canceled", "timeout"} else status,
+                            message="Variant prediction status changed",
+                            payload={
+                                "profile": meta["profile"],
+                                "branch_role": meta["branch_role"],
+                                "source_profile": meta.get("source_profile") or {},
+                                "prediction_id": prediction_id,
+                                "provider_status": status,
+                            },
+                        )
                     if status not in {"succeeded", "failed", "canceled"}:
                         continue
                     finished_prediction_ids.append(prediction_id)
@@ -1313,6 +1591,19 @@ class PipelineRunner:
                             profile_description=meta.get("profile_description"),
                             error=f"variant prediction finished with status={status}",
                         )
+                        log_variant_event(
+                            stage_name=meta["stage_name"],
+                            event_type="variant_prediction_finished",
+                            status=status,
+                            message="Variant prediction finished without a usable image",
+                            payload={
+                                "profile": meta["profile"],
+                                "branch_role": meta["branch_role"],
+                                "source_profile": meta.get("source_profile") or {},
+                                "prediction_id": prediction_id,
+                                "provider_response": prediction_result,
+                            },
+                        )
                     made_progress = True
 
                 for prediction_id in finished_prediction_ids:
@@ -1331,6 +1622,19 @@ class PipelineRunner:
                             source_profile=meta.get("source_profile"),
                             profile_description=meta.get("profile_description"),
                             error=str(exc),
+                        )
+                        log_variant_event(
+                            stage_name=meta["stage_name"],
+                            event_type="variant_materialization_failed",
+                            status="error",
+                            message="Variant materialization failed",
+                            payload={
+                                "profile": meta["profile"],
+                                "branch_role": meta["branch_role"],
+                                "source_profile": meta.get("source_profile") or {},
+                                "prediction_id": str((meta.get("prediction_result") or {}).get("id", "")) if isinstance(meta.get("prediction_result"), dict) else "",
+                                "error": str(exc),
+                            },
                         )
                         made_progress = True
                         continue
@@ -1352,8 +1656,28 @@ class PipelineRunner:
         final_stage_status = "error" if stage_failures("stage4_variant_generate") else "ok"
         white_stage_status = "error" if stage_failures("stage5_variant_white_bg") else "ok"
         sync_variant_progress("stage4_variant_generate", final_stage_status, active_count=0)
+        log_variant_event(
+            stage_name="stage4_variant_generate",
+            event_type="stage_completed",
+            status=final_stage_status,
+            message="Stage 5 variant final generation finished",
+            payload={
+                "completed_count": len(stage_variants("stage4_variant_generate")),
+                "failed_count": len(stage_failures("stage4_variant_generate")),
+            },
+        )
         self.repo.update_run(run, current_stage="stage5_variant_white_bg")
         sync_variant_progress("stage5_variant_white_bg", white_stage_status, active_count=0)
+        log_variant_event(
+            stage_name="stage5_variant_white_bg",
+            event_type="stage_completed",
+            status=white_stage_status,
+            message="Stage 6 variant white-background generation finished",
+            payload={
+                "completed_count": len(stage_variants("stage5_variant_white_bg")),
+                "failed_count": len(stage_failures("stage5_variant_white_bg")),
+            },
+        )
         if stage_failures("stage4_variant_generate") or stage_failures("stage5_variant_white_bg"):
             if stage_failures("stage4_variant_generate"):
                 self.repo.update_run(run, current_stage="stage4_variant_generate")
@@ -1370,6 +1694,12 @@ class PipelineRunner:
         white_background: bool,
     ) -> dict[str, Any]:
         profile_description = profile_prompt_fragment(profile)
+        request_summary = self.replicate.profile_variant_request_summary(
+            image_path,
+            word=word,
+            profile_description=profile_description,
+            white_background=white_background,
+        )
         created = self.replicate.submit_nano_banana_profile_variant(
             image_path,
             word=word,
@@ -1378,6 +1708,7 @@ class PipelineRunner:
         )
         return {
             "profile_description": profile_description,
+            "request_summary": request_summary,
             "created": created,
         }
 
@@ -1410,6 +1741,20 @@ class PipelineRunner:
         upgraded_asset = self._asset_for_attempt(run.id, "stage3_upgraded", winner_attempt)
         if upgraded_asset is None:
             raise RuntimeError(f"Missing stage3 upgraded image for winner attempt {winner_attempt}")
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage4_background",
+            attempt=winner_attempt,
+            event_type="stage_started",
+            status="running",
+            message="Stage 4 white background generation started",
+            payload={
+                "source_image_path": upgraded_asset.abs_path,
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+                "model": "google/nano-banana-2",
+            },
+        )
 
         start = perf_counter()
         result = self.replicate.nano_banana_white_bg(Path(upgraded_asset.abs_path), entry.word)
@@ -1445,6 +1790,22 @@ class PipelineRunner:
             },
             response_json=result,
         )
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage4_background",
+            attempt=winner_attempt,
+            event_type="stage_completed",
+            status="ok",
+            message="Stage 4 white background generation completed",
+            payload={
+                "source_image_path": upgraded_asset.abs_path,
+                "saved_image_path": self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt).abs_path if self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt) else "",
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+                "provider_model": "google/nano-banana-2",
+                "response_json": result,
+            },
+        )
 
         logger.info(
             "stage completed",
@@ -1461,6 +1822,15 @@ class PipelineRunner:
         final_asset = self._asset_for_attempt(run.id, "stage3_upgraded", attempt)
         if final_asset is None:
             raise RuntimeError(f"Missing stage3 upgraded image for attempt {attempt}")
+        self._record_event(
+            run_id=run.id,
+            stage_name="quality_gate",
+            attempt=attempt,
+            event_type="stage_started",
+            status="running",
+            message="Quality gate started",
+            payload={"asset_path": final_asset.abs_path},
+        )
 
         start = perf_counter()
         config = self.repo.get_runtime_config()
@@ -1507,6 +1877,19 @@ class PipelineRunner:
                 "resolved_need_person": str(decision.get("resolved_need_person", "")),
             },
             response_json={"rubric": rubric, "raw": raw},
+        )
+        self._record_event(
+            run_id=run.id,
+            stage_name="quality_gate",
+            attempt=attempt,
+            event_type="stage_completed",
+            status="ok",
+            message="Quality gate completed",
+            payload={
+                "score": score,
+                "passed": passed,
+                "threshold": run.quality_threshold,
+            },
         )
 
         run_dir_file = Path(final_asset.abs_path).parent / f"metadata_attempt_{attempt}.json"
