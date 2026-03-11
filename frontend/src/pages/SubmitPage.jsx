@@ -276,7 +276,7 @@ export default function SubmitPage() {
                   checked={form.person_skin_color_options.includes('brown')}
                   onChange={() => toggleOption('person_skin_color_options', 'brown')}
                 />
-                <span>Brown</span>
+                <span>Brown (Indian origin)</span>
               </label>
             </fieldset>
             <p className="config-help-text">

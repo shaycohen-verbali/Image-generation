@@ -195,9 +195,110 @@ function firstNonEmptyObject(...values) {
 
 function profileLabel(item) {
   const profile = safeObject(item?.profile)
-  const parts = [profile.gender, profile.age, profile.skin_color].filter(Boolean)
+  const parts = [humanGender(profile.gender), humanAge(profile.age), humanSkinColor(profile.skin_color)].filter(Boolean)
   const branchRole = item?.branch_role ? ` (${item.branch_role})` : ''
   return `${parts.join(' / ') || item?.profile_description || 'profile'}${branchRole}`
+}
+
+function humanGender(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'female') return 'Female'
+  if (normalized === 'male') return 'Male'
+  return value || ''
+}
+
+function humanAge(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'toddler') return 'Toddler (2-4)'
+  if (normalized === 'kid') return 'Kid (5-9)'
+  if (normalized === 'tween') return 'Tween (10-14)'
+  if (normalized === 'teenager') return 'Teenager (15-18)'
+  return value || ''
+}
+
+function humanSkinColor(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'white') return 'White'
+  if (normalized === 'black') return 'Black'
+  if (normalized === 'asian') return 'Asian'
+  if (normalized === 'brown') return 'Brown (Indian origin)'
+  return value || ''
+}
+
+function variantGroupLabel(profile) {
+  const safeProfile = safeObject(profile)
+  return [humanGender(safeProfile.gender), humanAge(safeProfile.age), humanSkinColor(safeProfile.skin_color)]
+    .filter(Boolean)
+    .join(' | ')
+}
+
+function variantProfileIndex(stages) {
+  const index = new Map()
+  safeArray(stages).forEach((stage) => {
+    const response = safeObject(stage?.response_json)
+    safeArray(response.variants).forEach((item) => {
+      const asset = safeObject(item?.asset)
+      if (!asset.id) return
+      index.set(asset.id, {
+        profile: safeObject(item?.profile),
+        profile_description: item?.profile_description || '',
+        branch_role: item?.branch_role || '',
+        source_profile: safeObject(item?.source_profile),
+      })
+    })
+  })
+  return index
+}
+
+function groupAssetsForQualityReview(assets, profileIndex) {
+  const baseAssets = []
+  const groupedVariantAssets = new Map()
+
+  safeArray(assets).forEach((asset) => {
+    if (!['stage4_variant_generate', 'stage5_variant_white_bg'].includes(asset.stage_name)) {
+      baseAssets.push(asset)
+      return
+    }
+    const profileMeta = profileIndex.get(asset.id)
+    if (!profileMeta) {
+      baseAssets.push(asset)
+      return
+    }
+    const groupKey = [
+      String(profileMeta.profile.gender || ''),
+      String(profileMeta.profile.age || ''),
+      String(profileMeta.profile.skin_color || ''),
+    ].join('|')
+    const existing = groupedVariantAssets.get(groupKey) || {
+      key: groupKey,
+      label: variantGroupLabel(profileMeta.profile),
+      profile: profileMeta.profile,
+      assets: [],
+    }
+    existing.assets.push(asset)
+    groupedVariantAssets.set(groupKey, existing)
+  })
+
+  const genderOrder = { male: 1, female: 2 }
+  const ageOrder = { toddler: 1, kid: 2, tween: 3, teenager: 4 }
+  const skinOrder = { white: 1, black: 2, asian: 3, brown: 4 }
+
+  const variantGroups = [...groupedVariantAssets.values()].sort((left, right) => {
+    const leftProfile = safeObject(left.profile)
+    const rightProfile = safeObject(right.profile)
+    const leftGender = genderOrder[String(leftProfile.gender || '').toLowerCase()] || 99
+    const rightGender = genderOrder[String(rightProfile.gender || '').toLowerCase()] || 99
+    if (leftGender !== rightGender) return leftGender - rightGender
+    const leftAge = ageOrder[String(leftProfile.age || '').toLowerCase()] || 99
+    const rightAge = ageOrder[String(rightProfile.age || '').toLowerCase()] || 99
+    if (leftAge !== rightAge) return leftAge - rightAge
+    const leftSkin = skinOrder[String(leftProfile.skin_color || '').toLowerCase()] || 99
+    const rightSkin = skinOrder[String(rightProfile.skin_color || '').toLowerCase()] || 99
+    if (leftSkin !== rightSkin) return leftSkin - rightSkin
+    return left.label.localeCompare(right.label)
+  })
+
+  return { baseAssets, variantGroups }
 }
 
 function variantPanelData(node) {
@@ -720,6 +821,7 @@ export default function RunExecutionDiagram({
       return Number(asset.attempt || 0) === selectedAttempt
     })
   })()
+  const qualityReviewGroups = groupAssetsForQualityReview(filteredRunAssets, variantProfileIndex(stages))
   const visibleVariantPanels = (() => {
     if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
       return whiteVariantPanel?.hasActivity ? [whiteVariantPanel] : []
@@ -861,6 +963,7 @@ export default function RunExecutionDiagram({
               {imageFilter === IMAGE_FILTER.DRAFT ? <p>Showing only Stage 2 draft images.</p> : null}
               {imageFilter === IMAGE_FILTER.ATTEMPT ? <p>Showing Attempt {selectedAttempt}, the original draft, and any extra character-profile finals for that winning attempt.</p> : null}
               {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND ? <p>Showing the white-background winner plus any extra character-profile white-background variants.</p> : null}
+              {imageFilter !== IMAGE_FILTER.DRAFT ? <p>Variant images below are grouped by Gender, Age, and Skin Color for quality review.</p> : null}
               {winnerStage4Asset ? <p>Winner attempt: <strong>{winnerStage4Asset.attempt}</strong></p> : null}
             </div>
           </section>
@@ -901,28 +1004,64 @@ export default function RunExecutionDiagram({
                 </p>
               </div>
             ) : (
-              <div className="asset-grid">
-                {filteredRunAssets.map((asset) => (
-                  <div key={asset.id} className="asset-card run-asset-card">
-                    <h4>{stageImageLabel(asset.stage_name)}</h4>
-                    {asset.id ? (
-                      <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} ${attemptLabel(asset)}`} />
-                    ) : (
-                      <p className="asset-meta-empty">Image URL unavailable.</p>
-                    )}
-                    <div className="asset-meta">
-                      <p><strong>{attemptLabel(asset)}</strong></p>
-                      <p>{asset.file_name || '-'}</p>
-                      <p>{asset.model_name || '-'}</p>
-                      {asset.id ? (
-                        <a href={buildAssetContentUrl(asset)} target="_blank" rel="noreferrer">
-                          Open Full Image
-                        </a>
-                      ) : null}
-                    </div>
+              <>
+                {qualityReviewGroups.baseAssets.length > 0 ? (
+                  <div className="asset-grid">
+                    {qualityReviewGroups.baseAssets.map((asset) => (
+                      <div key={asset.id} className="asset-card run-asset-card">
+                        <h4>{stageImageLabel(asset.stage_name)}</h4>
+                        {asset.id ? (
+                          <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} ${attemptLabel(asset)}`} />
+                        ) : (
+                          <p className="asset-meta-empty">Image URL unavailable.</p>
+                        )}
+                        <div className="asset-meta">
+                          <p><strong>{attemptLabel(asset)}</strong></p>
+                          <p>{asset.file_name || '-'}</p>
+                          <p>{asset.model_name || '-'}</p>
+                          {asset.id ? (
+                            <a href={buildAssetContentUrl(asset)} target="_blank" rel="noreferrer">
+                              Open Full Image
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                ) : null}
+
+                {qualityReviewGroups.variantGroups.map((group) => (
+                  <section key={group.key} className="variant-review-group">
+                    <div className="variant-review-group-head">
+                      <h4>{group.label || 'Variant group'}</h4>
+                      <p>{group.assets.length} image{group.assets.length === 1 ? '' : 's'}</p>
+                    </div>
+                    <div className="asset-grid">
+                      {group.assets.map((asset) => (
+                        <div key={asset.id} className="asset-card run-asset-card">
+                          <h4>{stageImageLabel(asset.stage_name)}</h4>
+                          {asset.id ? (
+                            <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${group.label} ${attemptLabel(asset)}`} />
+                          ) : (
+                            <p className="asset-meta-empty">Image URL unavailable.</p>
+                          )}
+                          <div className="asset-meta">
+                            <p><strong>{attemptLabel(asset)}</strong></p>
+                            <p>{group.label || '-'}</p>
+                            <p>{asset.file_name || '-'}</p>
+                            <p>{asset.model_name || '-'}</p>
+                            {asset.id ? (
+                              <a href={buildAssetContentUrl(asset)} target="_blank" rel="noreferrer">
+                                Open Full Image
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 ))}
-              </div>
+              </>
             )}
           </section>
         </div>

@@ -23,7 +23,7 @@ SKIN_COLOR_LABELS = {
     "white": "White",
     "black": "Black",
     "asian": "Asian",
-    "brown": "Brown",
+    "brown": "Brown (Indian origin)",
 }
 
 GENDER_LABELS = {
@@ -155,7 +155,7 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
     gender_guidance = {
         "female": (
             "make the person visibly female in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
-            "presentation clearly readable as female"
+            "presentation clearly readable as female; the result must not read as male or gender-ambiguous at a glance"
         ),
         "male": (
             "make the person visibly male in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
@@ -163,7 +163,12 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
         ),
     }.get(gender, "make the gender visually clear")
 
-    skin_guidance = f"use clearly visible {skin} skin tone cues that remain natural and readable"
+    if str(profile.get("skin_color", "") or "").strip().lower() == "brown":
+        skin_guidance = (
+            "use clearly visible Indian-origin South Asian brown skin tone cues that remain natural, readable, and distinct from the Black and White variants"
+        )
+    else:
+        skin_guidance = f"use clearly visible {skin} skin tone cues that remain natural and readable"
 
     return (
         f"{subject} with {skin} skin; {age_guidance}; {gender_guidance}; {skin_guidance}; "

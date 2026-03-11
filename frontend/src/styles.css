@@ -1262,3 +1262,23 @@ pre {
     max-height: 360px;
   }
 }
+.variant-review-group {
+  display: grid;
+  gap: 12px;
+}
+
+.variant-review-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 252, 245, 0.9);
+}
+
+.variant-review-group-head h4,
+.variant-review-group-head p {
+  margin: 0;
+}

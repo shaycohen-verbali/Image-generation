@@ -241,9 +241,11 @@ class GoogleImageClient:
             f"Change only the main person so the image clearly shows a {profile_description}. "
             "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
             f"{background_instruction} Keep exactly one clear central person. "
+            "Keep the same single avatar identity across matching final and white-background outputs; do not invent a different child. "
             "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "
             "Keep the full body and the full soccer ball completely inside the frame with visible margin on all sides; do not crop the right edge, left edge, top, or bottom. "
             "Do not create duplicate people, extra limbs, or multiple similar girls/boys. "
+            "If the requested person is female, the output must clearly read as female at a glance; if the requested person is male, the output must clearly read as male at a glance. "
             f'The image must still clearly represent the concept "{word}" for AAC users. '
             "Do not add text, watermark, or extra people."
         )
