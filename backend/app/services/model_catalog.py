@@ -29,6 +29,12 @@ SUPPORTED_STAGE3_GENERATION_MODELS = {
     "nano-banana-pro",
 }
 
+GOOGLE_IMAGE_MODEL_BY_SELECTION = {
+    "nano-banana": "gemini-2.5-flash-image",
+    "nano-banana-2": "gemini-3.1-flash-image-preview",
+    "nano-banana-pro": "gemini-3-pro-image-preview",
+}
+
 
 def normalize_vision_model(model: str) -> str:
     normalized = str(model or "").strip().lower()
@@ -43,6 +49,15 @@ def normalize_stage3_generation_model(model: str) -> str:
     if normalized not in SUPPORTED_STAGE3_GENERATION_MODELS:
         return "nano-banana-2"
     return normalized
+
+
+def is_google_image_generation_model(model: str) -> bool:
+    return normalize_stage3_generation_model(model) in GOOGLE_IMAGE_MODEL_BY_SELECTION
+
+
+def google_image_model_name(model: str) -> str:
+    normalized = normalize_stage3_generation_model(model)
+    return GOOGLE_IMAGE_MODEL_BY_SELECTION.get(normalized, GOOGLE_IMAGE_MODEL_BY_SELECTION["nano-banana-2"])
 
 
 def is_gemini_model(model: str) -> bool:

@@ -39,7 +39,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage3_generate',
     label: 'Stage 3.3 Image Generate',
-    provider: 'Replicate: selected generation model',
+    provider: 'Selected generation model',
     inputs: ['upgraded prompt'],
     expected: ['upgraded image'],
     retryPolicy: 'API retry + stage retry',
@@ -55,7 +55,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage4_background',
     label: 'Stage 4 White Background',
-    provider: 'Replicate: nano-banana-2',
+    provider: 'Google API: nano-banana-2',
     inputs: ['passing stage3 image'],
     expected: ['white background image'],
     retryPolicy: 'API retry + stage retry',
@@ -63,7 +63,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage4_variant_generate',
     label: 'Stage 5 Variant Finals',
-    provider: 'Replicate: nano-banana-2',
+    provider: 'Google API: nano-banana-2',
     inputs: ['winner final image', 'male branch variations', 'optional female seed branch'],
     expected: ['male variants', 'female seed image', 'female-derived final variants'],
     retryPolicy: 'API retry + resumable stage retry',
@@ -71,7 +71,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage5_variant_white_bg',
     label: 'Stage 6 Variant White BG',
-    provider: 'Replicate: nano-banana-2',
+    provider: 'Google API: nano-banana-2',
     inputs: ['winner white-background image', 'male branch variations', 'optional female seed branch'],
     expected: ['male white-bg variants', 'female white-bg seed', 'female-derived white-bg variants'],
     retryPolicy: 'API retry + resumable stage retry',

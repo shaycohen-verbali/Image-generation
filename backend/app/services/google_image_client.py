@@ -1,0 +1,299 @@
+from __future__ import annotations
+
+import base64
+import mimetypes
+import threading
+import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
+
+import requests
+
+from app.core.config import get_settings
+from app.services.model_catalog import google_image_model_name, normalize_stage3_generation_model
+from app.services.retry import with_backoff
+
+GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+
+class GoogleImageAPIError(RuntimeError):
+    def __init__(self, message: str, *, request_json: dict[str, Any], response_json: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.request_json = request_json
+        self.response_json = response_json
+
+
+class GoogleImageClient:
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self._prediction_executor = ThreadPoolExecutor(max_workers=max(4, int(self.settings.max_parallel_runs or 1)))
+        self._prediction_futures: dict[str, Future[dict[str, Any]]] = {}
+        self._prediction_models: dict[str, str] = {}
+        self._inline_assets: dict[str, bytes] = {}
+        self._lock = threading.Lock()
+
+    def _request(self, model_name: str, request_json: dict[str, Any], *, timeout: int = 300) -> dict[str, Any]:
+        if not self.settings.google_api_key:
+            raise GoogleImageAPIError(
+                "GOOGLE_API_KEY is required when using Google image models",
+                request_json={
+                    "model": model_name,
+                    "url": f"{GOOGLE_BASE_URL}/models/{model_name}:generateContent",
+                    "json_body": request_json,
+                    "timeout": timeout,
+                },
+                response_json={},
+            )
+
+        url = f"{GOOGLE_BASE_URL}/models/{model_name}:generateContent"
+
+        def _call() -> dict[str, Any]:
+            response = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                params={"key": self.settings.google_api_key},
+                json=request_json,
+                timeout=timeout,
+            )
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                raise GoogleImageAPIError(
+                    f"Google image API HTTP {response.status_code}: {response.text[:1000]}",
+                    request_json={
+                        "method": "POST",
+                        "url": url,
+                        "json_body": request_json,
+                        "timeout": timeout,
+                        "model": model_name,
+                    },
+                    response_json={
+                        "status_code": response.status_code,
+                        "text": response.text[:4000],
+                    },
+                ) from exc
+            return response.json()
+
+        return with_backoff(
+            _call,
+            retries=self.settings.max_api_retries,
+            retryable=(requests.RequestException,),
+        )
+
+    @staticmethod
+    def _text_part(text: str) -> dict[str, Any]:
+        return {"text": str(text)}
+
+    @staticmethod
+    def _inline_part(image_path: Path) -> dict[str, Any]:
+        mime_type, _ = mimetypes.guess_type(image_path.as_posix())
+        mime_type = mime_type or "image/jpeg"
+        data = base64.b64encode(image_path.read_bytes()).decode("utf-8")
+        return {"inlineData": {"mimeType": mime_type, "data": data}}
+
+    @staticmethod
+    def _response_text(response_json: dict[str, Any]) -> str:
+        texts: list[str] = []
+        for candidate in response_json.get("candidates", []):
+            content = candidate.get("content")
+            if not isinstance(content, dict):
+                continue
+            for part in content.get("parts", []):
+                if isinstance(part, dict) and part.get("text"):
+                    texts.append(str(part["text"]))
+        return "\n".join(texts).strip()
+
+    @staticmethod
+    def _response_inline_image(response_json: dict[str, Any]) -> tuple[bytes, str] | None:
+        for candidate in response_json.get("candidates", []):
+            content = candidate.get("content")
+            if not isinstance(content, dict):
+                continue
+            for part in content.get("parts", []):
+                if not isinstance(part, dict):
+                    continue
+                inline_data = part.get("inlineData")
+                if not isinstance(inline_data, dict):
+                    inline_data = part.get("inline_data")
+                if not isinstance(inline_data, dict):
+                    continue
+                data = str(inline_data.get("data") or "").strip()
+                if not data:
+                    continue
+                mime_type = str(inline_data.get("mimeType") or inline_data.get("mime_type") or "image/png")
+                return base64.b64decode(data), mime_type
+        return None
+
+    @staticmethod
+    def _generation_config(*, aspect_ratio: str | None) -> dict[str, Any]:
+        config: dict[str, Any] = {"responseModalities": ["TEXT", "IMAGE"]}
+        if aspect_ratio:
+            config["imageConfig"] = {"aspectRatio": aspect_ratio}
+        return config
+
+    def _build_request(self, *, prompt: str, image_paths: list[Path] | None = None, aspect_ratio: str | None = None) -> dict[str, Any]:
+        parts = [self._text_part(prompt)]
+        for image_path in image_paths or []:
+            parts.append(self._inline_part(image_path))
+        return {
+            "contents": [{"parts": parts}],
+            "generationConfig": self._generation_config(aspect_ratio=aspect_ratio),
+        }
+
+    def _run_generation(
+        self,
+        *,
+        model_name: str,
+        prompt: str,
+        image_paths: list[Path] | None = None,
+        aspect_ratio: str | None = None,
+        timeout: int = 300,
+    ) -> dict[str, Any]:
+        request_json = self._build_request(prompt=prompt, image_paths=image_paths, aspect_ratio=aspect_ratio)
+        response_json = self._request(model_name, request_json, timeout=timeout)
+        image_payload = self._response_inline_image(response_json)
+        text_output = self._response_text(response_json)
+        prediction_id = str(response_json.get("responseId") or response_json.get("response_id") or uuid.uuid4().hex)
+        if image_payload is None:
+            return {
+                "status": "failed",
+                "id": prediction_id,
+                "model": model_name,
+                "provider": "google",
+                "error": "no_inline_image_in_response",
+                "text_output": text_output,
+                "request_json": request_json,
+                "response_json": response_json,
+            }
+
+        image_bytes, mime_type = image_payload
+        inline_url = f"google-inline://{prediction_id}"
+        with self._lock:
+            self._inline_assets[inline_url] = image_bytes
+        return {
+            "status": "succeeded",
+            "id": prediction_id,
+            "model": model_name,
+            "provider": "google",
+            "mime_type": mime_type,
+            "output": [inline_url],
+            "text_output": text_output,
+            "request_json": request_json,
+            "response_json": response_json,
+        }
+
+    def generate_stage3(self, model_choice: str, prompt: str) -> tuple[dict[str, Any], str]:
+        selected = normalize_stage3_generation_model(model_choice)
+        model_name = google_image_model_name(selected)
+        return self._run_generation(model_name=model_name, prompt=prompt, aspect_ratio="4:3"), model_name
+
+    def nano_banana_white_bg(self, image_path: Path, word: str) -> dict[str, Any]:
+        prompt = (
+            "remove the background - keep only the important elements of the image and make the background white. "
+            f'The image\'s main message is to represent the concept "{word}". '
+            "Do not add text in the image."
+        )
+        return self._run_generation(
+            model_name=google_image_model_name("nano-banana-2"),
+            prompt=prompt,
+            image_paths=[image_path],
+        )
+
+    def profile_variant_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, Any]:
+        background_instruction = (
+            "Keep the background pure solid white and keep the subject cleanly isolated on white."
+            if white_background
+            else "Keep the same background scene, composition, lighting, and props."
+        )
+        prompt = (
+            "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+            f"Change only the main person so the image clearly shows a {profile_description}. "
+            "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
+            f"{background_instruction} Keep exactly one clear central person. "
+            f'The image must still clearly represent the concept "{word}" for AAC users. '
+            "Do not add text, watermark, or extra people."
+        )
+        return {
+            "model": "nano-banana-2",
+            "provider_model": google_image_model_name("nano-banana-2"),
+            "prompt": prompt,
+            "source_image_path": image_path.as_posix(),
+            "white_background": white_background,
+        }
+
+    def submit_nano_banana_profile_variant(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, Any]:
+        prediction_id = f"google_pred_{uuid.uuid4().hex}"
+        model_name = google_image_model_name("nano-banana-2")
+        future = self._prediction_executor.submit(
+            self._run_generation,
+            model_name=model_name,
+            prompt=str(
+                self.profile_variant_request_summary(
+                    image_path,
+                    word=word,
+                    profile_description=profile_description,
+                    white_background=white_background,
+                )["prompt"]
+            ),
+            image_paths=[image_path],
+        )
+        with self._lock:
+            self._prediction_futures[prediction_id] = future
+            self._prediction_models[prediction_id] = model_name
+        return {"id": prediction_id, "status": "processing", "model": model_name, "provider": "google"}
+
+    def get_prediction(self, prediction_id: str) -> dict[str, Any]:
+        with self._lock:
+            future = self._prediction_futures.get(prediction_id)
+            model_name = self._prediction_models.get(prediction_id, google_image_model_name("nano-banana-2"))
+        if future is None:
+            return {"id": prediction_id, "status": "failed", "error": "unknown_prediction_id", "model": model_name, "provider": "google"}
+        if not future.done():
+            return {"id": prediction_id, "status": "processing", "model": model_name, "provider": "google"}
+        try:
+            result = future.result()
+        except GoogleImageAPIError as exc:
+            return {
+                "id": prediction_id,
+                "status": "failed",
+                "model": model_name,
+                "provider": "google",
+                "error": str(exc),
+                "request_json": exc.request_json,
+                "response_json": exc.response_json,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "id": prediction_id,
+                "status": "failed",
+                "model": model_name,
+                "provider": "google",
+                "error": str(exc),
+            }
+        return {**result, "id": prediction_id}
+
+    def download_image(self, url: str) -> bytes:
+        with self._lock:
+            image_bytes = self._inline_assets.get(url)
+        if image_bytes is None:
+            raise GoogleImageAPIError(
+                f"Missing inline Google image asset for {url}",
+                request_json={"url": url},
+                response_json={},
+            )
+        return image_bytes

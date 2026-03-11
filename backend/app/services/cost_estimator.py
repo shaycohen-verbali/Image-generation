@@ -29,6 +29,9 @@ REPLICATE_IMAGE_RATES_USD: dict[str, float] = {
     "google/nano-banana": 0.039,
     "google/nano-banana-2": 0.039,
     "google/nano-banana-pro": 0.134,
+    "gemini-2.5-flash-image": 0.039,
+    "gemini-3.1-flash-image-preview": 0.039,
+    "gemini-3-pro-image-preview": 0.134,
 }
 
 
@@ -114,6 +117,7 @@ def _cost_entry(
     model: str,
     estimated_cost_usd: float,
     estimate_basis: str,
+    unit_count: int = 1,
 ) -> dict[str, Any]:
     return {
         "stage_name": stage_name,
@@ -123,7 +127,7 @@ def _cost_entry(
         "model": model,
         "estimated_cost_usd": round(float(estimated_cost_usd), 6),
         "estimate_basis": estimate_basis,
-        "unit_count": 1,
+        "unit_count": int(unit_count or 1),
     }
 
 
@@ -187,6 +191,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
 
         generation_model = _first_text(response_json.get("generation_model"), generation.get("model"), response_json.get("generation_model_selected"))
         generation_cost = REPLICATE_IMAGE_RATES_USD.get(generation_model, 0.0)
+        generation_provider = "google" if generation_model.startswith("gemini-") else "replicate"
         return [
             _cost_entry(
                 stage_name="stage3_critique",
@@ -210,7 +215,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
                 stage_name="stage3_generate",
                 stage_label="Stage 3.3 Image Generation",
                 attempt=attempt,
-                provider="replicate",
+                provider=generation_provider,
                 model=generation_model,
                 estimated_cost_usd=generation_cost,
                 estimate_basis="provider image-price estimate",
@@ -242,7 +247,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
 
     if stage_name in {"stage2_draft", "stage4_background"}:
         model = _first_text(response_json.get("model"))
-        provider = "replicate"
+        provider = "google" if model.startswith("gemini-") else "replicate"
         estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0)
         label = "Stage 2 Draft Generation" if stage_name == "stage2_draft" else "Stage 4 White Background"
         return [
@@ -258,8 +263,8 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
         ]
 
     if stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}:
-        model = _first_text(response_json.get("model"), "google/nano-banana-2")
-        provider = "replicate"
+        model = _first_text(response_json.get("model"), "gemini-3.1-flash-image-preview")
+        provider = "google" if model.startswith("gemini-") else "replicate"
         variants = response_json.get("variants")
         variant_count = len(variants) if isinstance(variants, list) else 0
         if variant_count <= 0:
@@ -282,7 +287,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
     if stage_name == "stage3_generate":
         generation = _json_dict(response_json.get("generation"))
         model = _first_text(response_json.get("generation_model"), generation.get("model"), response_json.get("generation_model_selected"))
-        provider = "replicate"
+        provider = "google" if model.startswith("gemini-") else "replicate"
         estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0)
         return [
             _cost_entry(
@@ -347,9 +352,9 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
             continue
         first_asset = stage_assets[0]
         if isinstance(first_asset, dict):
-            model_name = str(first_asset.get("model_name") or "google/nano-banana-2")
+            model_name = str(first_asset.get("model_name") or "gemini-3.1-flash-image-preview")
         else:
-            model_name = str(getattr(first_asset, "model_name", "") or "google/nano-banana-2")
+            model_name = str(getattr(first_asset, "model_name", "") or "gemini-3.1-flash-image-preview")
         unit_price = REPLICATE_IMAGE_RATES_USD.get(model_name, 0.0)
         estimated_cost_usd = unit_price * missing_count
         label = "Character Variant Final Images" if stage_name == "stage4_variant_generate" else "Character Variant White Background"
@@ -358,7 +363,7 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
                 "stage_name": stage_name,
                 "stage_label": label,
                 "attempt": attempt,
-                "provider": "replicate",
+                "provider": "google" if model_name.startswith("gemini-") else "replicate",
                 "model": model_name,
                 "estimated_cost_usd": round(float(estimated_cost_usd), 6),
                 "estimate_basis": "provider image-price estimate from saved variant assets",

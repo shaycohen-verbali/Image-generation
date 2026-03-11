@@ -11,6 +11,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Prompt, Run, StageResult
+from app.services.google_image_client import GoogleImageClient
+from app.services.model_catalog import is_google_image_generation_model
 from app.services.openai_client import AssistantRunFailedError, OpenAIClient
 from app.services.person_profiles import profile_key, profile_prompt_fragment, variant_branch_plan
 from app.services.prompt_templates import (
@@ -36,11 +38,13 @@ class PipelineRunner:
         *,
         openai_client: OpenAIClient | None = None,
         replicate_client: ReplicateClient | None = None,
+        google_image_client: GoogleImageClient | None = None,
     ) -> None:
         self.db = db
         self.repo = Repository(db)
         self.openai = openai_client or OpenAIClient()
         self.replicate = replicate_client or ReplicateClient()
+        self.google_images = google_image_client or GoogleImageClient()
 
     def _record_stage(
         self,
@@ -91,6 +95,37 @@ class PipelineRunner:
         error.request_json = request_json  # type: ignore[attr-defined]
         error.response_json = response_json  # type: ignore[attr-defined]
         raise error
+
+    @staticmethod
+    def _merge_error_context(
+        exc: Exception,
+        *,
+        request_json: dict[str, Any] | None = None,
+        response_json: dict[str, Any] | None = None,
+    ) -> None:
+        existing_request = getattr(exc, "request_json", {})
+        existing_response = getattr(exc, "response_json", {})
+        merged_request: dict[str, Any] = {}
+        merged_response: dict[str, Any] = {}
+        if isinstance(request_json, dict):
+            merged_request.update(request_json)
+        if isinstance(existing_request, dict):
+            merged_request.update(existing_request)
+        if isinstance(response_json, dict):
+            merged_response.update(response_json)
+        if isinstance(existing_response, dict):
+            merged_response.update(existing_response)
+        exc.request_json = merged_request  # type: ignore[attr-defined]
+        exc.response_json = merged_response  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _json_dict(value: Any) -> dict[str, Any]:
+        return value if isinstance(value, dict) else {}
+
+    def _download_generated_image(self, url: str) -> bytes:
+        if str(url or "").startswith("google-inline://"):
+            return self.google_images.download_image(url)
+        return self.replicate.download_image(url)
 
     def _latest_prompt(self, run_id: str, stage_name: str) -> Prompt | None:
         return self.db.execute(
@@ -260,7 +295,8 @@ class PipelineRunner:
                 "branch_plan": branch_plan,
             },
             response_json={
-                "model": "google/nano-banana-2",
+                "model": "gemini-3.1-flash-image-preview",
+                "model_selected": "nano-banana-2",
                 "source_asset": source_asset,
                 "progress": {
                     "completed_count": len(variants),
@@ -507,7 +543,7 @@ class PipelineRunner:
                     response_json=result if isinstance(result, dict) else {},
                 )
 
-            image_bytes = self.replicate.download_image(output_url)
+            image_bytes = self._download_generated_image(output_url)
             filename = f"stage2_draft_{self._entry_slug(entry)}.jpg"
             self._save_asset(
                 run_id=run.id,
@@ -795,7 +831,19 @@ class PipelineRunner:
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
         }
-        flux_result, model_name = self.replicate.generate_stage3(selected_stage3_model, enforced_upgraded_prompt)
+        generation_client = "google" if is_google_image_generation_model(selected_stage3_model) else "replicate"
+        stage3_request_json["generation_client"] = generation_client
+        try:
+            if generation_client == "google":
+                flux_result, model_name = self.google_images.generate_stage3(selected_stage3_model, enforced_upgraded_prompt)
+            else:
+                flux_result, model_name = self.replicate.generate_stage3(selected_stage3_model, enforced_upgraded_prompt)
+        except Exception as exc:  # noqa: BLE001
+            self._merge_error_context(
+                exc,
+                request_json={**stage3_request_json, "generation_client": generation_client},
+            )
+            raise
         if flux_result.get("status") != "succeeded":
             fallback_enabled = runtime_config.flux_imagen_fallback_enabled
             if selected_stage3_model != "flux-1.1-pro" or not fallback_enabled:
@@ -805,6 +853,7 @@ class PipelineRunner:
                     response_json={
                         "generation": flux_result if isinstance(flux_result, dict) else {},
                         "generation_model": model_name,
+                        "generation_client": generation_client,
                     },
                 )
             flux_result, model_name = self.replicate.generate_stage3("imagen-3", enforced_upgraded_prompt)
@@ -815,8 +864,10 @@ class PipelineRunner:
                     response_json={
                         "generation": flux_result if isinstance(flux_result, dict) else {},
                         "generation_model": model_name,
+                        "generation_client": "replicate",
                     },
                 )
+            generation_client = "replicate"
 
         output_url = self.replicate.extract_output_url(flux_result)
         if not output_url:
@@ -826,9 +877,21 @@ class PipelineRunner:
                 response_json={
                     "generation": flux_result if isinstance(flux_result, dict) else {},
                     "generation_model": model_name,
+                    "generation_client": generation_client,
                 },
             )
-        image_bytes = self.replicate.download_image(output_url)
+        try:
+            image_bytes = self._download_generated_image(output_url)
+        except Exception as exc:  # noqa: BLE001
+            self._merge_error_context(
+                exc,
+                request_json={**stage3_request_json, "generation_model": model_name, "output_url": output_url},
+                response_json={
+                    "generation": flux_result if isinstance(flux_result, dict) else {},
+                    "generation_client": generation_client,
+                },
+            )
+            raise
 
         filename = f"stage3_upgraded_{self._entry_slug(entry)}_attempt_{attempt}.jpg"
         self._save_asset(
@@ -856,6 +919,7 @@ class PipelineRunner:
                 "visual_style_prompt_block": runtime_config.visual_style_prompt_block,
                 "critique_model_selected": critique_model,
                 "generation_model_selected": selected_stage3_model,
+                "generation_client": generation_client,
                 "initial_need_person": current_need_person,
                 "current_render_style_mode": current_render_style_mode,
                 "resolved_need_person": enforced_decision["resolved_need_person"],
@@ -870,6 +934,7 @@ class PipelineRunner:
                 "generation": flux_result,
                 "generation_model": model_name,
                 "generation_model_selected": selected_stage3_model,
+                "generation_client": generation_client,
                 "decision": enforced_decision,
                 "original_prompt_text": upgraded_prompt,
                 "enforced_prompt_text": enforced_upgraded_prompt,
@@ -886,6 +951,7 @@ class PipelineRunner:
                 "resolved_need_person": enforced_decision["resolved_need_person"],
                 "render_style_mode": enforced_decision["render_style_mode"],
                 "generation_model": model_name,
+                "generation_client": generation_client,
                 "saved_file": filename,
                 "output_url": output_url,
             },
@@ -901,6 +967,7 @@ class PipelineRunner:
                     "prompt_engineer": {"parsed": parsed, "raw": raw, "mode": runtime_config.prompt_engineer_mode},
                     "generation": flux_result,
                     "generation_model": model_name,
+                    "generation_client": generation_client,
                     "decision": enforced_decision,
                 },
             },
@@ -912,7 +979,7 @@ class PipelineRunner:
                 "run_id": run.id,
                 "stage_name": "stage3_upgrade",
                 "status": "ok",
-                "provider": "openai+replicate",
+                "provider": f"openai+{generation_client}",
                 "latency_ms": round((perf_counter() - start) * 1000, 2),
             },
         )
@@ -1071,6 +1138,8 @@ class PipelineRunner:
             source_profile: dict[str, str] | None = None,
             profile_description: str | None = None,
             error: str,
+            request_json: dict[str, Any] | None = None,
+            response_json: dict[str, Any] | None = None,
         ) -> None:
             key = profile_key(profile)
             if any(profile_key(failure.get("profile", {})) == key for failure in stage_failures(stage_name)):
@@ -1079,6 +1148,8 @@ class PipelineRunner:
                 "profile": profile,
                 "branch_role": branch_role,
                 "error": error,
+                "request_json": request_json or {},
+                "response_json": response_json or {},
             })
             failed_profiles_by_stage[stage_name][key] = profile_state_item(
                 profile=profile,
@@ -1246,7 +1317,7 @@ class PipelineRunner:
                 return
             known_profile_keys[stage_name].add(key)
             profile_description = profile_prompt_fragment(profile)
-            request_summary = self.replicate.profile_variant_request_summary(
+            request_summary = self.google_images.profile_variant_request_summary(
                 source_path,
                 word=entry.word,
                 profile_description=profile_description,
@@ -1518,6 +1589,8 @@ class PipelineRunner:
                             source_profile=meta.get("source_profile"),
                             profile_description=meta.get("profile_description"),
                             error=str(exc),
+                            request_json=self._json_dict(getattr(exc, "request_json", {})),
+                            response_json=self._json_dict(getattr(exc, "response_json", {})),
                         )
                         log_variant_event(
                             stage_name=stage_name,
@@ -1529,6 +1602,8 @@ class PipelineRunner:
                                 "branch_role": branch_role,
                                 "source_profile": meta.get("source_profile") or {},
                                 "error": str(exc),
+                                "request_json": self._json_dict(getattr(exc, "request_json", {})),
+                                "response_json": self._json_dict(getattr(exc, "response_json", {})),
                             },
                         )
                         made_progress = True
@@ -1580,6 +1655,8 @@ class PipelineRunner:
                             source_profile=meta.get("source_profile"),
                             profile_description=meta.get("profile_description"),
                             error=f"variant prediction submission finished with status={status}",
+                            request_json=self._json_dict(created.get("request_json")),
+                            response_json=self._json_dict(created.get("response_json")),
                         )
                     elif not prediction_id:
                         append_failure(
@@ -1589,6 +1666,8 @@ class PipelineRunner:
                             source_profile=meta.get("source_profile"),
                             profile_description=meta.get("profile_description"),
                             error="variant prediction submission returned no prediction id",
+                            request_json=self._json_dict(created.get("request_json")),
+                            response_json=self._json_dict(created.get("response_json")),
                         )
                     else:
                         mark_submitted(
@@ -1605,7 +1684,7 @@ class PipelineRunner:
 
                 finished_prediction_ids: list[str] = []
                 for prediction_id, meta in list(active_predictions.items()):
-                    prediction_result = self.replicate.get_prediction(prediction_id)
+                    prediction_result = self.google_images.get_prediction(prediction_id)
                     status = str(prediction_result.get("status", "")).strip().lower()
                     if latest_prediction_statuses.get(prediction_id) != status:
                         latest_prediction_statuses[prediction_id] = status
@@ -1640,6 +1719,8 @@ class PipelineRunner:
                             source_profile=meta.get("source_profile"),
                             profile_description=meta.get("profile_description"),
                             error=f"variant prediction finished with status={status}",
+                            request_json=self._json_dict(prediction_result.get("request_json")),
+                            response_json=self._json_dict(prediction_result.get("response_json")),
                         )
                         log_variant_event(
                             stage_name=meta["stage_name"],
@@ -1652,6 +1733,8 @@ class PipelineRunner:
                                 "source_profile": meta.get("source_profile") or {},
                                 "prediction_id": prediction_id,
                                 "provider_response": prediction_result,
+                                "request_json": self._json_dict(prediction_result.get("request_json")),
+                                "response_json": self._json_dict(prediction_result.get("response_json")),
                             },
                         )
                     made_progress = True
@@ -1672,6 +1755,8 @@ class PipelineRunner:
                             source_profile=meta.get("source_profile"),
                             profile_description=meta.get("profile_description"),
                             error=str(exc),
+                            request_json=self._json_dict(getattr(exc, "request_json", {})),
+                            response_json=self._json_dict(getattr(exc, "response_json", {})),
                         )
                         log_variant_event(
                             stage_name=meta["stage_name"],
@@ -1684,6 +1769,8 @@ class PipelineRunner:
                                 "source_profile": meta.get("source_profile") or {},
                                 "prediction_id": str((meta.get("prediction_result") or {}).get("id", "")) if isinstance(meta.get("prediction_result"), dict) else "",
                                 "error": str(exc),
+                                "request_json": self._json_dict(getattr(exc, "request_json", {})),
+                                "response_json": self._json_dict(getattr(exc, "response_json", {})),
                             },
                         )
                         made_progress = True
@@ -1731,10 +1818,17 @@ class PipelineRunner:
         if stage_failures("stage4_variant_generate") or stage_failures("stage5_variant_white_bg"):
             if stage_failures("stage4_variant_generate"):
                 self.repo.update_run(run, current_stage="stage4_variant_generate")
-            raise RuntimeError("; ".join(
-                [failure["error"] for failure in stage_failures("stage4_variant_generate")]
-                + [failure["error"] for failure in stage_failures("stage5_variant_white_bg")]
-            ))
+            self._raise_with_context(
+                "; ".join(
+                    [failure["error"] for failure in stage_failures("stage4_variant_generate")]
+                    + [failure["error"] for failure in stage_failures("stage5_variant_white_bg")]
+                ),
+                request_json={
+                    "stage4_variant_generate_failures": stage_failures("stage4_variant_generate"),
+                    "stage5_variant_white_bg_failures": stage_failures("stage5_variant_white_bg"),
+                },
+                response_json={},
+            )
 
     def _submit_profile_variant_prediction(
         self,
@@ -1744,18 +1838,22 @@ class PipelineRunner:
         white_background: bool,
     ) -> dict[str, Any]:
         profile_description = profile_prompt_fragment(profile)
-        request_summary = self.replicate.profile_variant_request_summary(
+        request_summary = self.google_images.profile_variant_request_summary(
             image_path,
             word=word,
             profile_description=profile_description,
             white_background=white_background,
         )
-        created = self.replicate.submit_nano_banana_profile_variant(
-            image_path,
-            word=word,
-            profile_description=profile_description,
-            white_background=white_background,
-        )
+        try:
+            created = self.google_images.submit_nano_banana_profile_variant(
+                image_path,
+                word=word,
+                profile_description=profile_description,
+                white_background=white_background,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._merge_error_context(exc, request_json=request_summary)
+            raise
         return {
             "profile_description": profile_description,
             "request_summary": request_summary,
@@ -1773,18 +1871,26 @@ class PipelineRunner:
         profile_suffix = self._variant_suffix(profile)
         if prediction_result.get("status") != "succeeded":
             stage_label = "white background variant" if white_background else "variant generation"
-            raise RuntimeError(f"{stage_label} failed for {profile_suffix}: {prediction_result.get('status')}")
+            self._raise_with_context(
+                f"{stage_label} failed for {profile_suffix}: {prediction_result.get('status')}",
+                request_json=self._json_dict(prediction_result.get("request_json")),
+                response_json=self._json_dict(prediction_result.get("response_json")),
+            )
         output_url = self.replicate.extract_output_url(prediction_result)
         if not output_url:
             stage_label = "white background variant" if white_background else "variant generation"
-            raise RuntimeError(f"No output URL for {stage_label} {profile_suffix}")
-        image_bytes = self.replicate.download_image(output_url)
+            self._raise_with_context(
+                f"No output URL for {stage_label} {profile_suffix}",
+                request_json=self._json_dict(prediction_result.get("request_json")),
+                response_json=prediction_result,
+            )
+        image_bytes = self._download_generated_image(output_url)
         return {
             "profile_description": profile_description,
             "response": prediction_result,
             "origin_url": output_url,
             "image_bytes": image_bytes,
-            "model_name": str(prediction_result.get("model") or "google/nano-banana-2"),
+            "model_name": str(prediction_result.get("model") or "gemini-3.1-flash-image-preview"),
         }
 
     def _run_stage4_attempt(self, *, run: Run, entry: Entry, winner_attempt: int, winner_score: float) -> None:
@@ -1802,12 +1908,27 @@ class PipelineRunner:
                 "source_image_path": upgraded_asset.abs_path,
                 "winner_attempt": winner_attempt,
                 "winner_score": winner_score,
-                "model": "google/nano-banana-2",
+                "model": "nano-banana-2",
+                "provider_model": "gemini-3.1-flash-image-preview",
             },
         )
 
         start = perf_counter()
-        result = self.replicate.nano_banana_white_bg(Path(upgraded_asset.abs_path), entry.word)
+        try:
+            result = self.google_images.nano_banana_white_bg(Path(upgraded_asset.abs_path), entry.word)
+        except Exception as exc:  # noqa: BLE001
+            self._merge_error_context(
+                exc,
+                request_json={
+                    "input_asset": upgraded_asset.abs_path,
+                    "winner_attempt": winner_attempt,
+                    "winner_score": winner_score,
+                    "model": "nano-banana-2",
+                    "provider_model": "gemini-3.1-flash-image-preview",
+                    "word": entry.word,
+                },
+            )
+            raise
         if result.get("status") != "succeeded":
             self._raise_with_context(
                 f"Nano banana failed: {result.get('status')}",
@@ -1815,10 +1936,11 @@ class PipelineRunner:
                     "input_asset": upgraded_asset.abs_path,
                     "winner_attempt": winner_attempt,
                     "winner_score": winner_score,
-                    "model": "google/nano-banana-2",
+                    "model": "nano-banana-2",
+                    "provider_model": "gemini-3.1-flash-image-preview",
                     "word": entry.word,
                 },
-                response_json=result if isinstance(result, dict) else {},
+                response_json={"generation": result if isinstance(result, dict) else {}},
             )
 
         output_url = self.replicate.extract_output_url(result)
@@ -1829,13 +1951,14 @@ class PipelineRunner:
                     "input_asset": upgraded_asset.abs_path,
                     "winner_attempt": winner_attempt,
                     "winner_score": winner_score,
-                    "model": "google/nano-banana-2",
+                    "model": "nano-banana-2",
+                    "provider_model": "gemini-3.1-flash-image-preview",
                     "word": entry.word,
                 },
-                response_json=result if isinstance(result, dict) else {},
+                response_json={"generation": result if isinstance(result, dict) else {}},
             )
 
-        image_bytes = self.replicate.download_image(output_url)
+        image_bytes = self._download_generated_image(output_url)
         filename = f"stage4_white_bg_{self._entry_slug(entry)}_attempt_{winner_attempt}.jpg"
         self._save_asset(
             run_id=run.id,
@@ -1844,7 +1967,7 @@ class PipelineRunner:
             filename=filename,
             image_bytes=image_bytes,
             origin_url=output_url,
-            model_name="google/nano-banana-2",
+            model_name="gemini-3.1-flash-image-preview",
         )
 
         self._record_stage(
@@ -1858,7 +1981,7 @@ class PipelineRunner:
                 "winner_score": winner_score,
                 "background_model_selected": "nano-banana-2",
             },
-            response_json=result,
+            response_json={**result, "provider": "google"},
         )
         self._record_event(
             run_id=run.id,
@@ -1872,7 +1995,7 @@ class PipelineRunner:
                 "saved_image_path": self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt).abs_path if self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt) else "",
                 "winner_attempt": winner_attempt,
                 "winner_score": winner_score,
-                "provider_model": "google/nano-banana-2",
+                "provider_model": "gemini-3.1-flash-image-preview",
                 "response_json": result,
             },
         )
@@ -1883,7 +2006,7 @@ class PipelineRunner:
                 "run_id": run.id,
                 "stage_name": "stage4_background",
                 "status": "ok",
-                "provider": "replicate",
+                "provider": "google",
                 "latency_ms": round((perf_counter() - start) * 1000, 2),
             },
         )

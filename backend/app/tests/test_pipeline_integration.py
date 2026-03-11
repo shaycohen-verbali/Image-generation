@@ -217,6 +217,123 @@ class VariantCapableReplicate(MockReplicate):
         }
 
 
+class MockGoogleImageClient:
+    def __init__(self, *, stage4_failures: set[int] | None = None):
+        self.stage3_calls = 0
+        self.stage4_calls = 0
+        self.stage4_failures = stage4_failures or set()
+        self.variant_submissions: list[dict[str, str | bool]] = []
+        self._variant_predictions: dict[str, dict[str, object]] = {}
+        self._variant_idx = 0
+        self._inline_assets: dict[str, bytes] = {}
+
+    @staticmethod
+    def _image_bytes() -> bytes:
+        img = Image.new("RGB", (16, 12), color=(255, 255, 255))
+        buf = BytesIO()
+        img.save(buf, format="JPEG")
+        return buf.getvalue()
+
+    def _inline_url(self, prediction_id: str) -> str:
+        url = f"google-inline://{prediction_id}"
+        self._inline_assets[url] = self._image_bytes()
+        return url
+
+    def generate_stage3(self, model_choice: str, prompt: str):
+        self.stage3_calls += 1
+        prediction_id = f"google_stage3_{self.stage3_calls}"
+        return {
+            "status": "succeeded",
+            "id": prediction_id,
+            "model": "gemini-3.1-flash-image-preview",
+            "output": [self._inline_url(prediction_id)],
+            "request_json": {"prompt": prompt, "model_choice": model_choice},
+            "response_json": {"mock": True},
+        }, "gemini-3.1-flash-image-preview"
+
+    def nano_banana_white_bg(self, image_path: Path, word: str):
+        self.stage4_calls += 1
+        prediction_id = f"google_stage4_{self.stage4_calls}"
+        if self.stage4_calls in self.stage4_failures:
+            return {
+                "status": "failed",
+                "id": prediction_id,
+                "model": "gemini-3.1-flash-image-preview",
+                "request_json": {"image_path": image_path.as_posix(), "word": word},
+                "response_json": {"mock": True, "status": "failed"},
+            }
+        return {
+            "status": "succeeded",
+            "id": prediction_id,
+            "model": "gemini-3.1-flash-image-preview",
+            "output": [self._inline_url(prediction_id)],
+            "request_json": {"image_path": image_path.as_posix(), "word": word},
+            "response_json": {"mock": True},
+        }
+
+    def profile_variant_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, object]:
+        return {
+            "model": "nano-banana-2",
+            "provider_model": "gemini-3.1-flash-image-preview",
+            "prompt": f"variant prompt for {profile_description}",
+            "source_image_path": image_path.as_posix(),
+            "white_background": white_background,
+            "word": word,
+        }
+
+    def submit_nano_banana_profile_variant(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        profile_description: str,
+        white_background: bool = False,
+    ) -> dict[str, object]:
+        self._variant_idx += 1
+        prediction_id = f"google_variant_{self._variant_idx}"
+        self.variant_submissions.append(
+            {
+                "prediction_id": prediction_id,
+                "source_path": image_path.as_posix(),
+                "profile_description": profile_description,
+                "white_background": white_background,
+            }
+        )
+        self._variant_predictions[prediction_id] = {
+            "status": "processing",
+            "polls_remaining": 1,
+            "output": self._inline_url(prediction_id),
+            "request_json": {"source_path": image_path.as_posix(), "profile_description": profile_description},
+            "response_json": {"mock": True},
+        }
+        return {"id": prediction_id, "status": "processing", "model": "gemini-3.1-flash-image-preview"}
+
+    def get_prediction(self, prediction_id: str) -> dict[str, object]:
+        state = self._variant_predictions[prediction_id]
+        polls_remaining = int(state["polls_remaining"])
+        if polls_remaining > 0:
+            state["polls_remaining"] = polls_remaining - 1
+            return {"id": prediction_id, "status": "processing"}
+        return {
+            "id": prediction_id,
+            "status": "succeeded",
+            "output": state["output"],
+            "model": "gemini-3.1-flash-image-preview",
+            "request_json": state["request_json"],
+            "response_json": state["response_json"],
+        }
+
+    def download_image(self, url: str) -> bytes:
+        return self._inline_assets[url]
+
+
 class RecordingPipelineRunner(PipelineRunner):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -301,19 +418,25 @@ def _create_variant_run(db_session):
 def test_happy_path_all_stages(db_session):
     run = _create_run(db_session)
     mock_replicate = MockReplicate()
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate)
+    mock_google = MockGoogleImageClient()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate, google_image_client=mock_google)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_pass"
     assert result.quality_score == 95
-    assert mock_replicate.stage4_calls == 1
+    assert mock_google.stage4_calls == 1
 
 
 def test_stage2_retry_then_success(db_session):
     run = _create_run(db_session)
     mock_replicate = MockReplicate(stage2_failures_before_success=1)
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate)
+    runner = PipelineRunner(
+        db_session,
+        openai_client=MockOpenAI(scores=[95]),
+        replicate_client=mock_replicate,
+        google_image_client=MockGoogleImageClient(),
+    )
 
     result = runner.process_run(run.id)
 
@@ -322,9 +445,16 @@ def test_stage2_retry_then_success(db_session):
 
 
 def test_stage3_flux_fallback_to_imagen(db_session):
+    repo = Repository(db_session)
+    repo.update_runtime_config({"stage3_generate_model": "flux-1.1-pro"})
     run = _create_run(db_session)
     mock_replicate = MockReplicate(flux_fail_attempts={1})
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate)
+    runner = PipelineRunner(
+        db_session,
+        openai_client=MockOpenAI(scores=[95]),
+        replicate_client=mock_replicate,
+        google_image_client=MockGoogleImageClient(),
+    )
 
     result = runner.process_run(run.id)
 
@@ -340,8 +470,9 @@ def test_stage4_failure_exhausts_retries(db_session):
     db_session.commit()
 
     run = _create_run(db_session)
-    mock_replicate = MockReplicate(nano_fail_attempts={1, 2, 3, 4, 5})
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate)
+    mock_replicate = MockReplicate()
+    mock_google = MockGoogleImageClient(stage4_failures={1, 2, 3, 4, 5})
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[95]), replicate_client=mock_replicate, google_image_client=mock_google)
 
     result = runner.process_run(run.id)
 
@@ -352,59 +483,68 @@ def test_stage4_failure_exhausts_retries(db_session):
 def test_quality_loop_passes_on_second_attempt(db_session):
     run = _create_run(db_session, max_optimization_attempts=3)
     mock_replicate = MockReplicate()
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[80, 96]), replicate_client=mock_replicate)
+    mock_google = MockGoogleImageClient()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[80, 96]), replicate_client=mock_replicate, google_image_client=mock_google)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_pass"
     assert result.optimization_attempt == 2
     assert result.quality_score == 96
-    assert mock_replicate.stage4_calls == 1
+    assert mock_google.stage4_calls == 1
 
 
 def test_quality_loop_reaches_fail_threshold(db_session):
     run = _create_run(db_session, max_optimization_attempts=1)
     mock_replicate = MockReplicate()
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[70, 75]), replicate_client=mock_replicate)
+    mock_google = MockGoogleImageClient()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[70, 75]), replicate_client=mock_replicate, google_image_client=mock_google)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_fail_threshold"
     assert result.optimization_attempt == 2
     assert result.quality_score == 75
-    assert mock_replicate.stage4_calls == 1
+    assert mock_google.stage4_calls == 1
 
 
 def test_winner_attempt_is_highest_score_and_used_for_stage4(db_session):
     run = _create_run(db_session, max_optimization_attempts=3)
     mock_replicate = MockReplicate()
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[70, 92, 85, 80]), replicate_client=mock_replicate)
+    mock_google = MockGoogleImageClient()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[70, 92, 85, 80]), replicate_client=mock_replicate, google_image_client=mock_google)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_fail_threshold"
     assert result.optimization_attempt == 2
     assert result.quality_score == 92
-    assert mock_replicate.stage4_calls == 1
+    assert mock_google.stage4_calls == 1
 
 
 def test_threshold_pass_stops_additional_attempts(db_session):
     run = _create_run(db_session, max_optimization_attempts=3)
     mock_replicate = MockReplicate()
-    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[96, 99, 99, 99]), replicate_client=mock_replicate)
+    mock_google = MockGoogleImageClient()
+    runner = PipelineRunner(db_session, openai_client=MockOpenAI(scores=[96, 99, 99, 99]), replicate_client=mock_replicate, google_image_client=mock_google)
 
     result = runner.process_run(run.id)
 
     assert result.status == "completed_pass"
     assert result.optimization_attempt == 1
     assert result.quality_score == 96
-    assert mock_replicate.stage3_calls == 1
-    assert mock_replicate.stage4_calls == 1
+    assert mock_google.stage3_calls == 1
+    assert mock_google.stage4_calls == 1
 
 
 def test_stage1_assistant_failure_records_last_error_payload(db_session):
     run = _create_run(db_session)
-    runner = PipelineRunner(db_session, openai_client=FailingAssistantOpenAI(scores=[95]), replicate_client=MockReplicate())
+    runner = PipelineRunner(
+        db_session,
+        openai_client=FailingAssistantOpenAI(scores=[95]),
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
 
     result = runner.process_run(run.id)
 
@@ -435,7 +575,12 @@ def test_responses_api_prompt_engineer_mode_is_recorded(db_session):
 
     run = _create_run(db_session)
     mock_openai = RecordingPromptEngineerOpenAI(scores=[95])
-    runner = PipelineRunner(db_session, openai_client=mock_openai, replicate_client=MockReplicate())
+    runner = PipelineRunner(
+        db_session,
+        openai_client=mock_openai,
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
 
     result = runner.process_run(run.id)
 
@@ -456,8 +601,14 @@ def test_responses_api_prompt_engineer_mode_is_recorded(db_session):
 
 def test_variant_stages_record_progress_and_completed_profiles(db_session):
     run = _create_variant_run(db_session)
-    mock_replicate = VariantCapableReplicate()
-    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+    mock_replicate = MockReplicate()
+    mock_google = MockGoogleImageClient()
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=PersonVariantOpenAI(scores=[98]),
+        replicate_client=mock_replicate,
+        google_image_client=mock_google,
+    )
 
     result = runner.process_run(run.id)
 
@@ -501,8 +652,14 @@ def test_variant_stages_record_progress_and_completed_profiles(db_session):
 
 def test_variant_female_branch_uses_female_seed_assets(db_session):
     run = _create_variant_run(db_session)
-    mock_replicate = VariantCapableReplicate()
-    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+    mock_replicate = MockReplicate()
+    mock_google = MockGoogleImageClient()
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=PersonVariantOpenAI(scores=[98]),
+        replicate_client=mock_replicate,
+        google_image_client=mock_google,
+    )
 
     result = runner.process_run(run.id)
 
@@ -510,19 +667,23 @@ def test_variant_female_branch_uses_female_seed_assets(db_session):
     assert any(
         submission["source_path"].endswith("female_kid_white_attempt_1.jpg")
         and not submission["white_background"]
-        for submission in mock_replicate.variant_submissions
+        for submission in mock_google.variant_submissions
     )
     assert any(
         submission["source_path"].endswith("female_kid_white_attempt_1.jpg")
         and submission["white_background"]
-        for submission in mock_replicate.variant_submissions
+        for submission in mock_google.variant_submissions
     )
 
 
 def test_rerunning_variant_stage_reuses_existing_assets_without_duplicates(db_session):
     run = _create_variant_run(db_session)
-    mock_replicate = VariantCapableReplicate()
-    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=PersonVariantOpenAI(scores=[98]),
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
 
     result = runner.process_run(run.id)
 
@@ -548,8 +709,12 @@ def test_rerunning_variant_stage_reuses_existing_assets_without_duplicates(db_se
 
 def test_variant_events_capture_request_poll_and_save(db_session):
     run = _create_variant_run(db_session)
-    mock_replicate = VariantCapableReplicate()
-    runner = RecordingPipelineRunner(db_session, openai_client=PersonVariantOpenAI(scores=[98]), replicate_client=mock_replicate)
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=PersonVariantOpenAI(scores=[98]),
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
 
     result = runner.process_run(run.id)
 
@@ -562,10 +727,10 @@ def test_variant_events_capture_request_poll_and_save(db_session):
 
     submit_event = next(event for event in events if event.event_type == "variant_submit_finished")
     submit_payload = json.loads(submit_event.payload_json)
-    assert submit_payload["request"]["model_path"] == "google/nano-banana-2"
+    assert submit_payload["request"]["provider_model"] == "gemini-3.1-flash-image-preview"
     assert submit_payload["request"]["source_image_path"]
     assert submit_payload["request"]["prompt"]
-    assert submit_payload["provider_response"]["id"].startswith("pred_variant_")
+    assert submit_payload["provider_response"]["id"].startswith("google_variant_")
 
     poll_event = next(event for event in events if event.event_type == "variant_prediction_polled")
     poll_payload = json.loads(poll_event.payload_json)

@@ -196,8 +196,8 @@ const STAGE_DETAILS = {
   },
   stage4_background: {
     apiCall: 'Replicate via Cloudflare AI Gateway',
-    provider: 'google/nano-banana-2',
-    model: 'google/nano-banana-2',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
     inputs: ['highest-score winner image from stage3 attempts'],
     outputs: ['white background image URL', 'stage4_white_bg asset'],
     instruction: WHITE_BG_PROMPT_TEMPLATE,
@@ -212,8 +212,8 @@ const STAGE_DETAILS = {
   },
   stage4_variant_generate: {
     apiCall: 'Replicate via Cloudflare AI Gateway',
-    provider: 'google/nano-banana-2',
-    model: 'google/nano-banana-2',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
     inputs: ['winner final image', 'selected gender/age/skin combinations'],
     outputs: ['male final variants', 'female seed final', 'female-derived final variants'],
     instruction: VARIANT_FINAL_PROMPT_TEMPLATE,
@@ -229,8 +229,8 @@ const STAGE_DETAILS = {
   },
   stage5_variant_white_bg: {
     apiCall: 'Replicate via Cloudflare AI Gateway',
-    provider: 'google/nano-banana-2',
-    model: 'google/nano-banana-2',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
     inputs: ['winner white-background image', 'selected gender/age/skin combinations'],
     outputs: ['male white-background variants', 'female seed white-background', 'female-derived white-background variants'],
     instruction: VARIANT_WHITE_BG_PROMPT_TEMPLATE,
