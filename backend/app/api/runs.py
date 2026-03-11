@@ -22,6 +22,8 @@ from app.services.repository import Repository
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 
+MAX_TEXT_LEN = 2000
+
 
 def _json_dict(value: str) -> dict:
     try:
@@ -29,6 +31,39 @@ def _json_dict(value: str) -> dict:
         return result if isinstance(result, dict) else {}
     except json.JSONDecodeError:
         return {}
+
+
+def _truncate_text(value: str, *, max_len: int = MAX_TEXT_LEN) -> str:
+    text = str(value or "")
+    if len(text) <= max_len:
+        return text
+    return f"{text[:max_len]}... [truncated {len(text) - max_len} chars]"
+
+
+def _sanitize_payload(value):
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            if key in {"inlineData", "inline_data"} and isinstance(item, dict):
+                data = str(item.get("data") or "").strip()
+                sanitized[key] = {
+                    **{k: _sanitize_payload(v) for k, v in item.items() if k != "data"},
+                    "data": f"<redacted base64; chars={len(data)}>",
+                }
+                continue
+            if key == "data" and isinstance(item, str) and len(item) > 256:
+                sanitized[key] = f"<redacted base64; chars={len(item)}>"
+                continue
+            if key in {"text", "raw_text", "prompt_text", "prompt", "content"} and isinstance(item, str):
+                sanitized[key] = _truncate_text(item)
+                continue
+            sanitized[key] = _sanitize_payload(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_payload(item) for item in value]
+    if isinstance(value, str):
+        return _truncate_text(value)
+    return value
 
 
 def _run_out(run, entry, *, cost_summary: dict | None = None) -> RunOut:
@@ -133,7 +168,7 @@ def _build_legacy_execution_log(run, stages: list, assets: list, scores: list) -
 
 
 def _compact_event_line(event) -> str:
-    payload = _json_dict(event.payload_json)
+    payload = _sanitize_payload(_json_dict(event.payload_json))
     line = (
         f"{event.created_at.isoformat()} stage={event.stage_name or '-'} attempt={event.attempt} "
         f"event={event.event_type} status={event.status}"
@@ -151,7 +186,7 @@ def _compact_event_line(event) -> str:
 
 
 def _detailed_event_lines(event) -> list[str]:
-    payload = _json_dict(event.payload_json)
+    payload = _sanitize_payload(_json_dict(event.payload_json))
     lines = [
         (
             f"{event.created_at.isoformat()} stage={event.stage_name or '-'} attempt={event.attempt} "
@@ -245,9 +280,9 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
                 stage_name=stage.stage_name,
                 attempt=stage.attempt,
                 status=stage.status,
-                request_json=_json_dict(stage.request_json),
-                response_json=_json_dict(stage.response_json),
-                error_detail=stage.error_detail,
+                request_json=_sanitize_payload(_json_dict(stage.request_json)),
+                response_json=_sanitize_payload(_json_dict(stage.response_json)),
+                error_detail=_truncate_text(stage.error_detail),
                 created_at=stage.created_at,
             )
             for stage in stages
@@ -259,8 +294,8 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
                 attempt=event.attempt,
                 event_type=event.event_type,
                 status=event.status,
-                message=event.message,
-                payload_json=_json_dict(event.payload_json),
+                message=_truncate_text(event.message),
+                payload_json=_sanitize_payload(_json_dict(event.payload_json)),
                 created_at=event.created_at,
             )
             for event in events
@@ -270,10 +305,10 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
                 id=prompt.id,
                 stage_name=prompt.stage_name,
                 attempt=prompt.attempt,
-                prompt_text=prompt.prompt_text,
+                prompt_text=_truncate_text(prompt.prompt_text),
                 needs_person=prompt.needs_person,
                 source=prompt.source,
-                raw_response_json=_json_dict(prompt.raw_response_json),
+                raw_response_json=_sanitize_payload(_json_dict(prompt.raw_response_json)),
                 created_at=prompt.created_at,
             )
             for prompt in prompts
@@ -303,14 +338,14 @@ def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
                 attempt=score.attempt,
                 score_0_100=score.score_0_100,
                 pass_fail=score.pass_fail,
-                rubric_json=_json_dict(score.rubric_json),
+                rubric_json=_sanitize_payload(_json_dict(score.rubric_json)),
                 created_at=score.created_at,
             )
             for score in scores
         ],
         cost_summary=cost_summary,
-        execution_log=execution_log,
-        detailed_execution_log=detailed_execution_log,
+        execution_log=_truncate_text(execution_log, max_len=20000),
+        detailed_execution_log=_truncate_text(detailed_execution_log, max_len=40000),
     )
 
 
