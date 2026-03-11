@@ -33,6 +33,24 @@ class GoogleImageClient:
         self._inline_assets: dict[str, bytes] = {}
         self._lock = threading.Lock()
 
+    @classmethod
+    def _sanitize_payload(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            sanitized: dict[str, Any] = {}
+            for key, item in value.items():
+                if key in {"inlineData", "inline_data"} and isinstance(item, dict):
+                    data = str(item.get("data") or "").strip()
+                    sanitized[key] = {
+                        **{k: v for k, v in item.items() if k != "data"},
+                        "data": f"<redacted base64; chars={len(data)}>",
+                    }
+                    continue
+                sanitized[key] = cls._sanitize_payload(item)
+            return sanitized
+        if isinstance(value, list):
+            return [cls._sanitize_payload(item) for item in value]
+        return value
+
     def _request(self, model_name: str, request_json: dict[str, Any], *, timeout: int = 300) -> dict[str, Any]:
         if not self.settings.google_api_key:
             raise GoogleImageAPIError(
@@ -40,7 +58,7 @@ class GoogleImageClient:
                 request_json={
                     "model": model_name,
                     "url": f"{GOOGLE_BASE_URL}/models/{model_name}:generateContent",
-                    "json_body": request_json,
+                    "json_body": self._sanitize_payload(request_json),
                     "timeout": timeout,
                 },
                 response_json={},
@@ -64,7 +82,7 @@ class GoogleImageClient:
                     request_json={
                         "method": "POST",
                         "url": url,
-                        "json_body": request_json,
+                        "json_body": self._sanitize_payload(request_json),
                         "timeout": timeout,
                         "model": model_name,
                     },
@@ -154,6 +172,8 @@ class GoogleImageClient:
         response_json = self._request(model_name, request_json, timeout=timeout)
         image_payload = self._response_inline_image(response_json)
         text_output = self._response_text(response_json)
+        sanitized_request_json = self._sanitize_payload(request_json)
+        sanitized_response_json = self._sanitize_payload(response_json)
         prediction_id = str(response_json.get("responseId") or response_json.get("response_id") or uuid.uuid4().hex)
         if image_payload is None:
             return {
@@ -163,8 +183,8 @@ class GoogleImageClient:
                 "provider": "google",
                 "error": "no_inline_image_in_response",
                 "text_output": text_output,
-                "request_json": request_json,
-                "response_json": response_json,
+                "request_json": sanitized_request_json,
+                "response_json": sanitized_response_json,
             }
 
         image_bytes, mime_type = image_payload
@@ -179,8 +199,8 @@ class GoogleImageClient:
             "mime_type": mime_type,
             "output": [inline_url],
             "text_output": text_output,
-            "request_json": request_json,
-            "response_json": response_json,
+            "request_json": sanitized_request_json,
+            "response_json": sanitized_response_json,
         }
 
     def generate_stage3(self, model_choice: str, prompt: str) -> tuple[dict[str, Any], str]:
