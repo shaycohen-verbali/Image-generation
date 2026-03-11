@@ -85,6 +85,13 @@ class PipelineRunner:
             payload_json=payload or {},
         )
 
+    @staticmethod
+    def _raise_with_context(message: str, *, request_json: dict[str, Any], response_json: dict[str, Any]) -> None:
+        error = RuntimeError(message)
+        error.request_json = request_json  # type: ignore[attr-defined]
+        error.response_json = response_json  # type: ignore[attr-defined]
+        raise error
+
     def _latest_prompt(self, run_id: str, stage_name: str) -> Prompt | None:
         return self.db.execute(
             select(Prompt)
@@ -480,11 +487,25 @@ class PipelineRunner:
             start = perf_counter()
             result = self.replicate.flux_schnell(first_prompt.prompt_text)
             if result.get("status") != "succeeded":
-                raise RuntimeError(f"FLUX schnell failed: {result.get('status')}")
+                self._raise_with_context(
+                    f"FLUX schnell failed: {result.get('status')}",
+                    request_json={
+                        "prompt": first_prompt.prompt_text,
+                        "model": "black-forest-labs/flux-schnell",
+                    },
+                    response_json=result if isinstance(result, dict) else {},
+                )
 
             output_url = self.replicate.extract_output_url(result)
             if not output_url:
-                raise RuntimeError("No output URL from FLUX schnell")
+                self._raise_with_context(
+                    "No output URL from FLUX schnell",
+                    request_json={
+                        "prompt": first_prompt.prompt_text,
+                        "model": "black-forest-labs/flux-schnell",
+                    },
+                    response_json=result if isinstance(result, dict) else {},
+                )
 
             image_bytes = self.replicate.download_image(output_url)
             filename = f"stage2_draft_{self._entry_slug(entry)}.jpg"
@@ -766,18 +787,47 @@ class PipelineRunner:
         )
 
         selected_stage3_model = runtime_config.stage3_generate_model
+        stage3_request_json = {
+            "selected_model": selected_stage3_model,
+            "prompt": enforced_upgraded_prompt,
+            "attempt": attempt,
+            "word": entry.word,
+            "part_of_sentence": entry.part_of_sentence,
+            "category": entry.category,
+        }
         flux_result, model_name = self.replicate.generate_stage3(selected_stage3_model, enforced_upgraded_prompt)
         if flux_result.get("status") != "succeeded":
             fallback_enabled = runtime_config.flux_imagen_fallback_enabled
             if selected_stage3_model != "flux-1.1-pro" or not fallback_enabled:
-                raise RuntimeError(f"Stage3 generation failed with {selected_stage3_model}: {flux_result.get('status')}")
+                self._raise_with_context(
+                    f"Stage3 generation failed with {selected_stage3_model}: {flux_result.get('status')}",
+                    request_json=stage3_request_json,
+                    response_json={
+                        "generation": flux_result if isinstance(flux_result, dict) else {},
+                        "generation_model": model_name,
+                    },
+                )
             flux_result, model_name = self.replicate.generate_stage3("imagen-3", enforced_upgraded_prompt)
             if flux_result.get("status") != "succeeded":
-                raise RuntimeError(f"Stage3 fallback failed: {flux_result.get('status')}")
+                self._raise_with_context(
+                    f"Stage3 fallback failed: {flux_result.get('status')}",
+                    request_json={**stage3_request_json, "selected_model": "imagen-3", "fallback_from": selected_stage3_model},
+                    response_json={
+                        "generation": flux_result if isinstance(flux_result, dict) else {},
+                        "generation_model": model_name,
+                    },
+                )
 
         output_url = self.replicate.extract_output_url(flux_result)
         if not output_url:
-            raise RuntimeError("No output URL for stage3 upgraded image")
+            self._raise_with_context(
+                "No output URL for stage3 upgraded image",
+                request_json=stage3_request_json,
+                response_json={
+                    "generation": flux_result if isinstance(flux_result, dict) else {},
+                    "generation_model": model_name,
+                },
+            )
         image_bytes = self.replicate.download_image(output_url)
 
         filename = f"stage3_upgraded_{self._entry_slug(entry)}_attempt_{attempt}.jpg"
@@ -1759,11 +1809,31 @@ class PipelineRunner:
         start = perf_counter()
         result = self.replicate.nano_banana_white_bg(Path(upgraded_asset.abs_path), entry.word)
         if result.get("status") != "succeeded":
-            raise RuntimeError(f"Nano banana failed: {result.get('status')}")
+            self._raise_with_context(
+                f"Nano banana failed: {result.get('status')}",
+                request_json={
+                    "input_asset": upgraded_asset.abs_path,
+                    "winner_attempt": winner_attempt,
+                    "winner_score": winner_score,
+                    "model": "google/nano-banana-2",
+                    "word": entry.word,
+                },
+                response_json=result if isinstance(result, dict) else {},
+            )
 
         output_url = self.replicate.extract_output_url(result)
         if not output_url:
-            raise RuntimeError("No output URL for stage4")
+            self._raise_with_context(
+                "No output URL for stage4",
+                request_json={
+                    "input_asset": upgraded_asset.abs_path,
+                    "winner_attempt": winner_attempt,
+                    "winner_score": winner_score,
+                    "model": "google/nano-banana-2",
+                    "word": entry.word,
+                },
+                response_json=result if isinstance(result, dict) else {},
+            )
 
         image_bytes = self.replicate.download_image(output_url)
         filename = f"stage4_white_bg_{self._entry_slug(entry)}_attempt_{winner_attempt}.jpg"

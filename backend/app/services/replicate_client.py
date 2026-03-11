@@ -13,6 +13,13 @@ from app.services.model_catalog import normalize_stage3_generation_model
 from app.services.retry import with_backoff
 
 
+class ReplicateAPIError(RuntimeError):
+    def __init__(self, message: str, *, request_json: dict[str, Any], response_json: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.request_json = request_json
+        self.response_json = response_json
+
+
 class ReplicateClient:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -38,14 +45,31 @@ class ReplicateClient:
         wait_seconds: int | None = 60,
     ) -> dict[str, Any]:
         def _call() -> dict[str, Any]:
+            headers = self._headers(wait_seconds=wait_seconds)
             response = requests.request(
                 method,
                 url,
-                headers=self._headers(wait_seconds=wait_seconds),
+                headers=headers,
                 json=json_body,
                 timeout=timeout,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                raise ReplicateAPIError(
+                    f"Replicate API HTTP {response.status_code}: {response.text[:1000]}",
+                    request_json={
+                        "method": method,
+                        "url": url,
+                        "headers": {"Prefer": headers.get("Prefer", "")},
+                        "json_body": json_body or {},
+                        "timeout": timeout,
+                    },
+                    response_json={
+                        "status_code": response.status_code,
+                        "text": response.text[:4000],
+                    },
+                ) from exc
             return response.json()
 
         return with_backoff(
@@ -317,7 +341,14 @@ class ReplicateClient:
     def download_image(self, url: str) -> bytes:
         def _call() -> bytes:
             response = requests.get(url, timeout=180)
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                raise ReplicateAPIError(
+                    f"Replicate asset download HTTP {response.status_code}: {response.text[:1000]}",
+                    request_json={"method": "GET", "url": url, "timeout": 180},
+                    response_json={"status_code": response.status_code, "text": response.text[:4000]},
+                ) from exc
             return response.content
 
         return with_backoff(

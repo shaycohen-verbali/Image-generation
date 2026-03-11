@@ -25,6 +25,13 @@ class AssistantRunFailedError(RuntimeError):
         self.response_json = response_json
 
 
+class ProviderAPIError(RuntimeError):
+    def __init__(self, message: str, *, request_json: dict[str, Any], response_json: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.request_json = request_json
+        self.response_json = response_json
+
+
 class OpenAIClient:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -40,15 +47,33 @@ class OpenAIClient:
 
     def _request(self, method: str, url: str, *, params: dict[str, Any] | None = None, json_body: dict[str, Any] | None = None, assistants_v2: bool = False, timeout: int = 180) -> dict[str, Any]:
         def _call() -> dict[str, Any]:
+            headers = self._headers(assistants_v2=assistants_v2)
             response = requests.request(
                 method,
                 url,
-                headers=self._headers(assistants_v2=assistants_v2),
+                headers=headers,
                 params=params,
                 json=json_body,
                 timeout=timeout,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                raise ProviderAPIError(
+                    f"OpenAI API HTTP {response.status_code}: {response.text[:1000]}",
+                    request_json={
+                        "method": method,
+                        "url": url,
+                        "params": params or {},
+                        "json_body": json_body or {},
+                        "assistants_v2": assistants_v2,
+                        "timeout": timeout,
+                    },
+                    response_json={
+                        "status_code": response.status_code,
+                        "text": response.text[:4000],
+                    },
+                ) from exc
             return response.json()
 
         return with_backoff(
@@ -70,7 +95,22 @@ class OpenAIClient:
                 json=json_body,
                 timeout=timeout,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                raise ProviderAPIError(
+                    f"Google Gemini API HTTP {response.status_code}: {response.text[:1000]}",
+                    request_json={
+                        "method": method,
+                        "url": url,
+                        "json_body": json_body or {},
+                        "timeout": timeout,
+                    },
+                    response_json={
+                        "status_code": response.status_code,
+                        "text": response.text[:4000],
+                    },
+                ) from exc
             return response.json()
 
         return with_backoff(

@@ -29,4 +29,6 @@ def with_backoff(
                 break
             delay = (2**attempt) * base_delay + random.uniform(0.0, 0.25)
             time.sleep(delay)
-    raise RetryExceededError(str(last_error)) from last_error
+    if last_error is not None:
+        raise last_error
+    raise RetryExceededError("retry exceeded without captured error")
