@@ -148,7 +148,7 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
         ),
         "teenager": (
             "make the age unmistakably a teenager, around 15 to 18 years old, with clearly older adolescent proportions, a taller "
-            "body, longer limbs, a more mature face, near-adolescent body size, and visual age cues that do not read as a child"
+            "body, longer limbs, a more mature face, near-adolescent body size, visible adolescent height and proportions, and visual age cues that do not read as a child"
         ),
     }.get(age, "make the age visually obvious")
 
@@ -168,7 +168,8 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
     return (
         f"{subject} with {skin} skin; {age_guidance}; {gender_guidance}; {skin_guidance}; "
         "preserve the AAC concept and make the age, gender, and skin-color variation obvious at a glance; "
-        "make the age difference visible in full-body proportions and height, not only in the face"
+        "make the age difference visible in full-body proportions and height, not only in the face; "
+        "the output must read as exactly one person, not multiple people or duplicated figures"
     )
 
 

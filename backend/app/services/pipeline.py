@@ -1027,7 +1027,7 @@ class PipelineRunner:
         latest_prediction_statuses: dict[str, str] = {}
 
         def stage_source_asset(stage_name: str) -> str:
-            return upgraded_asset.abs_path if stage_name == "stage4_variant_generate" else white_bg_asset.abs_path
+            return upgraded_asset.abs_path if stage_name == "stage4_variant_generate" else "derived_from_matching_stage4_variant_asset"
 
         def log_variant_event(
             *,
@@ -1169,7 +1169,7 @@ class PipelineRunner:
 
         female_seed_profile = branch_plan["female_seed"]
         female_final_seed_asset: Asset | None = None
-        female_white_seed_asset: Asset | None = None
+        deferred_white_bg_tasks: list[dict[str, Any]] = []
 
         def reuse_existing_variant(stage_name: str, profile: dict[str, str], branch_role: str, source_profile: dict[str, str] | None = None) -> Asset | None:
             existing = existing_variant_asset(stage_name, profile)
@@ -1210,23 +1210,50 @@ class PipelineRunner:
         self.repo.update_run(run, current_stage="stage4_variant_generate")
         if female_seed_profile:
             female_final_seed_asset = reuse_existing_variant("stage4_variant_generate", female_seed_profile, "female_seed", branch_plan["base_profile"])
-            female_white_seed_asset = reuse_existing_variant("stage5_variant_white_bg", female_seed_profile, "female_seed", branch_plan["base_profile"])
+            existing_white = reuse_existing_variant("stage5_variant_white_bg", female_seed_profile, "female_seed", branch_plan["base_profile"])
+            if female_final_seed_asset is not None and existing_white is None:
+                deferred_white_bg_tasks.append(
+                    {
+                        "profile": female_seed_profile,
+                        "branch_role": "female_seed",
+                        "source_profile": branch_plan["base_profile"],
+                        "source_asset": female_final_seed_asset,
+                    }
+                )
         for profile in branch_plan["male_variants"]:
-            reuse_existing_variant("stage4_variant_generate", profile, "male_variant", branch_plan["base_profile"])
-            reuse_existing_variant("stage5_variant_white_bg", profile, "male_variant", branch_plan["base_profile"])
+            existing_final = reuse_existing_variant("stage4_variant_generate", profile, "male_variant", branch_plan["base_profile"])
+            existing_white = reuse_existing_variant("stage5_variant_white_bg", profile, "male_variant", branch_plan["base_profile"])
+            if existing_final is not None and existing_white is None:
+                deferred_white_bg_tasks.append(
+                    {
+                        "profile": profile,
+                        "branch_role": "male_variant",
+                        "source_profile": branch_plan["base_profile"],
+                        "source_asset": existing_final,
+                    }
+                )
         for profile in branch_plan["female_variants"]:
-            reuse_existing_variant(
+            existing_final = reuse_existing_variant(
                 "stage4_variant_generate",
                 profile,
                 "female_variant",
                 female_seed_profile or branch_plan["base_profile"],
             )
-            reuse_existing_variant(
+            existing_white = reuse_existing_variant(
                 "stage5_variant_white_bg",
                 profile,
                 "female_variant",
                 female_seed_profile or branch_plan["base_profile"],
             )
+            if existing_final is not None and existing_white is None:
+                deferred_white_bg_tasks.append(
+                    {
+                        "profile": profile,
+                        "branch_role": "female_variant",
+                        "source_profile": female_seed_profile or branch_plan["base_profile"],
+                        "source_asset": existing_final,
+                    }
+                )
 
         def sync_variant_progress(stage_name: str, status: str = "running", active_count: int = 0) -> None:
             self._record_variant_stage_progress(
@@ -1264,7 +1291,7 @@ class PipelineRunner:
             status="running",
             message="Stage 6 variant white-background generation started",
             payload={
-                "source_asset": white_bg_asset.abs_path,
+                "source_asset": "derived_from_matching_stage4_variant_asset",
                 "planned_profiles": profiles,
                 "branch_plan": branch_plan,
             },
@@ -1405,8 +1432,6 @@ class PipelineRunner:
         def submit_female_branch_variants(
             executor: ThreadPoolExecutor,
             submission_futures: dict[Any, dict[str, Any]],
-            *,
-            stage_name: str,
             source_asset: Asset,
         ) -> None:
             if not female_seed_profile:
@@ -1415,18 +1440,39 @@ class PipelineRunner:
                 submit_variant_task(
                     executor,
                     submission_futures,
-                    stage_name=stage_name,
+                    stage_name="stage4_variant_generate",
                     profile=next_profile,
                     source_path=Path(source_asset.abs_path),
-                    white_background=stage_name == "stage5_variant_white_bg",
+                    white_background=False,
                     branch_role="female_variant",
                     source_profile=female_seed_profile,
                 )
 
+        def submit_white_background_variant(
+            executor: ThreadPoolExecutor,
+            submission_futures: dict[Any, dict[str, Any]],
+            *,
+            profile: dict[str, str],
+            branch_role: str,
+            source_profile: dict[str, str] | None,
+            source_asset: Asset,
+        ) -> None:
+            submit_variant_task(
+                executor,
+                submission_futures,
+                stage_name="stage5_variant_white_bg",
+                profile=profile,
+                source_path=Path(source_asset.abs_path),
+                white_background=True,
+                branch_role=branch_role,
+                source_profile=source_profile,
+            )
+
         task_count = (
-            len(branch_plan["male_variants"]) * 2
-            + (2 if female_seed_profile else 0)
-            + len(branch_plan["female_variants"]) * 2
+            len(branch_plan["male_variants"])
+            + (1 if female_seed_profile else 0)
+            + len(branch_plan["female_variants"])
+            + len(deferred_white_bg_tasks)
         )
         pool_size = self._variant_pool_size(task_count)
         with ThreadPoolExecutor(max_workers=pool_size) as submission_executor, ThreadPoolExecutor(max_workers=pool_size) as materialization_executor:
@@ -1435,7 +1481,7 @@ class PipelineRunner:
             materialization_futures: dict[Any, dict[str, Any]] = {}
 
             def finalize_materialized_variant(meta: dict[str, Any], payload: dict[str, Any]) -> None:
-                nonlocal female_final_seed_asset, female_white_seed_asset
+                nonlocal female_final_seed_asset
                 stage_name = meta["stage_name"]
                 profile = meta["profile"]
                 branch_role = meta["branch_role"]
@@ -1483,21 +1529,20 @@ class PipelineRunner:
                     },
                 )
 
-                if branch_role == "female_seed" and female_seed_profile:
-                    if stage_name == "stage4_variant_generate":
+                if stage_name == "stage4_variant_generate":
+                    submit_white_background_variant(
+                        submission_executor,
+                        submission_futures,
+                        profile=profile,
+                        branch_role=branch_role,
+                        source_profile=source_profile,
+                        source_asset=variant_asset,
+                    )
+                    if branch_role == "female_seed" and female_seed_profile:
                         female_final_seed_asset = variant_asset
                         submit_female_branch_variants(
                             submission_executor,
                             submission_futures,
-                            stage_name="stage4_variant_generate",
-                            source_asset=variant_asset,
-                        )
-                    else:
-                        female_white_seed_asset = variant_asset
-                        submit_female_branch_variants(
-                            submission_executor,
-                            submission_futures,
-                            stage_name="stage5_variant_white_bg",
                             source_asset=variant_asset,
                         )
 
@@ -1509,16 +1554,6 @@ class PipelineRunner:
                     profile=profile,
                     source_path=Path(upgraded_asset.abs_path),
                     white_background=False,
-                    branch_role="male_variant",
-                    source_profile=branch_plan["base_profile"],
-                )
-                submit_variant_task(
-                    submission_executor,
-                    submission_futures,
-                    stage_name="stage5_variant_white_bg",
-                    profile=profile,
-                    source_path=Path(white_bg_asset.abs_path),
-                    white_background=True,
                     branch_role="male_variant",
                     source_profile=branch_plan["base_profile"],
                 )
@@ -1534,31 +1569,21 @@ class PipelineRunner:
                     branch_role="female_seed",
                     source_profile=branch_plan["base_profile"],
                 )
-            if female_seed_profile and female_white_seed_asset is None:
-                submit_variant_task(
-                    submission_executor,
-                    submission_futures,
-                    stage_name="stage5_variant_white_bg",
-                    profile=female_seed_profile,
-                    source_path=Path(white_bg_asset.abs_path),
-                    white_background=True,
-                    branch_role="female_seed",
-                    source_profile=branch_plan["base_profile"],
-                )
 
             if female_seed_profile and female_final_seed_asset is not None:
                 submit_female_branch_variants(
                     submission_executor,
                     submission_futures,
-                    stage_name="stage4_variant_generate",
                     source_asset=female_final_seed_asset,
                 )
-            if female_seed_profile and female_white_seed_asset is not None:
-                submit_female_branch_variants(
+            for deferred in deferred_white_bg_tasks:
+                submit_white_background_variant(
                     submission_executor,
                     submission_futures,
-                    stage_name="stage5_variant_white_bg",
-                    source_asset=female_white_seed_asset,
+                    profile=deferred["profile"],
+                    branch_role=str(deferred["branch_role"]),
+                    source_profile=deferred.get("source_profile"),
+                    source_asset=deferred["source_asset"],
                 )
 
             sync_variant_progress(

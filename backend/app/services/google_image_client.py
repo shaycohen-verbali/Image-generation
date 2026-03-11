@@ -210,7 +210,10 @@ class GoogleImageClient:
 
     def nano_banana_white_bg(self, image_path: Path, word: str) -> dict[str, Any]:
         prompt = (
-            "remove the background - keep only the important elements of the image and make the background white. "
+            "remove the background and replace it with pure solid white. Keep the exact same character identity, face, hairstyle, clothing, pose, ball position, scale, and camera framing. "
+            "Do not redraw the subject, do not change the avatar, and do not add or remove body parts or props. Keep the full body and the full ball entirely inside the frame with clean margin on every side. "
+            "There must be exactly one person in the image. "
+            "Keep only the important elements of the image and make the background white. "
             f'The image\'s main message is to represent the concept "{word}". '
             "Do not add text in the image."
         )
@@ -238,6 +241,9 @@ class GoogleImageClient:
             f"Change only the main person so the image clearly shows a {profile_description}. "
             "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
             f"{background_instruction} Keep exactly one clear central person. "
+            "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "
+            "Keep the full body and the full soccer ball completely inside the frame with visible margin on all sides; do not crop the right edge, left edge, top, or bottom. "
+            "Do not create duplicate people, extra limbs, or multiple similar girls/boys. "
             f'The image must still clearly represent the concept "{word}" for AAC users. '
             "Do not add text, watermark, or extra people."
         )
