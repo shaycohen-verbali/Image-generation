@@ -124,7 +124,7 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
             "toddler": "female toddler girl",
             "kid": "school-age girl",
             "tween": "pre-teen girl",
-            "teenager": "teenage girl",
+            "teenager": "17-year-old teenage girl",
         }.get(age, "female person")
     else:
         subject = {
@@ -149,20 +149,27 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
         ),
         "teenager": (
             "make the age unmistakably a 17-year-old teenager, with clearly older adolescent proportions, a taller "
-            "body, longer limbs, a more mature face, visible 17-year-old height and proportions, and visual age cues that do not read as a child"
+            "body, longer limbs, a more mature adolescent face, a longer neck, less baby-faced cheeks, visible 17-year-old height and proportions, "
+            "and visual age cues that do not read as a child"
         ),
     }.get(age, "make the age visually obvious")
 
-    gender_guidance = {
-        "female": (
-            "make the person visibly female in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
-            "presentation clearly readable as female; the result must not read as male or gender-ambiguous at a glance"
-        ),
-        "male": (
-            "make the person visibly male in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
-            "presentation clearly readable as male"
-        ),
-    }.get(gender, "make the gender visually clear")
+    if gender == "female" and age == "teenager":
+        gender_guidance = (
+            "make the person visibly female in an age-appropriate, non-stereotyped way, and keep the face, hairstyle, body proportions, "
+            "and overall presentation clearly readable as a 17-year-old female teenager; the result must not read as male, pre-teen, or gender-ambiguous at a glance"
+        )
+    else:
+        gender_guidance = {
+            "female": (
+                "make the person visibly female in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
+                "presentation clearly readable as female; the result must not read as male or gender-ambiguous at a glance"
+            ),
+            "male": (
+                "make the person visibly male in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
+                "presentation clearly readable as male"
+            ),
+        }.get(gender, "make the gender visually clear")
 
     if str(profile.get("skin_color", "") or "").strip().lower() == "brown":
         skin_guidance = (

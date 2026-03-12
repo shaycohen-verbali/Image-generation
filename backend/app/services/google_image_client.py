@@ -284,6 +284,7 @@ class GoogleImageClient:
             f"Change only the main person so the image clearly shows a {profile_description}. "
             "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, silhouette, and head size, not only in the face. "
             "When the person's age changes, make nearby objects scale appropriately relative to the person's body so the scene still reads naturally. "
+            "If the requested age is a teenager, the result must read as an older adolescent and must not look like a younger child or pre-teen. "
             f"{background_instruction} Keep exactly one clear central person. "
             "Keep the same single avatar identity across matching final and white-background outputs; do not invent a different child. "
             "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "
