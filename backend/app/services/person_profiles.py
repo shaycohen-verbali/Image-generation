@@ -7,7 +7,7 @@ from typing import Any
 DEFAULT_GENDER = "male"
 DEFAULT_AGE = "kid"
 DEFAULT_SKIN_COLOR = "white"
-MAX_TOTAL_PROFILES = 10
+MAX_TOTAL_PROFILES = 16
 
 GENDER_OPTIONS = ("male", "female")
 AGE_OPTIONS = ("toddler", "kid", "tween", "teenager")

@@ -43,7 +43,7 @@ export default function SubmitPage() {
   const selectedAgeCount = form.person_age_options.length
   const selectedSkinCount = form.person_skin_color_options.length
   const selectedCombinationCount = selectedGenderCount * selectedAgeCount * selectedSkinCount
-  const generatedProfileCap = 10
+  const generatedProfileCap = 16
   const generatedProfileCount = Math.min(selectedCombinationCount, generatedProfileCap)
   const extraVariantCount = Math.max(0, generatedProfileCount - 1)
 
