@@ -254,6 +254,34 @@ function variantProfileIndex(stages) {
   return index
 }
 
+function inferredProfileFromFileName(fileName) {
+  const text = String(fileName || '')
+  const match = text.match(/_(male|female)_(toddler|kid|tween|teenager)_(white|black|asian|brown)_attempt_/i)
+  if (!match) return {}
+  return {
+    gender: String(match[1] || '').toLowerCase(),
+    age: String(match[2] || '').toLowerCase(),
+    skin_color: String(match[3] || '').toLowerCase(),
+  }
+}
+
+function assetProfileMeta(asset, profileIndex) {
+  const indexed = profileIndex.get(asset.id)
+  if (indexed && Object.keys(safeObject(indexed.profile)).length > 0) {
+    return indexed
+  }
+  const inferredProfile = inferredProfileFromFileName(asset.file_name)
+  if (Object.keys(inferredProfile).length === 0) {
+    return null
+  }
+  return {
+    profile: inferredProfile,
+    profile_description: '',
+    branch_role: '',
+    source_profile: {},
+  }
+}
+
 function groupAssetsForQualityReview(assets, profileIndex) {
   const baseAssets = []
   const groupedVariantAssets = new Map()
@@ -263,7 +291,7 @@ function groupAssetsForQualityReview(assets, profileIndex) {
       baseAssets.push(asset)
       return
     }
-    const profileMeta = profileIndex.get(asset.id)
+    const profileMeta = assetProfileMeta(asset, profileIndex)
     if (!profileMeta) {
       baseAssets.push(asset)
       return
@@ -307,7 +335,7 @@ function groupAssetsForQualityReview(assets, profileIndex) {
 
 function createdImageRows(assets, profileIndex) {
   return safeArray(assets).map((asset) => {
-    const profileMeta = profileIndex.get(asset.id)
+    const profileMeta = assetProfileMeta(asset, profileIndex)
     return {
       id: asset.id,
       stageLabel: stageImageLabel(asset.stage_name),
@@ -328,7 +356,7 @@ const MATRIX_GENDERS = ['male', 'female']
 const MATRIX_AGES = ['toddler', 'kid', 'tween', 'teenager']
 const MATRIX_SKINS = ['white', 'black', 'asian', 'brown']
 
-function plannedProfileMatrix(stages, selectedAttempt, filteredAssets, profileIndex) {
+function buildProfileCoverageData(stages, selectedAttempt, filteredAssets, profileIndex) {
   const profiles = new Map()
   const stageRows = safeArray(stages).filter(
     (stage) =>
@@ -343,6 +371,11 @@ function plannedProfileMatrix(stages, selectedAttempt, filteredAssets, profileIn
     if (Object.keys(baseProfile).length > 0) {
       profiles.set(profileKeyString(baseProfile), baseProfile)
     }
+    safeArray(branchPlan.planned_profiles).forEach((profile) => {
+      const safeProfile = safeObject(profile)
+      if (Object.keys(safeProfile).length === 0) return
+      profiles.set(profileKeyString(safeProfile), safeProfile)
+    })
     safeArray(request.profiles).forEach((profile) => {
       const safeProfile = safeObject(profile)
       if (Object.keys(safeProfile).length === 0) return
@@ -356,7 +389,7 @@ function plannedProfileMatrix(stages, selectedAttempt, filteredAssets, profileIn
       profiles.set(profileKeyString(baseProfile), baseProfile)
       return
     }
-    const meta = profileIndex.get(asset.id)
+    const meta = assetProfileMeta(asset, profileIndex)
     if (!meta) return
     profiles.set(profileKeyString(meta.profile), safeObject(meta.profile))
   })
@@ -383,7 +416,7 @@ function plannedProfileMatrix(stages, selectedAttempt, filteredAssets, profileIn
       if (row) row.white = true
       return
     }
-    const meta = profileIndex.get(asset.id)
+    const meta = assetProfileMeta(asset, profileIndex)
     if (!meta) return
     const key = profileKeyString(meta.profile)
     const row = statusByProfile.get(key)
@@ -392,7 +425,24 @@ function plannedProfileMatrix(stages, selectedAttempt, filteredAssets, profileIn
     if (asset.stage_name === 'stage5_variant_white_bg') row.white = true
   })
 
-  return statusByProfile
+  const sections = MATRIX_GENDERS.map((gender) => {
+    const rowsForGender = [...statusByProfile.values()].filter(
+      (item) => String(safeObject(item.profile).gender || '').toLowerCase() === gender,
+    )
+    if (rowsForGender.length === 0) return null
+    const ageSet = new Set(rowsForGender.map((item) => String(safeObject(item.profile).age || '').toLowerCase()))
+    const skinSet = new Set(rowsForGender.map((item) => String(safeObject(item.profile).skin_color || '').toLowerCase()))
+    return {
+      gender,
+      ages: MATRIX_AGES.filter((age) => ageSet.has(age)),
+      skins: MATRIX_SKINS.filter((skin) => skinSet.has(skin)),
+    }
+  }).filter(Boolean)
+
+  return {
+    matrix: statusByProfile,
+    sections,
+  }
 }
 
 function profileKeyString(profile) {
@@ -938,7 +988,9 @@ export default function RunExecutionDiagram({
   const profileIndex = variantProfileIndex(stages)
   const qualityReviewGroups = groupAssetsForQualityReview(filteredRunAssets, profileIndex)
   const imageRows = createdImageRows(filteredRunAssets, profileIndex)
-  const profileMatrix = plannedProfileMatrix(stages, selectedAttempt, filteredRunAssets, profileIndex)
+  const profileCoverage = buildProfileCoverageData(stages, selectedAttempt, filteredRunAssets, profileIndex)
+  const profileMatrix = profileCoverage.matrix
+  const profileMatrixSections = profileCoverage.sections
   const visibleVariantPanels = (() => {
     if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
       return whiteVariantPanel?.hasActivity ? [whiteVariantPanel] : []
@@ -1113,7 +1165,7 @@ export default function RunExecutionDiagram({
                 <div className="section-head-row">
                   <div>
                     <h4>Profile Coverage Matrix</h4>
-                    <p>Check which profile images exist for the selected attempt. `Regular` means the final variant image. `White BG` means the matching white-background image.</p>
+                    <p>Show only the profiles planned for this run. `Regular` means the final variant image. `White BG` means the matching white-background image.</p>
                   </div>
                 </div>
                 <div className="matrix-legend-row">
@@ -1121,27 +1173,27 @@ export default function RunExecutionDiagram({
                   <span><strong>White BG</strong> = white-background image</span>
                 </div>
                 <div className="profile-matrix-grid">
-                  {MATRIX_GENDERS.map((gender) => (
-                    <section key={gender} className="profile-matrix-card">
-                      <h5>{humanGender(gender)}</h5>
+                  {profileMatrixSections.map((section) => (
+                    <section key={section.gender} className="profile-matrix-card">
+                      <h5>{humanGender(section.gender)}</h5>
                       <div className="table-wrap">
                         <table className="profile-matrix-table">
                           <thead>
                             <tr>
                               <th>Age \ Skin</th>
-                              {MATRIX_SKINS.map((skin) => (
+                              {section.skins.map((skin) => (
                                 <th key={skin}>{humanSkinColor(skin)}</th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
-                            {MATRIX_AGES.map((age) => (
+                            {section.ages.map((age) => (
                               <tr key={age}>
                                 <th>{humanAge(age)}</th>
-                                {MATRIX_SKINS.map((skin) => {
-                                  const cell = matrixCellState(profileMatrix, gender, age, skin)
+                                {section.skins.map((skin) => {
+                                  const cell = matrixCellState(profileMatrix, section.gender, age, skin)
                                   return (
-                                    <td key={`${gender}-${age}-${skin}`}>
+                                    <td key={`${section.gender}-${age}-${skin}`}>
                                       <label className="matrix-check">
                                         <input type="checkbox" checked={cell.regular} readOnly disabled />
                                         <span>Regular</span>
@@ -1161,6 +1213,9 @@ export default function RunExecutionDiagram({
                     </section>
                   ))}
                 </div>
+                {profileMatrixSections.length === 0 ? (
+                  <p>No planned profile variants are recorded for this run yet.</p>
+                ) : null}
               </section>
             ) : null}
 
