@@ -5,6 +5,23 @@ import RunExecutionDiagram from '../components/RunExecutionDiagram'
 import DeferredAssetImage from '../components/DeferredAssetImage'
 
 const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
+const RUNS_POLL_MS = 30000
+const DETAIL_POLL_RUNNING_MS = 12000
+const DETAIL_POLL_WAITING_MS = 20000
+
+function isTerminalRunStatus(status) {
+  const value = String(status || '').toLowerCase()
+  return ['completed_pass', 'completed_fail_threshold', 'failed_technical'].includes(value)
+}
+
+function isWaitingRunStatus(status) {
+  const value = String(status || '').toLowerCase()
+  return ['queued', 'retry_queued'].includes(value)
+}
+
+function shouldPollRuns(runs) {
+  return (Array.isArray(runs) ? runs : []).some((run) => !isTerminalRunStatus(run?.status))
+}
 
 function getStoredRunId() {
   try {
@@ -106,6 +123,10 @@ export default function RunsPage() {
   const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
   const [imageResolution, setImageResolution] = useState('1K')
   const [selectedDetailTab, setSelectedDetailTab] = useState('overview')
+  const [pageVisible, setPageVisible] = useState(() => {
+    if (typeof document === 'undefined') return true
+    return document.visibilityState !== 'hidden'
+  })
   const selectedRunIdRef = useRef('')
   const runsRef = useRef([])
   const detailStateRef = useRef(null)
@@ -123,6 +144,15 @@ export default function RunsPage() {
   useEffect(() => {
     detailStateRef.current = detail
   }, [detail])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+    const handleVisibilityChange = () => {
+      setPageVisible(document.visibilityState !== 'hidden')
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
 
   const query = useMemo(() => {
     const next = {}
@@ -271,9 +301,13 @@ export default function RunsPage() {
 
   useEffect(() => {
     refreshRuns()
-    const timer = setInterval(() => refreshRuns({ isPolling: true }), 10000)
+    const timer = setInterval(() => {
+      if (!pageVisible) return
+      if (!shouldPollRuns(runsRef.current)) return
+      refreshRuns({ isPolling: true })
+    }, RUNS_POLL_MS)
     return () => clearInterval(timer)
-  }, [query])
+  }, [query, pageVisible])
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -281,15 +315,37 @@ export default function RunsPage() {
       return undefined
     }
     const includeDebug = selectedDetailTab === 'debug'
+    const currentStatus = detailStateRef.current?.run?.status
+    const pollMs = includeDebug
+      ? DETAIL_POLL_WAITING_MS
+      : isWaitingRunStatus(currentStatus)
+        ? DETAIL_POLL_WAITING_MS
+        : DETAIL_POLL_RUNNING_MS
     loadRunDetail(selectedRunId, { includeDebug })
     const timer = setInterval(() => {
+      if (!pageVisible) return
       const activeRunId = selectedRunIdRef.current
-      if (activeRunId) {
-        loadRunDetail(activeRunId, { isPolling: true, includeDebug })
-      }
-    }, includeDebug ? 8000 : 3000)
+      const activeDetail = detailStateRef.current
+      const activeStatus = activeDetail?.run?.status
+      if (!activeRunId) return
+      if (isTerminalRunStatus(activeStatus)) return
+      loadRunDetail(activeRunId, { isPolling: true, includeDebug })
+    }, pollMs)
     return () => clearInterval(timer)
-  }, [selectedRunId, selectedDetailTab])
+  }, [selectedRunId, selectedDetailTab, pageVisible, detail?.run?.status])
+
+  useEffect(() => {
+    if (!pageVisible) return undefined
+    const handleFocus = () => {
+      refreshRuns({ isPolling: true })
+      if (selectedRunIdRef.current) {
+        const includeDebug = selectedDetailTab === 'debug'
+        loadRunDetail(selectedRunIdRef.current, { isPolling: true, includeDebug })
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [pageVisible, selectedDetailTab])
 
   const onRetry = async (runId) => {
     try {
