@@ -399,11 +399,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana-2', status: 'queued', x: 1540, y: 120 },
       { id: 'stage5_male_age', label: 'Step 5 Male Age Expansion', subtitle: 'white male kid -> requested male ages', status: 'queued', x: 1910, y: 20 },
-      { id: 'stage6_female_seed', label: 'Step 6 Female Seed', subtitle: 'white female kid from Stage 3 winner', status: 'queued', x: 1910, y: 160 },
-      { id: 'stage7_female_age', label: 'Step 7 Female Age Expansion', subtitle: 'white female kid -> requested female ages', status: 'queued', x: 1910, y: 300 },
-      { id: 'stage8_race_expand', label: 'Step 8 Race Expansion', subtitle: 'race variants from matching white age+gender baselines', status: 'queued', x: 1910, y: 440 },
-      { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', status: 'queued', x: 2280, y: 230 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 2620, y: 230 },
+      { id: 'stage6_female_seed', label: 'Step 6 Female Seed', subtitle: 'white female kid from Stage 3 winner', status: 'queued', x: 1910, y: 170 },
+      { id: 'stage7_female_age', label: 'Step 7 Female Age Expansion', subtitle: 'white female kid -> requested female ages', status: 'queued', x: 1910, y: 320 },
+      { id: 'stage8_race_expand', label: 'Step 8 Race Expansion', subtitle: 'race variants from matching white age+gender baselines', status: 'queued', x: 1910, y: 470 },
+      { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', status: 'queued', x: 2280, y: 620 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 2620, y: 620 },
       { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
     ],
     [promptEngineerLabel],
@@ -418,16 +418,16 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
       { from: 'quality_gate', to: 'stage4_background', label: 'after final scoring: winner selected', fromPort: 'top', toPort: 'left' },
-      { from: 'stage4_background', to: 'completed_pass', label: 'base ready / no extra variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_background', to: 'stage5_male_age', label: 'use Stage 3 winner as white male kid baseline', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_background', to: 'stage6_female_seed', label: 'use Stage 3 winner to create white female kid seed', fromPort: 'right', toPort: 'left' },
-      { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'expand white female kid to requested female ages', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'use matching white male age baselines', fromPort: 'right', toPort: 'left' },
-      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'use matching white female age baselines', fromPort: 'right', toPort: 'left' },
-      { from: 'stage5_male_age', to: 'stage9_variant_white_bg', label: 'white BG for male white age variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage7_female_age', to: 'stage9_variant_white_bg', label: 'white BG for female white age variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage8_race_expand', to: 'stage9_variant_white_bg', label: 'white BG for race variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage9_variant_white_bg', to: 'completed_pass', label: 'all variant outputs complete', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_background', to: 'completed_pass', label: 'no variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_background', to: 'stage5_male_age', label: 'male ages', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_background', to: 'stage6_female_seed', label: 'female seed', fromPort: 'right', toPort: 'left' },
+      { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'female ages', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'male race variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'female race variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage5_male_age', to: 'stage9_variant_white_bg', label: '', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage7_female_age', to: 'stage9_variant_white_bg', label: '', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage8_race_expand', to: 'stage9_variant_white_bg', label: 'all finals -> white BG', fromPort: 'right', toPort: 'left' },
+      { from: 'stage9_variant_white_bg', to: 'completed_pass', label: 'done', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_fail', label: 'score below threshold', type: 'branch', fromPort: 'bottom', toPort: 'left' },
     ],
     [],
@@ -504,7 +504,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         nodes={nodes}
         edges={edges}
         width={2580}
-        height={640}
+        height={800}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
       />
