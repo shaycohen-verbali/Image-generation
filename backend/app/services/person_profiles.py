@@ -148,8 +148,8 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
             "a longer leg-to-torso ratio, a less baby-faced look, and age cues that read older than a kid but younger than a teenager"
         ),
         "teenager": (
-            "make the age unmistakably a teenager, around 15 to 18 years old, with clearly older adolescent proportions, a taller "
-            "body, longer limbs, a more mature face, near-adolescent body size, visible adolescent height and proportions, and visual age cues that do not read as a child"
+            "make the age unmistakably a 17-year-old teenager, with clearly older adolescent proportions, a taller "
+            "body, longer limbs, a more mature face, visible 17-year-old height and proportions, and visual age cues that do not read as a child"
         ),
     }.get(age, "make the age visually obvious")
 
