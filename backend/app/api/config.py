@@ -33,6 +33,8 @@ def _to_schema(config) -> RuntimeConfigOut:
         stage3_critique_model=config.stage3_critique_model,
         stage3_generate_model=config.stage3_generate_model,
         quality_gate_model=config.quality_gate_model,
+        image_aspect_ratio=config.image_aspect_ratio,
+        image_resolution=config.image_resolution,
     )
 
 

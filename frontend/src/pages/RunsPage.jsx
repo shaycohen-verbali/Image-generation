@@ -103,6 +103,8 @@ export default function RunsPage() {
   const [visualStylePromptBlock, setVisualStylePromptBlock] = useState('')
   const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
   const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
+  const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
+  const [imageResolution, setImageResolution] = useState('1K')
   const [selectedDetailTab, setSelectedDetailTab] = useState('overview')
   const selectedRunIdRef = useRef('')
   const runsRef = useRef([])
@@ -251,6 +253,12 @@ export default function RunsPage() {
         if (mounted && typeof config?.stage3_prompt_template === 'string') {
           setStage3PromptTemplate(config.stage3_prompt_template)
         }
+        if (mounted && config?.image_aspect_ratio) {
+          setImageAspectRatio(config.image_aspect_ratio)
+        }
+        if (mounted && config?.image_resolution) {
+          setImageResolution(config.image_resolution)
+        }
       } catch (_error) {
         // Keep fallback value.
       }
@@ -304,6 +312,8 @@ export default function RunsPage() {
         visual_style_prompt_block: visualStylePromptBlock,
         stage1_prompt_template: stage1PromptTemplate,
         stage3_prompt_template: stage3PromptTemplate,
+        image_aspect_ratio: imageAspectRatio,
+        image_resolution: imageResolution,
       })
       setPromptEngineerMode(updated.prompt_engineer_mode)
       setResponsesPromptEngineerModel(updated.responses_prompt_engineer_model)
@@ -313,7 +323,9 @@ export default function RunsPage() {
       setVisualStylePromptBlock(updated.visual_style_prompt_block)
       setStage1PromptTemplate(updated.stage1_prompt_template)
       setStage3PromptTemplate(updated.stage3_prompt_template)
-      setMessage('Saved prompt engineer and visual style configuration')
+      setImageAspectRatio(updated.image_aspect_ratio)
+      setImageResolution(updated.image_resolution)
+      setMessage('Saved prompt engineer, visual style, and image output configuration')
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -440,6 +452,10 @@ export default function RunsPage() {
                   setStage1PromptTemplate,
                   stage3PromptTemplate,
                   setStage3PromptTemplate,
+                  imageAspectRatio,
+                  setImageAspectRatio,
+                  imageResolution,
+                  setImageResolution,
                 }}
                 onSavePromptEngineerConfig={onSavePromptEngineerConfig}
               />

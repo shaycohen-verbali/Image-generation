@@ -4,6 +4,7 @@ from app.services.person_profiles import (
     all_selected_profiles,
     entry_default_profile,
     planned_review_profiles,
+    profile_edit_instruction,
     profile_prompt_fragment,
     variant_branch_plan,
 )
@@ -52,10 +53,33 @@ def test_profile_prompt_fragment_makes_age_and_gender_explicit() -> None:
     assert "body size" in fragment or "full-body proportions" in fragment
 
 
-def test_variant_branch_plan_creates_female_seed_then_female_variants() -> None:
+def test_variant_branch_plan_follows_white_age_then_female_then_race_order() -> None:
     plan = variant_branch_plan(make_entry())
     assert plan["base_profile"] == {"gender": "male", "age": "kid", "skin_color": "white"}
     assert plan["female_seed"] == {"gender": "female", "age": "kid", "skin_color": "white"}
-    assert all(profile["gender"] == "male" for profile in plan["male_variants"])
-    assert all(profile["gender"] == "female" for profile in plan["female_variants"])
-    assert {"gender": "female", "age": "kid", "skin_color": "black"} in plan["female_variants"]
+    assert all(profile["gender"] == "male" and profile["skin_color"] == "white" for profile in plan["male_age_variants"])
+    assert all(profile["gender"] == "female" and profile["skin_color"] == "white" for profile in plan["female_age_variants"])
+    assert {"gender": "female", "age": "kid", "skin_color": "black"} in plan["appearance_variants"]
+
+
+def test_profile_edit_instruction_makes_age_gender_and_race_changes_explicit() -> None:
+    age_instruction = profile_edit_instruction(
+        {"gender": "male", "age": "teenager", "skin_color": "white"},
+        {"gender": "male", "age": "kid", "skin_color": "white"},
+    )
+    assert "teenager (17 yo)" in age_instruction
+    assert "body and head" in age_instruction
+    assert "other objects near the human changes accordingly" in age_instruction
+
+    gender_instruction = profile_edit_instruction(
+        {"gender": "female", "age": "teenager", "skin_color": "white"},
+        {"gender": "male", "age": "kid", "skin_color": "white"},
+    )
+    assert "female teenager (17 yo)" in gender_instruction
+
+    race_instruction = profile_edit_instruction(
+        {"gender": "female", "age": "teenager", "skin_color": "asian"},
+        {"gender": "female", "age": "teenager", "skin_color": "white"},
+    )
+    assert "Asian-origin" in race_instruction
+    assert "not any stigma features" in race_instruction

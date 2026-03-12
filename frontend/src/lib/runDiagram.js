@@ -62,18 +62,18 @@ const STAGE_DEFINITIONS = [
   },
   {
     id: 'stage4_variant_generate',
-    label: 'Stage 5 Variant Finals',
+    label: 'Stage 5-8 Variant Finals',
     provider: 'Google API: nano-banana-2',
-    inputs: ['winner final image', 'male branch variations', 'optional female seed branch'],
-    expected: ['male variants', 'female seed image', 'female-derived final variants'],
+    inputs: ['stage3 winner image', 'requested gender/age/skin combinations'],
+    expected: ['white male age variants', 'white female kid seed', 'white female age variants', 'race variants from matching white age/gender baselines'],
     retryPolicy: 'API retry + resumable stage retry',
   },
   {
     id: 'stage5_variant_white_bg',
-    label: 'Stage 6 Variant White BG',
+    label: 'Stage 9 Variant White BG',
     provider: 'Google API: nano-banana-2',
-    inputs: ['winner white-background image', 'male branch variations', 'optional female seed branch'],
-    expected: ['male white-bg variants', 'female white-bg seed', 'female-derived white-bg variants'],
+    inputs: ['all final variants from the prior stage'],
+    expected: ['matching white-background versions for every final variant'],
     retryPolicy: 'API retry + resumable stage retry',
   },
   {
@@ -95,8 +95,8 @@ const FLOW_EDGES = [
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
   { from: 'quality_gate', to: 'stage4_background', label: 'winner selected', fromPort: 'top', toPort: 'left' },
   { from: 'stage4_background', to: 'completed', label: 'base ready / no extra variants', fromPort: 'right', toPort: 'left' },
-  { from: 'stage4_background', to: 'stage4_variant_generate', label: 'base final + optional female seed', fromPort: 'right', toPort: 'left' },
-  { from: 'stage4_background', to: 'stage5_variant_white_bg', label: 'base white bg + optional female seed', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage4_background', to: 'stage4_variant_generate', label: 'use stage3 winner as the variant baseline', fromPort: 'right', toPort: 'left' },
+  { from: 'stage4_variant_generate', to: 'stage5_variant_white_bg', label: 'white background for every final variant', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage4_variant_generate', to: 'completed', label: 'variant finals ready', fromPort: 'right', toPort: 'left' },
   { from: 'stage5_variant_white_bg', to: 'completed', label: 'variant white-bg ready', fromPort: 'right', toPort: 'left' },
 ]
@@ -367,11 +367,13 @@ function aiInstructionForStage({
   }
 
   if (stageId === 'stage2_draft') {
-    const storedPrompt = safeText(safeObject(stage2Result?.request_json).prompt) || safeText(stage1Prompt?.prompt_text)
+    const stage2Request = safeObject(stage2Result?.request_json)
+    const storedPrompt = safeText(stage2Request.prompt) || safeText(stage1Prompt?.prompt_text)
+    const aspectRatio = safeText(stage2Request.image_aspect_ratio) || '1:1'
     return {
       text: storedPrompt
-        ? JSON.stringify({ input: { prompt: storedPrompt, output_format: 'jpg' } }, null, 2)
-        : JSON.stringify({ input: { prompt: '<stage1 first prompt>', output_format: 'jpg' } }, null, 2),
+        ? JSON.stringify({ input: { prompt: storedPrompt, aspect_ratio: aspectRatio, output_format: 'jpg' } }, null, 2)
+        : JSON.stringify({ input: { prompt: '<stage1 first prompt>', aspect_ratio: '1:1', output_format: 'jpg' } }, null, 2),
       source: storedPrompt ? 'stored request_json.prompt' : 'derived from stage prompt lineage',
     }
   }
@@ -391,13 +393,17 @@ function aiInstructionForStage({
   }
 
   if (stageId === 'stage3_generate') {
+    const stage3Request = safeObject(stage3Result?.request_json)
+    const aspectRatio = safeText(stage3Request.image_aspect_ratio) || '1:1'
+    const imageResolution = safeText(stage3Request.image_resolution) || '1K'
     const prompt = safeText(stage3Prompt?.prompt_text)
     const payload = {
       selected_model: safeText(safeObject(stage3Result?.request_json).generation_model_selected) || '<selected stage3 model>',
       primary_model: 'runtime dependent',
       primary_input: {
         prompt: prompt || '<stage3 upgraded prompt>',
-        aspect_ratio: '4:3',
+        aspect_ratio: aspectRatio,
+        image_size: imageResolution,
         output_format: 'jpg',
         output_quality: 80,
         prompt_upsampling: false,
@@ -408,7 +414,7 @@ function aiInstructionForStage({
       fallback_input: {
         prompt: prompt || '<stage3 upgraded prompt>',
         num_outputs: 1,
-        aspect_ratio: '4:3',
+        aspect_ratio: aspectRatio,
         output_format: 'jpg',
         output_quality: 80,
         prompt_upsampling: true,
@@ -430,46 +436,54 @@ function aiInstructionForStage({
   }
 
   if (stageId === 'stage4_background') {
+    const stage4Request = safeObject(stage4Result?.request_json)
     const prompt = whiteBgTemplate(stage1Context.word || safeText(run.word))
     const payload = {
       input: {
         prompt,
         image_input: ['<stage3 upgraded image as data URI>'],
-        aspect_ratio: 'match_input_image',
+        aspect_ratio: safeText(stage4Request.image_aspect_ratio) || '1:1',
+        image_size: safeText(stage4Request.image_resolution) || '1K',
         output_format: 'jpg',
       },
     }
     return {
       text: JSON.stringify(payload, null, 2),
-      source: 'backend prompt template (ReplicateClient.nano_banana_white_bg -> nano-banana-2)',
+      source: 'backend prompt template (GoogleImageClient.nano_banana_white_bg -> nano-banana-2)',
     }
   }
 
   if (stageId === 'stage4_variant_generate') {
-    const branchPlan = safeObject(safeObject(stage3Result?.response_json).decision)
+    const stage4Request = safeObject(stage4VariantResult?.request_json)
     const payload = {
       selected_model: 'google/nano-banana-2',
       source_image: safeText(safeObject(stage3Result?.response_json).generation?.output || '') || '<stage3 winner image>',
-      branching_rule: 'Start from the male winner image. If female is selected, create the first female image, then derive all female variants from that female seed.',
-      profile_plan: safeObject(safeObject(stage3Result?.request_json).branch_plan),
+      aspect_ratio: safeText(stage4Request.image_aspect_ratio) || '1:1',
+      image_size: safeText(stage4Request.image_resolution) || '1K',
+      branching_rule:
+        '1) expand white male kid to requested male ages from the Stage 3 winner, 2) create a white female kid seed from the Stage 3 winner, 3) expand that white female kid to requested female ages, 4) create race variants from the matching white age+gender baselines.',
+      profile_plan: safeObject(stage4Request.branch_plan),
       white_background: false,
     }
     return {
       text: JSON.stringify(payload, null, 2),
-      source: Object.keys(branchPlan).length ? 'backend variant branch payload' : 'backend variant branch template',
+      source: Object.keys(safeObject(stage4Request.branch_plan)).length ? 'backend variant branch payload' : 'backend variant branch template',
     }
   }
 
   if (stageId === 'stage5_variant_white_bg') {
+    const stage5Request = safeObject(stage5VariantResult?.request_json)
     const payload = {
       selected_model: 'google/nano-banana-2',
-      source_image: '<stage4 white-background winner image>',
-      branching_rule: 'Start from the white-background base image. If female is selected, create the first female white-background image, then derive all female white-background variants from that seed.',
+      source_image: '<matching stage4 final variant image>',
+      aspect_ratio: safeText(stage5Request.image_aspect_ratio) || '1:1',
+      image_size: safeText(stage5Request.image_resolution) || '1K',
+      branching_rule: 'Create a matching white-background copy for every final variant produced in the prior stage.',
       white_background: true,
     }
     return {
       text: JSON.stringify(payload, null, 2),
-      source: 'backend variant branch template',
+      source: Object.keys(stage5Request).length ? 'backend white-background variant payload' : 'backend white-background variant template',
     }
   }
 

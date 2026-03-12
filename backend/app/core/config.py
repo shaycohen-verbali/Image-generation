@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     stage3_critique_model: str = Field(default="gpt-4o-mini", alias="STAGE3_CRITIQUE_MODEL")
     stage3_generate_model: str = Field(default="nano-banana-2", alias="STAGE3_GENERATE_MODEL")
     quality_gate_model: str = Field(default="gpt-4o-mini", alias="QUALITY_GATE_MODEL")
+    image_aspect_ratio: str = Field(default="1:1", alias="IMAGE_ASPECT_RATIO")
+    image_resolution: str = Field(default="1K", alias="IMAGE_RESOLUTION")
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
 
     replicate_api_token: str = Field(default="", alias="REPLICATE_API_TOKEN")

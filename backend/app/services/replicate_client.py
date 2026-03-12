@@ -121,18 +121,18 @@ class ReplicateClient:
             return {"status": "failed", "error": "missing_prediction_id", "raw": created}
         return self._poll_prediction(prediction_id)
 
-    def flux_schnell(self, prompt: str) -> dict[str, Any]:
+    def flux_schnell(self, prompt: str, *, aspect_ratio: str = "1:1") -> dict[str, Any]:
         return self._run_prediction(
             "black-forest-labs/flux-schnell",
-            {"prompt": prompt, "output_format": "jpg"},
+            {"prompt": prompt, "aspect_ratio": aspect_ratio, "output_format": "jpg"},
         )
 
-    def flux_pro(self, prompt: str) -> dict[str, Any]:
+    def flux_pro(self, prompt: str, *, aspect_ratio: str = "1:1") -> dict[str, Any]:
         return self._run_prediction(
             "black-forest-labs/flux-1.1-pro",
             {
                 "prompt": prompt,
-                "aspect_ratio": "4:3",
+                "aspect_ratio": aspect_ratio,
                 "output_format": "jpg",
                 "output_quality": 80,
                 "prompt_upsampling": False,
@@ -141,21 +141,21 @@ class ReplicateClient:
             },
         )
 
-    def imagen_fallback(self, prompt: str) -> dict[str, Any]:
-        return self.generate_stage3("imagen-3", prompt)[0]
+    def imagen_fallback(self, prompt: str, *, aspect_ratio: str = "1:1") -> dict[str, Any]:
+        return self.generate_stage3("imagen-3", prompt, aspect_ratio=aspect_ratio)[0]
 
-    def generate_stage3(self, model_choice: str, prompt: str) -> tuple[dict[str, Any], str]:
+    def generate_stage3(self, model_choice: str, prompt: str, *, aspect_ratio: str = "1:1") -> tuple[dict[str, Any], str]:
         model_key = normalize_stage3_generation_model(model_choice)
-        model_path, payload = self._stage3_request(model_key, prompt)
+        model_path, payload = self._stage3_request(model_key, prompt, aspect_ratio=aspect_ratio)
         return self._run_prediction(model_path, payload), model_path
 
-    def _stage3_request(self, model_key: str, prompt: str) -> tuple[str, dict[str, Any]]:
+    def _stage3_request(self, model_key: str, prompt: str, *, aspect_ratio: str) -> tuple[str, dict[str, Any]]:
         if model_key == "flux-1.1-pro":
             return (
                 "black-forest-labs/flux-1.1-pro",
                 {
                     "prompt": prompt,
-                    "aspect_ratio": "4:3",
+                    "aspect_ratio": aspect_ratio,
                     "output_format": "jpg",
                     "output_quality": 80,
                     "prompt_upsampling": False,
@@ -169,7 +169,7 @@ class ReplicateClient:
                 {
                     "prompt": prompt,
                     "num_outputs": 1,
-                    "aspect_ratio": "4:3",
+                    "aspect_ratio": aspect_ratio,
                     "output_format": "jpg",
                     "output_quality": 80,
                     "prompt_upsampling": True,
@@ -182,7 +182,7 @@ class ReplicateClient:
                 {
                     "prompt": prompt,
                     "num_outputs": 1,
-                    "aspect_ratio": "4:3",
+                    "aspect_ratio": aspect_ratio,
                     "output_format": "jpg",
                     "output_quality": 80,
                     "prompt_upsampling": True,
@@ -194,7 +194,7 @@ class ReplicateClient:
                 "google/nano-banana",
                 {
                     "prompt": prompt,
-                    "aspect_ratio": "4:3",
+                    "aspect_ratio": aspect_ratio,
                     "output_format": "jpg",
                 },
             )
@@ -203,7 +203,7 @@ class ReplicateClient:
                 "google/nano-banana-2",
                 {
                     "prompt": prompt,
-                    "aspect_ratio": "4:3",
+                    "aspect_ratio": aspect_ratio,
                     "output_format": "jpg",
                 },
             )
@@ -212,7 +212,7 @@ class ReplicateClient:
                 "google/nano-banana-pro",
                 {
                     "prompt": prompt,
-                    "aspect_ratio": "4:3",
+                    "aspect_ratio": aspect_ratio,
                     "output_format": "jpg",
                 },
             )

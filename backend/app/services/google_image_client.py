@@ -144,19 +144,31 @@ class GoogleImageClient:
         return None
 
     @staticmethod
-    def _generation_config(*, aspect_ratio: str | None) -> dict[str, Any]:
+    def _generation_config(*, aspect_ratio: str | None, image_size: str | None) -> dict[str, Any]:
         config: dict[str, Any] = {"responseModalities": ["TEXT", "IMAGE"]}
+        image_config: dict[str, Any] = {}
         if aspect_ratio:
-            config["imageConfig"] = {"aspectRatio": aspect_ratio}
+            image_config["aspectRatio"] = aspect_ratio
+        if image_size:
+            image_config["imageSize"] = image_size
+        if image_config:
+            config["imageConfig"] = image_config
         return config
 
-    def _build_request(self, *, prompt: str, image_paths: list[Path] | None = None, aspect_ratio: str | None = None) -> dict[str, Any]:
+    def _build_request(
+        self,
+        *,
+        prompt: str,
+        image_paths: list[Path] | None = None,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+    ) -> dict[str, Any]:
         parts = [self._text_part(prompt)]
         for image_path in image_paths or []:
             parts.append(self._inline_part(image_path))
         return {
             "contents": [{"parts": parts}],
-            "generationConfig": self._generation_config(aspect_ratio=aspect_ratio),
+            "generationConfig": self._generation_config(aspect_ratio=aspect_ratio, image_size=image_size),
         }
 
     def _run_generation(
@@ -166,9 +178,15 @@ class GoogleImageClient:
         prompt: str,
         image_paths: list[Path] | None = None,
         aspect_ratio: str | None = None,
+        image_size: str | None = None,
         timeout: int = 300,
     ) -> dict[str, Any]:
-        request_json = self._build_request(prompt=prompt, image_paths=image_paths, aspect_ratio=aspect_ratio)
+        request_json = self._build_request(
+            prompt=prompt,
+            image_paths=image_paths,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
         response_json = self._request(model_name, request_json, timeout=timeout)
         image_payload = self._response_inline_image(response_json)
         text_output = self._response_text(response_json)
@@ -203,12 +221,31 @@ class GoogleImageClient:
             "response_json": sanitized_response_json,
         }
 
-    def generate_stage3(self, model_choice: str, prompt: str) -> tuple[dict[str, Any], str]:
+    def generate_stage3(
+        self,
+        model_choice: str,
+        prompt: str,
+        *,
+        aspect_ratio: str | None,
+        image_size: str | None,
+    ) -> tuple[dict[str, Any], str]:
         selected = normalize_stage3_generation_model(model_choice)
         model_name = google_image_model_name(selected)
-        return self._run_generation(model_name=model_name, prompt=prompt, aspect_ratio="4:3"), model_name
+        return self._run_generation(
+            model_name=model_name,
+            prompt=prompt,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        ), model_name
 
-    def nano_banana_white_bg(self, image_path: Path, word: str) -> dict[str, Any]:
+    def nano_banana_white_bg(
+        self,
+        image_path: Path,
+        word: str,
+        *,
+        aspect_ratio: str | None,
+        image_size: str | None,
+    ) -> dict[str, Any]:
         prompt = (
             "remove the background and replace it with pure solid white. Keep the exact same character identity, face, hairstyle, clothing, pose, ball position, scale, and camera framing. "
             "Do not redraw the subject, do not change the avatar, and do not add or remove body parts or props. Keep the full body and the full ball entirely inside the frame with clean margin on every side. "
@@ -221,6 +258,8 @@ class GoogleImageClient:
             model_name=google_image_model_name("nano-banana-2"),
             prompt=prompt,
             image_paths=[image_path],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
         )
 
     def profile_variant_request_summary(
@@ -230,6 +269,9 @@ class GoogleImageClient:
         word: str,
         profile_description: str,
         white_background: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
     ) -> dict[str, Any]:
         background_instruction = (
             "Keep the background pure solid white and keep the subject cleanly isolated on white."
@@ -238,8 +280,10 @@ class GoogleImageClient:
         )
         prompt = (
             "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+            f"{edit_instruction.strip()} "
             f"Change only the main person so the image clearly shows a {profile_description}. "
-            "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
+            "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, silhouette, and head size, not only in the face. "
+            "When the person's age changes, make nearby objects scale appropriately relative to the person's body so the scene still reads naturally. "
             f"{background_instruction} Keep exactly one clear central person. "
             "Keep the same single avatar identity across matching final and white-background outputs; do not invent a different child. "
             "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "
@@ -255,6 +299,8 @@ class GoogleImageClient:
             "prompt": prompt,
             "source_image_path": image_path.as_posix(),
             "white_background": white_background,
+            "aspect_ratio": aspect_ratio or "",
+            "image_size": image_size or "",
         }
 
     def submit_nano_banana_profile_variant(
@@ -264,6 +310,9 @@ class GoogleImageClient:
         word: str,
         profile_description: str,
         white_background: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
     ) -> dict[str, Any]:
         prediction_id = f"google_pred_{uuid.uuid4().hex}"
         model_name = google_image_model_name("nano-banana-2")
@@ -276,9 +325,14 @@ class GoogleImageClient:
                     word=word,
                     profile_description=profile_description,
                     white_background=white_background,
+                    aspect_ratio=aspect_ratio,
+                    image_size=image_size,
+                    edit_instruction=edit_instruction,
                 )["prompt"]
             ),
             image_paths=[image_path],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
         )
         with self._lock:
             self._prediction_futures[prediction_id] = future

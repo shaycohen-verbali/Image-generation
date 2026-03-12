@@ -8,7 +8,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Export, Prompt, Run, RunEvent, RuntimeConfig, Score, StageResult
-from app.services.model_catalog import normalize_prompt_engineer_model, normalize_stage3_generation_model, normalize_vision_model
+from app.services.model_catalog import (
+    normalize_image_aspect_ratio,
+    normalize_image_resolution,
+    normalize_prompt_engineer_model,
+    normalize_stage3_generation_model,
+    normalize_vision_model,
+)
 from app.services.person_profiles import (
     DEFAULT_AGE,
     DEFAULT_GENDER,
@@ -75,6 +81,8 @@ class Repository:
         config.stage3_critique_model = normalize_vision_model(config.stage3_critique_model)
         config.stage3_generate_model = normalize_stage3_generation_model(config.stage3_generate_model)
         config.quality_gate_model = normalize_vision_model(config.quality_gate_model)
+        config.image_aspect_ratio = normalize_image_aspect_ratio(getattr(config, "image_aspect_ratio", "1:1"))
+        config.image_resolution = normalize_image_resolution(getattr(config, "image_resolution", "1K"))
         config.openai_model_vision = config.stage3_critique_model
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
         config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))

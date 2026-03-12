@@ -3,7 +3,13 @@ from sqlalchemy import select, text
 from app.core.config import get_settings
 from app.db.session import SessionLocal, engine
 from app.models import Base, RuntimeConfig
-from app.services.model_catalog import normalize_prompt_engineer_model, normalize_stage3_generation_model, normalize_vision_model
+from app.services.model_catalog import (
+    normalize_image_aspect_ratio,
+    normalize_image_resolution,
+    normalize_prompt_engineer_model,
+    normalize_stage3_generation_model,
+    normalize_vision_model,
+)
 from app.services.prompt_templates import (
     DEFAULT_STAGE1_PROMPT_TEMPLATE,
     DEFAULT_STAGE3_PROMPT_TEMPLATE,
@@ -49,6 +55,8 @@ def init_db() -> None:
                     stage3_critique_model=normalize_vision_model(settings.stage3_critique_model or settings.openai_model_vision),
                     stage3_generate_model=normalize_stage3_generation_model(settings.stage3_generate_model),
                     quality_gate_model=normalize_vision_model(settings.quality_gate_model or settings.openai_model_vision),
+                    image_aspect_ratio=normalize_image_aspect_ratio(settings.image_aspect_ratio),
+                    image_resolution=normalize_image_resolution(settings.image_resolution),
                     openai_model_vision=normalize_vision_model(settings.openai_model_vision),
                 )
             )
@@ -66,6 +74,8 @@ def init_db() -> None:
             else:
                 existing.stage3_generate_model = normalize_stage3_generation_model(existing.stage3_generate_model)
             existing.quality_gate_model = normalize_vision_model(existing.quality_gate_model or existing.openai_model_vision)
+            existing.image_aspect_ratio = normalize_image_aspect_ratio(getattr(existing, "image_aspect_ratio", settings.image_aspect_ratio))
+            existing.image_resolution = normalize_image_resolution(getattr(existing, "image_resolution", settings.image_resolution))
             existing.prompt_engineer_mode = existing.prompt_engineer_mode if existing.prompt_engineer_mode in {"assistant", "responses_api"} else "responses_api"
             if not existing.responses_prompt_engineer_model or existing.responses_prompt_engineer_model == "gpt-4.1-mini":
                 existing.responses_prompt_engineer_model = "gpt-5.4"
@@ -96,6 +106,10 @@ def _ensure_runtime_config_columns() -> None:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
         if "quality_gate_model" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+        if "image_aspect_ratio" not in existing:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
+        if "image_resolution" not in existing:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_resolution TEXT NOT NULL DEFAULT '1K'"))
         if "prompt_engineer_mode" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
         if "responses_prompt_engineer_model" not in existing:

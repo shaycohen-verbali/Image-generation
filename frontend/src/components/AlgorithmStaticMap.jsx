@@ -69,10 +69,10 @@ const WHITE_BG_PROMPT_TEMPLATE = [
 ].join(' ')
 
 const VARIANT_FINAL_PROMPT_TEMPLATE =
-  'Use the winning final image as the base. Keep the same AAC concept, action, style, composition, and props. Create male branch variants directly from the male winner. If female is selected, first create a female kid/white seed image from the male winner, then create all female final-image variants from that female seed.'
+  'Use the Stage 3 winner image as the base. First expand the white male kid baseline to the requested male age profiles. Then create one white female kid seed from the same Stage 3 winner. Then expand the white female kid seed to the requested female age profiles. Then create race variants from the matching white age+gender baseline for each requested profile. Keep the same AAC concept, composition, pose, props, and style.'
 
 const VARIANT_WHITE_BG_PROMPT_TEMPLATE =
-  'Use the winning white-background image as the base. Keep the same AAC concept isolated on white. Create male white-background variants directly from the male white-background winner. If female is selected, first create a female kid/white white-background seed image, then create all female white-background variants from that female seed.'
+  'Take every final variant created in the prior stage and make its matching white-background version. Preserve the exact same avatar, age, gender, race, pose, framing, props, and object scale. Only change the background treatment to clean white.'
 
 const STAGE_DETAILS = {
   stage1_prompt: {
@@ -96,6 +96,7 @@ const STAGE_DETAILS = {
       {
         input: {
           prompt: '<stage1 first prompt>',
+          aspect_ratio: '<config.image_aspect_ratio>',
           output_format: 'jpg',
         },
       },
@@ -105,6 +106,7 @@ const STAGE_DETAILS = {
     requestExample: {
       input: {
         prompt: '<stage1 first prompt>',
+        aspect_ratio: '<config.image_aspect_ratio>',
         output_format: 'jpg',
       },
     },
@@ -135,8 +137,8 @@ const STAGE_DETAILS = {
     },
   },
   stage3_generate: {
-    apiCall: 'Replicate via Cloudflare AI Gateway',
-    provider: 'Replicate model selected in runtime config',
+    apiCall: 'Selected image provider API',
+    provider: 'Google API or Replicate model selected in runtime config',
     model: 'flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-2 | nano-banana-pro',
     inputs: ['upgraded prompt from stage 3.2'],
     outputs: ['stage3_upgraded image URL', 'stage3_upgraded asset'],
@@ -146,12 +148,9 @@ const STAGE_DETAILS = {
         {
           input: {
             prompt: '<stage3 upgraded prompt>',
-            aspect_ratio: '4:3',
+            aspect_ratio: '<config.image_aspect_ratio>',
+            image_size: '<config.image_resolution>',
             output_format: 'jpg',
-            output_quality: 80,
-            prompt_upsampling: false,
-            safety_tolerance: 2,
-            seed: 10000,
           },
         },
         null,
@@ -164,7 +163,7 @@ const STAGE_DETAILS = {
           input: {
             prompt: '<stage3 upgraded prompt>',
             num_outputs: 1,
-            aspect_ratio: '4:3',
+            aspect_ratio: '<config.image_aspect_ratio>',
             output_format: 'jpg',
             output_quality: 80,
             prompt_upsampling: true,
@@ -195,7 +194,7 @@ const STAGE_DETAILS = {
     },
   },
   stage4_background: {
-    apiCall: 'Replicate via Cloudflare AI Gateway',
+    apiCall: 'Google Generative Language image API',
     provider: 'Google API',
     model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
     inputs: ['highest-score winner image from stage3 attempts'],
@@ -205,43 +204,46 @@ const STAGE_DETAILS = {
       input: {
         prompt: WHITE_BG_PROMPT_TEMPLATE,
         image_input: ['<data:image/...>'],
-        aspect_ratio: 'match_input_image',
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
         output_format: 'jpg',
       },
     },
   },
   stage4_variant_generate: {
-    apiCall: 'Replicate via Cloudflare AI Gateway',
+    apiCall: 'Google Generative Language image API',
     provider: 'Google API',
     model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
-    inputs: ['winner final image', 'selected gender/age/skin combinations'],
-    outputs: ['male final variants', 'female seed final', 'female-derived final variants'],
+    inputs: ['stage3 winner image', 'requested gender/age/skin combinations'],
+    outputs: ['white male age variants', 'white female kid seed', 'white female age variants', 'race variants from matching white age/gender baselines'],
     instruction: VARIANT_FINAL_PROMPT_TEMPLATE,
     requestExample: {
       input: {
         prompt: VARIANT_FINAL_PROMPT_TEMPLATE,
-        image_input: ['<winner final image data URI>'],
-        aspect_ratio: 'match_input_image',
+        image_input: ['<stage3 winner image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
         output_format: 'jpg',
       },
-      branch_rule: 'male winner -> female seed -> female variants',
+      branch_rule: 'white male age expansion -> female white kid seed -> white female age expansion -> race expansion from matching white age/gender baselines',
     },
   },
   stage5_variant_white_bg: {
-    apiCall: 'Replicate via Cloudflare AI Gateway',
+    apiCall: 'Google Generative Language image API',
     provider: 'Google API',
     model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
-    inputs: ['winner white-background image', 'selected gender/age/skin combinations'],
-    outputs: ['male white-background variants', 'female seed white-background', 'female-derived white-background variants'],
+    inputs: ['all final variants from the previous stage'],
+    outputs: ['matching white-background versions for every final variant'],
     instruction: VARIANT_WHITE_BG_PROMPT_TEMPLATE,
     requestExample: {
       input: {
         prompt: VARIANT_WHITE_BG_PROMPT_TEMPLATE,
-        image_input: ['<winner white-background image data URI>'],
-        aspect_ratio: 'match_input_image',
+        image_input: ['<matching final variant image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
         output_format: 'jpg',
       },
-      branch_rule: 'male white-bg winner -> female white-bg seed -> female white-bg variants',
+      branch_rule: 'make white-background versions for every final variant created in the prior stage',
     },
   },
   completed_pass: {
@@ -294,8 +296,8 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana-2', status: 'queued', x: 1540, y: 120 },
-      { id: 'stage4_variant_generate', label: 'Stage 5 Variant Finals', subtitle: 'male base + female seed branch', status: 'queued', x: 1910, y: 40 },
-      { id: 'stage5_variant_white_bg', label: 'Stage 6 Variant White BG', subtitle: 'male white bg + female seed branch', status: 'queued', x: 1910, y: 280 },
+      { id: 'stage4_variant_generate', label: 'Stage 5-8 Variant Finals', subtitle: 'white age expansion -> female seed -> female age expansion -> race expansion', status: 'queued', x: 1910, y: 40 },
+      { id: 'stage5_variant_white_bg', label: 'Stage 9 Variant White BG', subtitle: 'white background for every final variant', status: 'queued', x: 1910, y: 280 },
       { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 2280, y: 160 },
       { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
     ],
@@ -312,8 +314,8 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
       { from: 'quality_gate', to: 'stage4_background', label: 'after final scoring: winner selected', fromPort: 'top', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_pass', label: 'base ready / no extra variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_background', to: 'stage4_variant_generate', label: 'base final + optional female seed', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_background', to: 'stage5_variant_white_bg', label: 'base white bg + optional female seed', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage4_background', to: 'stage4_variant_generate', label: 'use stage3 winner as the variant baseline', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_variant_generate', to: 'stage5_variant_white_bg', label: 'make white-background copies of all final variants', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage4_variant_generate', to: 'completed_pass', label: 'final variants complete', fromPort: 'right', toPort: 'left' },
       { from: 'stage5_variant_white_bg', to: 'completed_pass', label: 'white-bg variants complete', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_fail', label: 'score below threshold', type: 'branch', fromPort: 'bottom', toPort: 'left' },
@@ -382,7 +384,10 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         <strong>Photorealistic style:</strong> AAC Clean Photorealistic Style v1 (built-in when the resolved decision is no person)
       </p>
       <p className="algo-assistant-name">
-        <strong>Loop logic:</strong> Stage 1 makes an initial guess about whether a person is needed -> Stage 2 creates the draft -> Stage 3.1 critique decides whether a person is actually needed for clarity -> Stage 3.2 prompt engineer uses that Stage 3.1 decision -> Stage 3.3 generates the upgraded image -> Quality Gate -> loop back to Stage 3.1 until pass or attempts exhausted -> Stage 4 creates the base white-background winner -> Stage 5 creates profile variants from the male final winner and, when selected, first creates a female seed image then derives female variants from that seed -> Stage 6 repeats that branching from the white-background winner.
+        <strong>Image output settings:</strong> aspect ratio {config?.image_aspect_ratio || '1:1'} | resolution {config?.image_resolution || '1K'}
+      </p>
+      <p className="algo-assistant-name">
+        <strong>Loop logic:</strong> Stage 1 makes an initial guess about whether a person is needed -> Stage 2 creates the draft -> Stage 3.1 critique decides whether a person is actually needed for clarity -> Stage 3.2 prompt engineer uses that Stage 3.1 decision -> Stage 3.3 generates the upgraded image -> Quality Gate -> loop back to Stage 3.1 until pass or attempts exhausted -> Stage 4 creates the base white-background winner -> Stage 5 expands the white male kid baseline to requested male ages from the Stage 3 winner -> Stage 6 creates a white female kid seed from the Stage 3 winner -> Stage 7 expands that white female kid seed to requested female ages -> Stage 8 creates race variants from the matching white age/gender baselines -> Stage 9 makes white-background versions for every final variant.
       </p>
 
       <WorkflowCanvas

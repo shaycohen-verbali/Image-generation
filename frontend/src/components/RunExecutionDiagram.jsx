@@ -47,8 +47,8 @@ function prettyStage(stage) {
   if (stage === 'stage3_upgrade') return 'Stage 3: Improve + generate'
   if (stage === 'quality_gate') return 'Quality check'
   if (stage === 'stage4_background') return 'Stage 4: White background'
-  if (stage === 'stage4_variant_generate') return 'Stage 5: Variant finals'
-  if (stage === 'stage5_variant_white_bg') return 'Stage 6: Variant white background'
+  if (stage === 'stage4_variant_generate') return 'Stage 5-8: Variant finals'
+  if (stage === 'stage5_variant_white_bg') return 'Stage 9: Variant white background'
   if (stage === 'completed') return 'Completed'
   return stage || '-'
 }
@@ -107,6 +107,9 @@ const DETAIL_TABS = {
   SETTINGS: 'settings',
   DEBUG: 'debug',
 }
+
+const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
+const IMAGE_RESOLUTION_OPTIONS = ['1K', '2K', '4K']
 
 function stageImageLabel(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
@@ -1282,7 +1285,7 @@ export default function RunExecutionDiagram({
         <div className="run-detail-section-grid">
           <div className="run-help-card">
             <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
-            <p>Flow: Stage 1 prompt + initial person guess -> Stage 2 draft -> Stage 3 critique validates whether a person is actually needed -> Stage 3 prompt/image enforce the resolved style -> Quality Gate -> winner selection -> Stage 4 white background -> Stage 5 final-image profile branches -> Stage 6 white-background profile branches.</p>
+            <p>Flow: Stage 1 prompt + initial person guess -> Stage 2 draft -> Stage 3 critique validates whether a person is actually needed -> Stage 3 prompt/image enforce the resolved style -> Quality Gate -> winner selection -> Stage 4 white background -> Stage 5 white male age expansion from the Stage 3 winner -> Stage 6 white female kid seed from the Stage 3 winner -> Stage 7 white female age expansion -> Stage 8 race expansion from matching white age/gender baselines -> Stage 9 white-background copies for every final variant.</p>
             <p>If quality fails and attempts remain, the system loops from Quality Gate back to Stage 3 for the next attempt.</p>
           </div>
 
@@ -1350,6 +1353,28 @@ export default function RunExecutionDiagram({
                 />
               </label>
               <label>
+                Output aspect ratio
+                <select
+                  value={promptEngineerConfig.imageAspectRatio}
+                  onChange={(e) => promptEngineerConfig.setImageAspectRatio(e.target.value)}
+                >
+                  {IMAGE_ASPECT_RATIO_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Output resolution
+                <select
+                  value={promptEngineerConfig.imageResolution}
+                  onChange={(e) => promptEngineerConfig.setImageResolution(e.target.value)}
+                >
+                  {IMAGE_RESOLUTION_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
                 Illustration style id
                 <input value={promptEngineerConfig.visualStyleId} onChange={(e) => promptEngineerConfig.setVisualStyleId(e.target.value)} />
               </label>
@@ -1374,6 +1399,9 @@ export default function RunExecutionDiagram({
               </p>
               <p className="config-help-text">
                 OpenAI models use Responses API with the vector store. Gemini prompt engineer models use the direct Google API and do not use the vector store.
+              </p>
+              <p className="config-help-text">
+                Google image output settings follow the documented API options. Default aspect ratio is 1:1. Default resolution is 1K.
               </p>
               <button type="button" onClick={onSavePromptEngineerConfig}>Save Prompt Engineer Settings</button>
             </div>

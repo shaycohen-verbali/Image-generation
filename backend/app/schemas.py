@@ -6,6 +6,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 PromptEngineerModel = Literal["gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
+ImageAspectRatio = Literal["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
+ImageResolution = Literal["1K", "2K", "4K"]
 
 
 class EntryCreate(BaseModel):
@@ -202,6 +204,8 @@ class RuntimeConfigOut(BaseModel):
     stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
     quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
+    image_aspect_ratio: ImageAspectRatio
+    image_resolution: ImageResolution
 
 
 class RuntimeConfigUpdate(BaseModel):
@@ -226,3 +230,5 @@ class RuntimeConfigUpdate(BaseModel):
     stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
     quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None
+    image_aspect_ratio: ImageAspectRatio | None = None
+    image_resolution: ImageResolution | None = None

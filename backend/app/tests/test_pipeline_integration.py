@@ -111,13 +111,13 @@ class MockReplicate:
         self.nano_fail_attempts = nano_fail_attempts or set()
         self.imagen_calls = 0
 
-    def flux_schnell(self, prompt: str):
+    def flux_schnell(self, prompt: str, *, aspect_ratio: str = "1:1"):
         self.stage2_calls += 1
         if self.stage2_calls <= self.stage2_failures_before_success:
             return {"status": "failed", "id": "pred_s2_failed"}
         return {"status": "succeeded", "id": "pred_s2", "output": "http://mock/stage2.jpg"}
 
-    def generate_stage3(self, model_choice: str, prompt: str):
+    def generate_stage3(self, model_choice: str, prompt: str, *, aspect_ratio: str = "1:1"):
         if model_choice == "flux-1.1-pro":
             self.stage3_calls += 1
             if self.stage3_calls in self.flux_fail_attempts:
@@ -131,7 +131,7 @@ class MockReplicate:
         self.stage3_calls += 1
         return {"status": "succeeded", "id": f"pred_s3_{self.stage3_calls}", "output": "http://mock/stage3.jpg"}, model_choice
 
-    def nano_banana_white_bg(self, image_path: Path, word: str):
+    def nano_banana_white_bg(self, image_path: Path, word: str, *, aspect_ratio: str = "1:1", image_size: str = "1K"):
         self.stage4_calls += 1
         if self.stage4_calls in self.nano_fail_attempts:
             return {"status": "failed", "id": f"pred_s4_failed_{self.stage4_calls}"}
@@ -144,13 +144,17 @@ class MockReplicate:
         word: str,
         profile_description: str,
         white_background: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
     ) -> dict[str, object]:
         return {
             "model_path": "google/nano-banana-2",
-            "prompt": f"variant prompt for {profile_description}",
+            "prompt": f"{edit_instruction} variant prompt for {profile_description}".strip(),
             "source_image_path": image_path.as_posix(),
             "white_background": white_background,
-            "aspect_ratio": "match_input_image",
+            "aspect_ratio": aspect_ratio or "match_input_image",
+            "image_size": image_size or "1K",
             "output_format": "jpg",
             "word": word,
         }
@@ -185,6 +189,9 @@ class VariantCapableReplicate(MockReplicate):
         word: str,
         profile_description: str,
         white_background: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
     ) -> dict[str, object]:
         self._variant_idx += 1
         prediction_id = f"pred_variant_{self._variant_idx}"
@@ -239,7 +246,7 @@ class MockGoogleImageClient:
         self._inline_assets[url] = self._image_bytes()
         return url
 
-    def generate_stage3(self, model_choice: str, prompt: str):
+    def generate_stage3(self, model_choice: str, prompt: str, *, aspect_ratio: str = "1:1", image_size: str = "1K"):
         self.stage3_calls += 1
         prediction_id = f"google_stage3_{self.stage3_calls}"
         return {
@@ -247,11 +254,11 @@ class MockGoogleImageClient:
             "id": prediction_id,
             "model": "gemini-3.1-flash-image-preview",
             "output": [self._inline_url(prediction_id)],
-            "request_json": {"prompt": prompt, "model_choice": model_choice},
+            "request_json": {"prompt": prompt, "model_choice": model_choice, "aspect_ratio": aspect_ratio, "image_size": image_size},
             "response_json": {"mock": True},
         }, "gemini-3.1-flash-image-preview"
 
-    def nano_banana_white_bg(self, image_path: Path, word: str):
+    def nano_banana_white_bg(self, image_path: Path, word: str, *, aspect_ratio: str = "1:1", image_size: str = "1K"):
         self.stage4_calls += 1
         prediction_id = f"google_stage4_{self.stage4_calls}"
         if self.stage4_calls in self.stage4_failures:
@@ -259,7 +266,7 @@ class MockGoogleImageClient:
                 "status": "failed",
                 "id": prediction_id,
                 "model": "gemini-3.1-flash-image-preview",
-                "request_json": {"image_path": image_path.as_posix(), "word": word},
+                "request_json": {"image_path": image_path.as_posix(), "word": word, "aspect_ratio": aspect_ratio, "image_size": image_size},
                 "response_json": {"mock": True, "status": "failed"},
             }
         return {
@@ -267,7 +274,7 @@ class MockGoogleImageClient:
             "id": prediction_id,
             "model": "gemini-3.1-flash-image-preview",
             "output": [self._inline_url(prediction_id)],
-            "request_json": {"image_path": image_path.as_posix(), "word": word},
+            "request_json": {"image_path": image_path.as_posix(), "word": word, "aspect_ratio": aspect_ratio, "image_size": image_size},
             "response_json": {"mock": True},
         }
 
@@ -278,13 +285,18 @@ class MockGoogleImageClient:
         word: str,
         profile_description: str,
         white_background: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
     ) -> dict[str, object]:
         return {
             "model": "nano-banana-2",
             "provider_model": "gemini-3.1-flash-image-preview",
-            "prompt": f"variant prompt for {profile_description}",
+            "prompt": f"{edit_instruction} variant prompt for {profile_description}".strip(),
             "source_image_path": image_path.as_posix(),
             "white_background": white_background,
+            "aspect_ratio": aspect_ratio or "match_input_image",
+            "image_size": image_size or "1K",
             "word": word,
         }
 
@@ -295,6 +307,9 @@ class MockGoogleImageClient:
         word: str,
         profile_description: str,
         white_background: bool = False,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
     ) -> dict[str, object]:
         self._variant_idx += 1
         prediction_id = f"google_variant_{self._variant_idx}"
@@ -310,7 +325,13 @@ class MockGoogleImageClient:
             "status": "processing",
             "polls_remaining": 1,
             "output": self._inline_url(prediction_id),
-            "request_json": {"source_path": image_path.as_posix(), "profile_description": profile_description},
+            "request_json": {
+                "source_path": image_path.as_posix(),
+                "profile_description": profile_description,
+                "aspect_ratio": aspect_ratio or "match_input_image",
+                "image_size": image_size or "1K",
+                "edit_instruction": edit_instruction,
+            },
             "response_json": {"mock": True},
         }
         return {"id": prediction_id, "status": "processing", "model": "gemini-3.1-flash-image-preview"}

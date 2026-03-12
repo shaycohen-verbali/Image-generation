@@ -179,6 +179,76 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
     )
 
 
+def profile_age_phrase(age: str) -> str:
+    normalized = str(age or "").strip().lower()
+    return {
+        "toddler": "a toddler (3 yo)",
+        "kid": "a kid (7 yo)",
+        "tween": "a tween (12 yo)",
+        "teenager": "a teenager (17 yo)",
+    }.get(normalized, "the requested age")
+
+
+def profile_gender_phrase(gender: str, age: str) -> str:
+    normalized_gender = str(gender or "").strip().lower()
+    normalized_age = str(age or "").strip().lower()
+    if normalized_gender == "female":
+        return {
+            "toddler": "a female toddler (3 yo)",
+            "kid": "a female kid (7 yo)",
+            "tween": "a female tween (12 yo)",
+            "teenager": "a female teenager (17 yo)",
+        }.get(normalized_age, "a female person")
+    return {
+        "toddler": "a male toddler (3 yo)",
+        "kid": "a male kid (7 yo)",
+        "tween": "a male tween (12 yo)",
+        "teenager": "a male teenager (17 yo)",
+    }.get(normalized_age, "a male person")
+
+
+def profile_race_phrase(skin_color: str, gender: str, age: str) -> str:
+    normalized_skin = str(skin_color or "").strip().lower()
+    if normalized_skin == "asian":
+        skin_text = "Asian-origin"
+    elif normalized_skin == "brown":
+        skin_text = "Indian-origin South Asian"
+    elif normalized_skin == "black":
+        skin_text = "Black"
+    else:
+        skin_text = "White"
+    return f"{profile_gender_phrase(gender, age)} with {skin_text} physical nuances"
+
+
+def profile_edit_instruction(target: dict[str, str], source: dict[str, str] | None) -> str:
+    source_profile = source or {}
+    target_gender = str(target.get("gender", "") or "").strip().lower()
+    target_age = str(target.get("age", "") or "").strip().lower()
+    target_skin = str(target.get("skin_color", "") or "").strip().lower()
+    source_gender = str(source_profile.get("gender", "") or "").strip().lower()
+    source_age = str(source_profile.get("age", "") or "").strip().lower()
+    source_skin = str(source_profile.get("skin_color", "") or "").strip().lower()
+
+    changes: list[str] = []
+    if target_age and target_age != source_age:
+        changes.append(
+            f"Make this picture {profile_age_phrase(target_age)}. Make sure that the body and head are {profile_age_phrase(target_age)} appropriate and the size of the other objects near the human changes accordingly."
+        )
+    if target_gender and target_gender != source_gender:
+        changes.append(
+            f"Make this picture {profile_gender_phrase(target_gender, target_age or source_age or DEFAULT_AGE)}. Make sure that the body and head are age appropriate and the size of the other objects near the human changes accordingly."
+        )
+    if target_skin and target_skin != source_skin:
+        changes.append(
+            f"Update the image to {profile_race_phrase(target_skin, target_gender or source_gender or DEFAULT_GENDER, target_age or source_age or DEFAULT_AGE)}. Make sure to be appropriate with the race's physical nuances but not any stigma features."
+        )
+    if not changes:
+        changes.append(
+            "Keep the same person identity and concept, with only the minimum changes needed to match the requested profile."
+        )
+    return " ".join(changes)
+
+
 def all_selected_profiles(entry: Any) -> list[dict[str, str]]:
     genders = entry_gender_options(entry)
     ages = entry_age_options(entry)
@@ -282,26 +352,26 @@ def planned_review_profiles(entry: Any) -> list[dict[str, str]]:
 
 def variant_branch_plan(entry: Any) -> dict[str, Any]:
     default = entry_default_profile(entry)
-    female_anchor = {
-        "gender": "female",
-        "age": DEFAULT_AGE,
-        "skin_color": DEFAULT_SKIN_COLOR,
-    }
+    planned_profiles = planned_review_profiles(entry)
+    by_key = {profile_key(profile): profile for profile in planned_profiles}
+    female_anchor = {"gender": "female", "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
     plan = {
         "base_profile": default,
-        "male_variants": [],
-        "female_seed": None,
-        "female_variants": [],
+        "planned_profiles": planned_profiles,
+        "male_age_variants": [],
+        "female_seed": by_key.get(profile_key(female_anchor)),
+        "female_age_variants": [],
+        "appearance_variants": [],
     }
     for profile in additional_variant_profiles(entry):
-        key = profile_key(profile)
-        if profile.get("gender") == "female":
-            if key == profile_key(female_anchor):
-                plan["female_seed"] = profile
-            else:
-                plan["female_variants"].append(profile)
+        if profile.get("skin_color") != DEFAULT_SKIN_COLOR:
+            plan["appearance_variants"].append(profile)
             continue
-        plan["male_variants"].append(profile)
+        if profile.get("gender") == "female":
+            if profile_key(profile) != profile_key(female_anchor):
+                plan["female_age_variants"].append(profile)
+            continue
+        plan["male_age_variants"].append(profile)
     return plan
 
 
