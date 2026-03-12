@@ -198,6 +198,30 @@ body {
 
 .matrix-check input {
   margin: 0;
+  width: 18px;
+  height: 18px;
+  accent-color: #0f7f7d;
+  filter: saturate(1.35) contrast(1.15);
+  cursor: default;
+}
+
+.matrix-check input:checked {
+  outline: 2px solid #0f7f7d;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(15, 127, 125, 0.18);
+}
+
+.matrix-check span {
+  color: #35515a;
+  font-weight: 700;
+}
+
+.profile-matrix-table td {
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.profile-matrix-table td:has(input:checked) {
+  background: rgba(183, 228, 223, 0.42);
 }
 
 .option-group-card {
