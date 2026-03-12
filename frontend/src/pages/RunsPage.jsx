@@ -102,6 +102,7 @@ export default function RunsPage() {
   const [visualStylePromptBlock, setVisualStylePromptBlock] = useState('')
   const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
   const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
+  const [selectedDetailTab, setSelectedDetailTab] = useState('overview')
   const selectedRunIdRef = useRef('')
   const runsRef = useRef([])
   const detailStateRef = useRef(null)
@@ -153,10 +154,10 @@ export default function RunsPage() {
     return (asset.attempt || 0) >= (latest.attempt || 0) ? asset : latest
   }, null)
 
-  async function loadRunDetail(runId, { isPolling = false } = {}) {
+  async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
     if (!runId) return
     try {
-      const data = await getRun(runId)
+      const data = await getRun(runId, { includeDebug })
       if (selectedRunIdRef.current && selectedRunIdRef.current !== runId) {
         return
       }
@@ -270,15 +271,16 @@ export default function RunsPage() {
       setDetail(null)
       return undefined
     }
-    loadRunDetail(selectedRunId)
+    const includeDebug = selectedDetailTab === 'debug'
+    loadRunDetail(selectedRunId, { includeDebug })
     const timer = setInterval(() => {
       const activeRunId = selectedRunIdRef.current
       if (activeRunId) {
-        loadRunDetail(activeRunId, { isPolling: true })
+        loadRunDetail(activeRunId, { isPolling: true, includeDebug })
       }
-    }, 3000)
+    }, includeDebug ? 8000 : 3000)
     return () => clearInterval(timer)
-  }, [selectedRunId])
+  }, [selectedRunId, selectedDetailTab])
 
   const onRetry = async (runId) => {
     try {
@@ -419,6 +421,7 @@ export default function RunsPage() {
               <RunExecutionDiagram
                 detail={detail}
                 assistantName={assistantName}
+                onActiveTabChange={setSelectedDetailTab}
                 promptEngineerConfig={{
                   promptEngineerMode,
                   setPromptEngineerMode,
@@ -448,7 +451,7 @@ export default function RunsPage() {
               <h3>Final Image</h3>
               {finalAsset?.id ? (
                 <div className="asset-card">
-                  <img className="asset-image" src={buildAssetContentUrl(finalAsset)} alt="Final white background output" />
+                  <img className="asset-image" src={buildAssetContentUrl(finalAsset)} alt="Final white background output" loading="lazy" decoding="async" />
                   <div className="asset-meta">
                     <p>{finalAsset.file_name}</p>
                     <a href={buildAssetContentUrl(finalAsset)} target="_blank" rel="noreferrer">
@@ -467,7 +470,7 @@ export default function RunsPage() {
                     <div key={asset.id} className="asset-card">
                       <h4>{stageTitle(asset.stage_name)}</h4>
                       {asset.id ? (
-                        <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
+                        <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} attempt ${asset.attempt}`} loading="lazy" decoding="async" />
                       ) : (
                         <p>Image URL unavailable.</p>
                       )}

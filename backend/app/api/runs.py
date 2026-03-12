@@ -254,23 +254,30 @@ def list_runs(
     payload_rows: list[RunOut] = []
     for run in runs:
         entry = repo.get_entry(run.entry_id)
-        _, stages, _, assets, _ = repo.run_details(run.id)
+        _, stages, assets, _ = repo.run_snapshot(run.id)
         payload_rows.append(_run_out(run, entry, cost_summary=summarize_run_costs(stages, assets)))
     return payload_rows
 
 
 @router.get("/{run_id}", response_model=RunDetailOut)
-def get_run(run_id: str, db: Session = Depends(db_dependency)) -> RunDetailOut:
+def get_run(run_id: str, include_debug: bool = Query(default=False), db: Session = Depends(db_dependency)) -> RunDetailOut:
     repo = Repository(db)
-    run, stages, prompts, assets, scores = repo.run_details(run_id)
+    if include_debug:
+        run, stages, prompts, assets, scores = repo.run_details(run_id)
+        events = repo.list_run_events(run_id)
+    else:
+        run, stages, assets, scores = repo.run_snapshot(run_id)
+        prompts = []
+        events = []
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    events = repo.list_run_events(run_id)
 
     entry = repo.get_entry(run.entry_id)
     cost_summary = summarize_run_costs(stages, assets)
     run_payload = _run_out(run, entry, cost_summary=cost_summary)
-    execution_log, detailed_execution_log = _build_event_logs(run, events, stages, assets, scores)
+    execution_log, detailed_execution_log = ("", "")
+    if include_debug:
+        execution_log, detailed_execution_log = _build_event_logs(run, events, stages, assets, scores)
 
     return RunDetailOut(
         run=run_payload,

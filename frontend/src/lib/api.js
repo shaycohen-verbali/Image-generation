@@ -78,8 +78,11 @@ export async function listRuns(filters = {}) {
   return fetchJson(`${API_BASE}/runs?${query.toString()}`, {}, 1)
 }
 
-export async function getRun(runId) {
-  return fetchJson(`${API_BASE}/runs/${runId}`, {}, 1)
+export async function getRun(runId, options = {}) {
+  const query = new URLSearchParams()
+  if (options.includeDebug) query.set('include_debug', 'true')
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return fetchJson(`${API_BASE}/runs/${runId}${suffix}`, {}, 1)
 }
 
 export async function retryRun(runId) {

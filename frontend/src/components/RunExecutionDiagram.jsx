@@ -630,7 +630,7 @@ function renderOverviewSection({
           </div>
           {finalImageUrl ? (
             <div className="run-hero-image-card">
-              <img className="asset-image" src={finalImageUrl} alt="Final run output" />
+              <img className="asset-image" src={finalImageUrl} alt="Final run output" loading="lazy" decoding="async" />
               <div className="asset-meta">
                 <p><strong>{winnerStage4Asset ? 'Winner white-background image' : 'Latest visible image'}</strong></p>
                 <p>{winnerStage4Asset?.file_name || finalAsset?.file_name || '-'}</p>
@@ -658,6 +658,7 @@ export default function RunExecutionDiagram({
   assistantName = '',
   promptEngineerConfig,
   onSavePromptEngineerConfig,
+  onActiveTabChange,
 }) {
   const attempts = useMemo(() => getAvailableAttempts(detail), [detail?.run?.id, detail?.run?.updated_at, detail])
   const initialState = loadRunDetailState(detail?.run?.id) || {}
@@ -735,6 +736,12 @@ export default function RunExecutionDiagram({
       selectedAttempt,
     })
   }, [detail?.run?.id, activeTab, imageFilter, selectedNodeId, selectedAttempt])
+
+  useEffect(() => {
+    if (typeof onActiveTabChange === 'function') {
+      onActiveTabChange(activeTab)
+    }
+  }, [activeTab, onActiveTabChange])
 
   if (!detail) {
     return <p>Select a run row to see live execution.</p>
@@ -1011,7 +1018,7 @@ export default function RunExecutionDiagram({
                       <div key={asset.id} className="asset-card run-asset-card">
                         <h4>{stageImageLabel(asset.stage_name)}</h4>
                         {asset.id ? (
-                          <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} ${attemptLabel(asset)}`} />
+                          <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} ${attemptLabel(asset)}`} loading="lazy" decoding="async" />
                         ) : (
                           <p className="asset-meta-empty">Image URL unavailable.</p>
                         )}
@@ -1041,7 +1048,7 @@ export default function RunExecutionDiagram({
                         <div key={asset.id} className="asset-card run-asset-card">
                           <h4>{stageImageLabel(asset.stage_name)}</h4>
                           {asset.id ? (
-                            <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${group.label} ${attemptLabel(asset)}`} />
+                            <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${group.label} ${attemptLabel(asset)}`} loading="lazy" decoding="async" />
                           ) : (
                             <p className="asset-meta-empty">Image URL unavailable.</p>
                           )}

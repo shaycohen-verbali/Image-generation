@@ -27,7 +27,7 @@ export default function EntryDetailPage() {
     if (!runId) return
     setMessage('Loading run...')
     try {
-      const detail = await getRun(runId)
+      const detail = await getRun(runId, { includeDebug: true })
       setData(detail)
       setMessage(`Loaded run ${runId}`)
     } catch (error) {
@@ -66,7 +66,7 @@ export default function EntryDetailPage() {
             <h3>Final Image</h3>
             {finalAsset?.id ? (
               <div className="asset-card">
-                <img className="asset-image" src={buildAssetContentUrl(finalAsset)} alt="Final white background output" />
+                <img className="asset-image" src={buildAssetContentUrl(finalAsset)} alt="Final white background output" loading="lazy" decoding="async" />
                 <div className="asset-meta">
                   <p>{finalAsset.file_name}</p>
                   <a href={buildAssetContentUrl(finalAsset)} target="_blank" rel="noreferrer">
@@ -85,7 +85,7 @@ export default function EntryDetailPage() {
                   <div key={asset.id} className="asset-card">
                     <h4>{stageTitle(asset.stage_name)}</h4>
                     {asset.id ? (
-                      <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
+                      <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} attempt ${asset.attempt}`} loading="lazy" decoding="async" />
                     ) : (
                       <p>Image URL unavailable.</p>
                     )}

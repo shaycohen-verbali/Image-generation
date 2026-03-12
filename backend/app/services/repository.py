@@ -475,6 +475,33 @@ class Repository:
         )
         return run, stages, prompts, assets, scores
 
+    def run_snapshot(self, run_id: str) -> tuple[Run | None, list[StageResult], list[Asset], list[Score]]:
+        run = self.get_run(run_id)
+        if run is None:
+            return None, [], [], []
+        stages = list(
+            self.db.execute(
+                select(StageResult)
+                .where(StageResult.run_id == run_id)
+                .order_by(StageResult.created_at.asc())
+            ).scalars()
+        )
+        assets = list(
+            self.db.execute(
+                select(Asset)
+                .where(Asset.run_id == run_id)
+                .order_by(Asset.created_at.asc())
+            ).scalars()
+        )
+        scores = list(
+            self.db.execute(
+                select(Score)
+                .where(Score.run_id == run_id)
+                .order_by(Score.created_at.asc())
+            ).scalars()
+        )
+        return run, stages, assets, scores
+
     def get_asset(self, asset_id: str) -> Asset | None:
         return self.db.execute(select(Asset).where(Asset.id == asset_id)).scalar_one_or_none()
 
