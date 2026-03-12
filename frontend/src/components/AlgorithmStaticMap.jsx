@@ -397,13 +397,13 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: `${promptEngineerLabel} + resolved style`, status: 'queued', x: 760, y: 235 },
       { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
-      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana-2', status: 'queued', x: 1540, y: 120 },
-      { id: 'stage5_male_age', label: 'Step 5 Male Age Expansion', subtitle: 'white male kid -> requested male ages', status: 'queued', x: 1910, y: 20 },
-      { id: 'stage6_female_seed', label: 'Step 6 Female Seed', subtitle: 'white female kid from Stage 3 winner', status: 'queued', x: 1910, y: 170 },
-      { id: 'stage7_female_age', label: 'Step 7 Female Age Expansion', subtitle: 'white female kid -> requested female ages', status: 'queued', x: 1910, y: 320 },
-      { id: 'stage8_race_expand', label: 'Step 8 Race Expansion', subtitle: 'race variants from matching white age+gender baselines', status: 'queued', x: 1910, y: 470 },
-      { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', status: 'queued', x: 2280, y: 620 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 2620, y: 620 },
+      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'base winner white BG', status: 'queued', x: 1540, y: 235 },
+      { id: 'stage5_male_age', label: 'Step 5 Male Age Expansion', subtitle: 'white male kid -> requested male ages', badge: 'backend: stage4_variant_generate', status: 'queued', x: 1910, y: 60 },
+      { id: 'stage6_female_seed', label: 'Step 6 Female Seed', subtitle: 'white female kid from Stage 3 winner', badge: 'backend: stage4_variant_generate', status: 'queued', x: 1910, y: 250 },
+      { id: 'stage7_female_age', label: 'Step 7 Female Age Expansion', subtitle: 'white female kid -> requested female ages', badge: 'backend: stage4_variant_generate', status: 'queued', x: 1910, y: 440 },
+      { id: 'stage8_race_expand', label: 'Step 8 Race Expansion', subtitle: 'race variants from matching white age+gender baselines', badge: 'backend: stage4_variant_generate', status: 'queued', x: 2280, y: 250 },
+      { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', badge: 'backend: stage5_variant_white_bg', status: 'queued', x: 2650, y: 250 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 3010, y: 250 },
       { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
     ],
     [promptEngineerLabel],
@@ -418,14 +418,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
       { from: 'quality_gate', to: 'stage4_background', label: 'after final scoring: winner selected', fromPort: 'top', toPort: 'left' },
-      { from: 'stage4_background', to: 'completed_pass', label: 'no variants', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_background', to: 'stage5_male_age', label: 'male ages', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_background', to: 'stage6_female_seed', label: 'female seed', fromPort: 'right', toPort: 'left' },
       { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'female ages', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'male race variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'female race variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage5_male_age', to: 'stage9_variant_white_bg', label: '', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage7_female_age', to: 'stage9_variant_white_bg', label: '', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'male baselines', fromPort: 'right', toPort: 'left' },
+      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'female baselines', fromPort: 'right', toPort: 'left' },
       { from: 'stage8_race_expand', to: 'stage9_variant_white_bg', label: 'all finals -> white BG', fromPort: 'right', toPort: 'left' },
       { from: 'stage9_variant_white_bg', to: 'completed_pass', label: 'done', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_fail', label: 'score below threshold', type: 'branch', fromPort: 'bottom', toPort: 'left' },
@@ -499,12 +496,15 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       <p className="algo-assistant-name">
         <strong>Loop logic:</strong> Stage 1 makes an initial guess about whether a person is needed -> Stage 2 creates the draft -> Stage 3.1 critique decides whether a person is actually needed for clarity -> Stage 3.2 prompt engineer uses that Stage 3.1 decision -> Stage 3.3 generates the upgraded image -> Quality Gate -> loop back to Stage 3.1 until pass or attempts exhausted -> Stage 4 creates the base white-background winner -> Stage 5 expands the white male kid baseline to requested male ages from the Stage 3 winner -> Stage 6 creates a white female kid seed from the Stage 3 winner -> Stage 7 expands that white female kid seed to requested female ages -> Stage 8 creates race variants from the matching white age/gender baselines -> Stage 9 makes white-background versions for every final variant.
       </p>
+      <p className="algo-assistant-name">
+        <strong>Variant staging in code:</strong> Steps 5-8 all run inside backend stage <code>stage4_variant_generate</code>. Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, the run completes after Stage 4.
+      </p>
 
       <WorkflowCanvas
         nodes={nodes}
         edges={edges}
-        width={2580}
-        height={800}
+        width={3320}
+        height={640}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
       />
