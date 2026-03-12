@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter, sleep
 from typing import Any
@@ -1256,7 +1257,7 @@ class PipelineRunner:
                 )
             return existing
 
-        def run_variant_step(
+        def run_variant_remote_step(
             *,
             stage_name: str,
             profile: dict[str, str],
@@ -1264,25 +1265,8 @@ class PipelineRunner:
             source_profile: dict[str, str] | None,
             source_asset: Asset,
             white_background: bool,
-        ) -> Asset | None:
-            existing = reuse_existing_variant(stage_name, profile, branch_role, source_profile)
-            if existing is not None:
-                sync_variant_progress(stage_name)
-                return existing
-
+        ) -> dict[str, Any]:
             profile_description = profile_prompt_fragment(profile)
-            log_variant_event(
-                stage_name=stage_name,
-                event_type="variant_submit_started",
-                status="running",
-                message="Submitting variant prediction",
-                payload={
-                    "profile": profile,
-                    "branch_role": branch_role,
-                    "source_profile": source_profile or {},
-                    "source_asset": source_asset.abs_path,
-                },
-            )
             try:
                 submitted = self._submit_profile_variant_prediction(
                     Path(source_asset.abs_path),
@@ -1294,123 +1278,70 @@ class PipelineRunner:
                     image_size=image_size,
                 )
             except Exception as exc:  # noqa: BLE001
-                append_failure(
-                    stage_name,
-                    profile=profile,
-                    branch_role=branch_role,
-                    source_profile=source_profile,
-                    profile_description=profile_description,
-                    error=str(exc),
-                    request_json=self._json_dict(getattr(exc, "request_json", {})),
-                    response_json=self._json_dict(getattr(exc, "response_json", {})),
-                )
-                log_variant_event(
-                    stage_name=stage_name,
-                    event_type="variant_submit_failed",
-                    status="error",
-                    message="Variant prediction submission failed",
-                    payload={
-                        "profile": profile,
-                        "branch_role": branch_role,
-                        "source_profile": source_profile or {},
-                        "error": str(exc),
-                        "request_json": self._json_dict(getattr(exc, "request_json", {})),
-                        "response_json": self._json_dict(getattr(exc, "response_json", {})),
-                    },
-                )
-                sync_variant_progress(stage_name)
-                return None
+                return {
+                    "ok": False,
+                    "failure_phase": "submit_failed",
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "source_profile": source_profile,
+                    "source_asset": source_asset,
+                    "profile_description": profile_description,
+                    "error": str(exc),
+                    "request_json": self._json_dict(getattr(exc, "request_json", {})),
+                    "response_json": self._json_dict(getattr(exc, "response_json", {})),
+                }
 
             request_summary = self._json_dict(submitted.get("request_summary"))
             created = self._json_dict(submitted.get("created"))
             prediction_id = str(created.get("id") or "")
-            status = str(created.get("status") or "").lower()
-            mark_submitted(
-                stage_name,
-                profile=profile,
-                branch_role=branch_role,
-                source_profile=source_profile,
-                profile_description=profile_description,
-                prediction_id=prediction_id,
-                prediction_status=status or "processing",
-            )
-            log_variant_event(
-                stage_name=stage_name,
-                event_type="variant_submit_finished",
-                status="ok" if prediction_id else "error",
-                message="Variant prediction submission returned",
-                payload={
-                    "profile": profile,
-                    "branch_role": branch_role,
-                    "source_profile": source_profile or {},
-                    "request": request_summary,
-                    "provider_response": created,
-                },
-            )
-            sync_variant_progress(stage_name, active_count=1 if prediction_id else 0)
+            prediction_status = str(created.get("status") or "").lower() or "processing"
+            status_transitions: list[str] = []
 
             if not prediction_id:
-                append_failure(
-                    stage_name,
-                    profile=profile,
-                    branch_role=branch_role,
-                    source_profile=source_profile,
-                    profile_description=profile_description,
-                    error="variant prediction submission returned no prediction id",
-                    request_json=request_summary,
-                    response_json=created,
-                )
-                sync_variant_progress(stage_name)
-                return None
+                return {
+                    "ok": False,
+                    "failure_phase": "submit_invalid",
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "source_profile": source_profile,
+                    "source_asset": source_asset,
+                    "profile_description": profile_description,
+                    "request_summary": request_summary,
+                    "created": created,
+                    "error": "variant prediction submission returned no prediction id",
+                    "request_json": request_summary,
+                    "response_json": created,
+                }
 
             prediction_result = created
-            last_status = status or "processing"
+            last_status = prediction_status
             while last_status not in {"succeeded", "failed", "canceled"}:
                 sleep(1.0)
                 prediction_result = self.google_images.get_prediction(prediction_id)
                 current_status = str(prediction_result.get("status") or "").lower()
-                if current_status != last_status:
-                    log_variant_event(
-                        stage_name=stage_name,
-                        event_type="variant_prediction_polled",
-                        status="running" if current_status not in {"succeeded", "failed", "canceled"} else current_status,
-                        message="Variant prediction status changed",
-                        payload={
-                            "profile": profile,
-                            "branch_role": branch_role,
-                            "source_profile": source_profile or {},
-                            "prediction_id": prediction_id,
-                            "provider_status": current_status,
-                        },
-                    )
-                last_status = current_status
+                if current_status and current_status != last_status:
+                    status_transitions.append(current_status)
+                last_status = current_status or last_status
 
             if last_status != "succeeded":
-                append_failure(
-                    stage_name,
-                    profile=profile,
-                    branch_role=branch_role,
-                    source_profile=source_profile,
-                    profile_description=profile_description,
-                    error=f"variant prediction finished with status={last_status}",
-                    request_json=self._json_dict(prediction_result.get("request_json")),
-                    response_json=self._json_dict(prediction_result.get("response_json")),
-                )
-                log_variant_event(
-                    stage_name=stage_name,
-                    event_type="variant_prediction_finished",
-                    status=last_status,
-                    message="Variant prediction finished without a usable image",
-                    payload={
-                        "profile": profile,
-                        "branch_role": branch_role,
-                        "source_profile": source_profile or {},
-                        "prediction_id": prediction_id,
-                        "provider_response": prediction_result,
-                    },
-                )
-                sync_variant_progress(stage_name)
-                return None
+                return {
+                    "ok": False,
+                    "failure_phase": "prediction_failed",
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "source_profile": source_profile,
+                    "source_asset": source_asset,
+                    "profile_description": profile_description,
+                    "request_summary": request_summary,
+                    "created": created,
+                    "prediction_id": prediction_id,
+                    "prediction_status": last_status,
+                    "status_transitions": status_transitions,
+                    "prediction_result": prediction_result,
+                    "error": f"variant prediction finished with status={last_status}",
+                    "request_json": self._json_dict(prediction_result.get("request_json")),
+                    "response_json": self._json_dict(prediction_result.get("response_json")),
+                }
 
             try:
                 payload = self._materialize_profile_variant_payload(
@@ -1420,34 +1351,137 @@ class PipelineRunner:
                     white_background=white_background,
                 )
             except Exception as exc:  # noqa: BLE001
+                return {
+                    "ok": False,
+                    "failure_phase": "materialization_failed",
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "source_profile": source_profile,
+                    "source_asset": source_asset,
+                    "profile_description": profile_description,
+                    "request_summary": request_summary,
+                    "created": created,
+                    "prediction_id": prediction_id,
+                    "prediction_status": last_status,
+                    "status_transitions": status_transitions,
+                    "prediction_result": prediction_result,
+                    "error": str(exc),
+                    "request_json": self._json_dict(getattr(exc, "request_json", {})),
+                    "response_json": self._json_dict(getattr(exc, "response_json", {})),
+                }
+
+            return {
+                "ok": True,
+                "profile": profile,
+                "branch_role": branch_role,
+                "source_profile": source_profile,
+                "source_asset": source_asset,
+                "profile_description": profile_description,
+                "request_summary": request_summary,
+                "created": created,
+                "prediction_id": prediction_id,
+                "prediction_status": last_status,
+                "status_transitions": status_transitions,
+                "prediction_result": prediction_result,
+                "payload": payload,
+            }
+
+        def consume_variant_result(stage_name: str, result: dict[str, Any]) -> Asset | None:
+            profile = result["profile"]
+            branch_role = str(result["branch_role"])
+            source_profile = result.get("source_profile")
+            profile_description = str(result.get("profile_description") or profile_prompt_fragment(profile))
+            request_summary = self._json_dict(result.get("request_summary"))
+            created = self._json_dict(result.get("created"))
+            prediction_id = str(result.get("prediction_id") or created.get("id") or "")
+            prediction_status = str(result.get("prediction_status") or created.get("status") or "").lower()
+
+            if request_summary or created:
+                mark_submitted(
+                    stage_name,
+                    profile=profile,
+                    branch_role=branch_role,
+                    source_profile=source_profile,
+                    profile_description=profile_description,
+                    prediction_id=prediction_id,
+                    prediction_status=prediction_status or "processing",
+                )
+                log_variant_event(
+                    stage_name=stage_name,
+                    event_type="variant_submit_finished",
+                    status="ok" if prediction_id else "error",
+                    message="Variant prediction submission returned",
+                    payload={
+                        "profile": profile,
+                        "branch_role": branch_role,
+                        "source_profile": source_profile or {},
+                        "request": request_summary,
+                        "provider_response": created,
+                    },
+                )
+
+            for provider_status in result.get("status_transitions", []):
+                log_variant_event(
+                    stage_name=stage_name,
+                    event_type="variant_prediction_polled",
+                    status="running" if provider_status not in {"succeeded", "failed", "canceled"} else provider_status,
+                    message="Variant prediction status changed",
+                    payload={
+                        "profile": profile,
+                        "branch_role": branch_role,
+                        "source_profile": source_profile or {},
+                        "prediction_id": prediction_id,
+                        "provider_status": provider_status,
+                    },
+                )
+
+            if not result.get("ok"):
+                failure_phase = str(result.get("failure_phase") or "failed")
+                error_text = str(result.get("error") or "variant generation failed")
                 append_failure(
                     stage_name,
                     profile=profile,
                     branch_role=branch_role,
                     source_profile=source_profile,
                     profile_description=profile_description,
-                    error=str(exc),
-                    request_json=self._json_dict(getattr(exc, "request_json", {})),
-                    response_json=self._json_dict(getattr(exc, "response_json", {})),
+                    error=error_text,
+                    request_json=self._json_dict(result.get("request_json")),
+                    response_json=self._json_dict(result.get("response_json")),
                 )
+                event_type = {
+                    "submit_failed": "variant_submit_failed",
+                    "submit_invalid": "variant_submit_failed",
+                    "prediction_failed": "variant_prediction_finished",
+                    "materialization_failed": "variant_materialization_failed",
+                }.get(failure_phase, "variant_prediction_finished")
+                message = {
+                    "submit_failed": "Variant prediction submission failed",
+                    "submit_invalid": "Variant prediction submission returned no prediction id",
+                    "prediction_failed": "Variant prediction finished without a usable image",
+                    "materialization_failed": "Variant materialization failed",
+                }.get(failure_phase, "Variant generation failed")
+                payload: dict[str, Any] = {
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "source_profile": source_profile or {},
+                    "error": error_text,
+                    "request_json": self._json_dict(result.get("request_json")),
+                    "response_json": self._json_dict(result.get("response_json")),
+                }
+                if prediction_id:
+                    payload["prediction_id"] = prediction_id
+                if result.get("prediction_result"):
+                    payload["provider_response"] = result["prediction_result"]
                 log_variant_event(
                     stage_name=stage_name,
-                    event_type="variant_materialization_failed",
-                    status="error",
-                    message="Variant materialization failed",
-                    payload={
-                        "profile": profile,
-                        "branch_role": branch_role,
-                        "source_profile": source_profile or {},
-                        "prediction_id": prediction_id,
-                        "error": str(exc),
-                        "request_json": self._json_dict(getattr(exc, "request_json", {})),
-                        "response_json": self._json_dict(getattr(exc, "response_json", {})),
-                    },
+                    event_type=event_type,
+                    status="error" if failure_phase != "prediction_failed" else prediction_status or "failed",
+                    message=message,
+                    payload=payload,
                 )
-                sync_variant_progress(stage_name)
                 return None
 
+            payload = result["payload"]
             variant_asset = self._save_asset(
                 run_id=run.id,
                 stage_name=stage_name,
@@ -1495,8 +1529,68 @@ class PipelineRunner:
                 generated_final_profiles.append(
                     {"profile": profile, "branch_role": branch_role, "source_profile": source_profile or {}}
                 )
-            sync_variant_progress(stage_name)
             return variant_asset
+
+        def run_variant_batch(stage_name: str, jobs: list[dict[str, Any]], *, white_background: bool) -> list[Asset]:
+            reused_assets: list[Asset] = []
+            pending_jobs: list[dict[str, Any]] = []
+            for job in jobs:
+                existing = reuse_existing_variant(stage_name, job["profile"], str(job["branch_role"]), job.get("source_profile"))
+                if existing is not None:
+                    reused_assets.append(existing)
+                    continue
+                profile_description = profile_prompt_fragment(job["profile"])
+                mark_submitted(
+                    stage_name,
+                    profile=job["profile"],
+                    branch_role=str(job["branch_role"]),
+                    source_profile=job.get("source_profile"),
+                    profile_description=profile_description,
+                    prediction_status="queued_for_worker",
+                )
+                log_variant_event(
+                    stage_name=stage_name,
+                    event_type="variant_submit_started",
+                    status="running",
+                    message="Submitting variant prediction",
+                    payload={
+                        "profile": job["profile"],
+                        "branch_role": str(job["branch_role"]),
+                        "source_profile": job.get("source_profile") or {},
+                        "source_asset": job["source_asset"].abs_path,
+                    },
+                )
+                pending_jobs.append(job)
+
+            if not pending_jobs:
+                sync_variant_progress(stage_name)
+                return reused_assets
+
+            worker_count = self._variant_pool_size(len(pending_jobs))
+            sync_variant_progress(stage_name, active_count=len(pending_jobs))
+            created_assets = list(reused_assets)
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                future_map = {
+                    executor.submit(
+                        run_variant_remote_step,
+                        stage_name=stage_name,
+                        profile=job["profile"],
+                        branch_role=str(job["branch_role"]),
+                        source_profile=job.get("source_profile"),
+                        source_asset=job["source_asset"],
+                        white_background=white_background,
+                    ): job
+                    for job in pending_jobs
+                }
+                remaining = len(future_map)
+                for future in as_completed(future_map):
+                    result = future.result()
+                    asset = consume_variant_result(stage_name, result)
+                    if asset is not None:
+                        created_assets.append(asset)
+                    remaining -= 1
+                    sync_variant_progress(stage_name, active_count=remaining)
+            return created_assets
 
         self.repo.update_run(run, current_stage="stage4_variant_generate")
         sync_variant_progress("stage4_variant_generate")
@@ -1521,28 +1615,43 @@ class PipelineRunner:
             },
         )
 
-        for profile in branch_plan.get("male_age_variants", []):
-            run_variant_step(
-                stage_name="stage4_variant_generate",
-                profile=profile,
-                branch_role="male_age_variant",
-                source_profile=branch_plan["base_profile"],
-                source_asset=upgraded_asset,
-                white_background=False,
-            )
+        male_age_jobs = [
+            {
+                "profile": profile,
+                "branch_role": "male_age_variant",
+                "source_profile": branch_plan["base_profile"],
+                "source_asset": upgraded_asset,
+            }
+            for profile in branch_plan.get("male_age_variants", [])
+        ]
 
         female_seed_profile = branch_plan.get("female_seed")
-        female_seed_asset: Asset | None = None
         if female_seed_profile:
-            female_seed_asset = run_variant_step(
-                stage_name="stage4_variant_generate",
-                profile=female_seed_profile,
-                branch_role="female_seed",
-                source_profile=branch_plan["base_profile"],
-                source_asset=upgraded_asset,
-                white_background=False,
+            male_age_jobs.append(
+                {
+                    "profile": female_seed_profile,
+                    "branch_role": "female_seed",
+                    "source_profile": branch_plan["base_profile"],
+                    "source_asset": upgraded_asset,
+                }
             )
 
+        initial_assets = run_variant_batch(
+            "stage4_variant_generate",
+            male_age_jobs,
+            white_background=False,
+        )
+
+        female_seed_asset: Asset | None = None
+        if female_seed_profile:
+            female_seed_asset = final_assets_by_profile_key.get(profile_key(female_seed_profile))
+            if female_seed_asset is None:
+                female_seed_asset = next(
+                    (asset for asset in initial_assets if asset and asset.file_name == self._variant_filename("stage4_variant_generate", entry, female_seed_profile, winner_attempt)),
+                    None,
+                )
+
+        female_age_jobs: list[dict[str, Any]] = []
         for profile in branch_plan.get("female_age_variants", []):
             if female_seed_asset is None:
                 append_failure(
@@ -1555,15 +1664,22 @@ class PipelineRunner:
                 )
                 sync_variant_progress("stage4_variant_generate")
                 continue
-            run_variant_step(
-                stage_name="stage4_variant_generate",
-                profile=profile,
-                branch_role="female_age_variant",
-                source_profile=female_seed_profile,
-                source_asset=female_seed_asset,
-                white_background=False,
+            female_age_jobs.append(
+                {
+                    "profile": profile,
+                    "branch_role": "female_age_variant",
+                    "source_profile": female_seed_profile,
+                    "source_asset": female_seed_asset,
+                }
             )
 
+        run_variant_batch(
+            "stage4_variant_generate",
+            female_age_jobs,
+            white_background=False,
+        )
+
+        appearance_jobs: list[dict[str, Any]] = []
         for profile in branch_plan.get("appearance_variants", []):
             source_profile = {
                 "gender": profile.get("gender", ""),
@@ -1582,14 +1698,20 @@ class PipelineRunner:
                 )
                 sync_variant_progress("stage4_variant_generate")
                 continue
-            run_variant_step(
-                stage_name="stage4_variant_generate",
-                profile=profile,
-                branch_role="appearance_variant",
-                source_profile=source_profile,
-                source_asset=source_asset,
-                white_background=False,
+            appearance_jobs.append(
+                {
+                    "profile": profile,
+                    "branch_role": "appearance_variant",
+                    "source_profile": source_profile,
+                    "source_asset": source_asset,
+                }
             )
+
+        run_variant_batch(
+            "stage4_variant_generate",
+            appearance_jobs,
+            white_background=False,
+        )
 
         final_stage_status = "error" if stage_failures("stage4_variant_generate") else "ok"
         sync_variant_progress("stage4_variant_generate", final_stage_status, active_count=0)
@@ -1620,6 +1742,7 @@ class PipelineRunner:
             },
         )
 
+        white_bg_jobs: list[dict[str, Any]] = []
         for item in generated_final_profiles:
             source_asset = final_assets_by_profile_key.get(profile_key(item["profile"]))
             if source_asset is None:
@@ -1633,14 +1756,20 @@ class PipelineRunner:
                 )
                 sync_variant_progress("stage5_variant_white_bg")
                 continue
-            run_variant_step(
-                stage_name="stage5_variant_white_bg",
-                profile=item["profile"],
-                branch_role=str(item["branch_role"]),
-                source_profile=item.get("profile"),
-                source_asset=source_asset,
-                white_background=True,
+            white_bg_jobs.append(
+                {
+                    "profile": item["profile"],
+                    "branch_role": str(item["branch_role"]),
+                    "source_profile": item.get("profile"),
+                    "source_asset": source_asset,
+                }
             )
+
+        run_variant_batch(
+            "stage5_variant_white_bg",
+            white_bg_jobs,
+            white_background=True,
+        )
 
         white_stage_status = "error" if stage_failures("stage5_variant_white_bg") else "ok"
         sync_variant_progress("stage5_variant_white_bg", white_stage_status, active_count=0)
