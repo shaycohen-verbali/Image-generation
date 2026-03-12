@@ -74,6 +74,18 @@ const VARIANT_FINAL_PROMPT_TEMPLATE =
 const VARIANT_WHITE_BG_PROMPT_TEMPLATE =
   'Take every final variant created in the prior stage and make its matching white-background version. Preserve the exact same avatar, age, gender, race, pose, framing, props, and object scale. Only change the background treatment to clean white.'
 
+const VARIANT_STEP5_PROMPT_TEMPLATE =
+  'Expand the white male kid baseline from the Stage 3 winner into the requested male age profiles. Preserve the same AAC concept, pose, props, framing, and style.'
+
+const VARIANT_STEP6_PROMPT_TEMPLATE =
+  'Create one white female kid seed directly from the Stage 3 winner. Preserve the same AAC concept, pose, props, framing, and style.'
+
+const VARIANT_STEP7_PROMPT_TEMPLATE =
+  'Expand the white female kid seed into the requested female age profiles. Preserve the same AAC concept, pose, props, framing, and style.'
+
+const VARIANT_STEP8_PROMPT_TEMPLATE =
+  'Create race variants from the matching white age+gender baseline for each requested profile. Preserve the same AAC concept, pose, props, framing, and style.'
+
 const STAGE_DETAILS = {
   stage1_prompt: {
     apiCall: 'OpenAI Assistants v2 or model API',
@@ -228,6 +240,96 @@ const STAGE_DETAILS = {
       branch_rule: 'white male age expansion -> female white kid seed -> white female age expansion -> race expansion from matching white age/gender baselines',
     },
   },
+  stage5_male_age: {
+    apiCall: 'Google Generative Language image API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    inputs: ['Stage 3 winner image', 'requested male age profiles'],
+    outputs: ['white male age variants'],
+    instruction: VARIANT_STEP5_PROMPT_TEMPLATE,
+    requestExample: {
+      input: {
+        prompt: VARIANT_STEP5_PROMPT_TEMPLATE,
+        image_input: ['<stage3 winner image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
+        output_format: 'jpg',
+      },
+      branch_rule: 'expand white male kid baseline into requested male age profiles',
+    },
+  },
+  stage6_female_seed: {
+    apiCall: 'Google Generative Language image API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    inputs: ['Stage 3 winner image'],
+    outputs: ['white female kid seed'],
+    instruction: VARIANT_STEP6_PROMPT_TEMPLATE,
+    requestExample: {
+      input: {
+        prompt: VARIANT_STEP6_PROMPT_TEMPLATE,
+        image_input: ['<stage3 winner image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
+        output_format: 'jpg',
+      },
+      branch_rule: 'create white female kid seed from the Stage 3 winner',
+    },
+  },
+  stage7_female_age: {
+    apiCall: 'Google Generative Language image API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    inputs: ['white female kid seed', 'requested female age profiles'],
+    outputs: ['white female age variants'],
+    instruction: VARIANT_STEP7_PROMPT_TEMPLATE,
+    requestExample: {
+      input: {
+        prompt: VARIANT_STEP7_PROMPT_TEMPLATE,
+        image_input: ['<white female kid seed image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
+        output_format: 'jpg',
+      },
+      branch_rule: 'expand white female kid seed into requested female age profiles',
+    },
+  },
+  stage8_race_expand: {
+    apiCall: 'Google Generative Language image API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    inputs: ['matching white gender+age baselines', 'requested race profiles'],
+    outputs: ['race variants from matching white age/gender baselines'],
+    instruction: VARIANT_STEP8_PROMPT_TEMPLATE,
+    requestExample: {
+      input: {
+        prompt: VARIANT_STEP8_PROMPT_TEMPLATE,
+        image_input: ['<matching white age+gender baseline image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
+        output_format: 'jpg',
+      },
+      branch_rule: 'create race variants from matching white age+gender baselines',
+    },
+  },
+  stage9_variant_white_bg: {
+    apiCall: 'Google Generative Language image API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    inputs: ['all final variants from the previous steps'],
+    outputs: ['matching white-background versions for every final variant'],
+    instruction: VARIANT_WHITE_BG_PROMPT_TEMPLATE,
+    requestExample: {
+      input: {
+        prompt: VARIANT_WHITE_BG_PROMPT_TEMPLATE,
+        image_input: ['<matching final variant image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
+        output_format: 'jpg',
+      },
+      branch_rule: 'make white-background versions for every final variant created in the prior steps',
+    },
+  },
   stage5_variant_white_bg: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
@@ -296,9 +398,12 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'nano-banana-2', status: 'queued', x: 1540, y: 120 },
-      { id: 'stage4_variant_generate', label: 'Stage 5-8 Variant Finals', subtitle: 'white age expansion -> female seed -> female age expansion -> race expansion', status: 'queued', x: 1910, y: 40 },
-      { id: 'stage5_variant_white_bg', label: 'Stage 9 Variant White BG', subtitle: 'white background for every final variant', status: 'queued', x: 1910, y: 280 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 2280, y: 160 },
+      { id: 'stage5_male_age', label: 'Step 5 Male Age Expansion', subtitle: 'white male kid -> requested male ages', status: 'queued', x: 1910, y: 20 },
+      { id: 'stage6_female_seed', label: 'Step 6 Female Seed', subtitle: 'white female kid from Stage 3 winner', status: 'queued', x: 1910, y: 160 },
+      { id: 'stage7_female_age', label: 'Step 7 Female Age Expansion', subtitle: 'white female kid -> requested female ages', status: 'queued', x: 1910, y: 300 },
+      { id: 'stage8_race_expand', label: 'Step 8 Race Expansion', subtitle: 'race variants from matching white age+gender baselines', status: 'queued', x: 1910, y: 440 },
+      { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', status: 'queued', x: 2280, y: 230 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 2620, y: 230 },
       { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
     ],
     [promptEngineerLabel],
@@ -314,10 +419,15 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
       { from: 'quality_gate', to: 'stage4_background', label: 'after final scoring: winner selected', fromPort: 'top', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_pass', label: 'base ready / no extra variants', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_background', to: 'stage4_variant_generate', label: 'use stage3 winner as the variant baseline', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_variant_generate', to: 'stage5_variant_white_bg', label: 'make white-background copies of all final variants', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage4_variant_generate', to: 'completed_pass', label: 'final variants complete', fromPort: 'right', toPort: 'left' },
-      { from: 'stage5_variant_white_bg', to: 'completed_pass', label: 'white-bg variants complete', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_background', to: 'stage5_male_age', label: 'use Stage 3 winner as white male kid baseline', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_background', to: 'stage6_female_seed', label: 'use Stage 3 winner to create white female kid seed', fromPort: 'right', toPort: 'left' },
+      { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'expand white female kid to requested female ages', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'use matching white male age baselines', fromPort: 'right', toPort: 'left' },
+      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'use matching white female age baselines', fromPort: 'right', toPort: 'left' },
+      { from: 'stage5_male_age', to: 'stage9_variant_white_bg', label: 'white BG for male white age variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage7_female_age', to: 'stage9_variant_white_bg', label: 'white BG for female white age variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage8_race_expand', to: 'stage9_variant_white_bg', label: 'white BG for race variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage9_variant_white_bg', to: 'completed_pass', label: 'all variant outputs complete', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_fail', label: 'score below threshold', type: 'branch', fromPort: 'bottom', toPort: 'left' },
     ],
     [],
