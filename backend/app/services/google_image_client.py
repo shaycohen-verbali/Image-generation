@@ -27,7 +27,7 @@ class GoogleImageAPIError(RuntimeError):
 class GoogleImageClient:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self._prediction_executor = ThreadPoolExecutor(max_workers=max(4, int(self.settings.max_parallel_runs or 1)))
+        self._prediction_executor = ThreadPoolExecutor(max_workers=max(1, min(int(self.settings.max_parallel_runs or 1), 2)))
         self._prediction_futures: dict[str, Future[dict[str, Any]]] = {}
         self._prediction_models: dict[str, str] = {}
         self._inline_assets: dict[str, bytes] = {}
@@ -293,6 +293,9 @@ class GoogleImageClient:
             return {"id": prediction_id, "status": "failed", "error": "unknown_prediction_id", "model": model_name, "provider": "google"}
         if not future.done():
             return {"id": prediction_id, "status": "processing", "model": model_name, "provider": "google"}
+        with self._lock:
+            self._prediction_futures.pop(prediction_id, None)
+            self._prediction_models.pop(prediction_id, None)
         try:
             result = future.result()
         except GoogleImageAPIError as exc:
@@ -317,7 +320,7 @@ class GoogleImageClient:
 
     def download_image(self, url: str) -> bytes:
         with self._lock:
-            image_bytes = self._inline_assets.get(url)
+            image_bytes = self._inline_assets.pop(url, None)
         if image_bytes is None:
             raise GoogleImageAPIError(
                 f"Missing inline Google image asset for {url}",
@@ -325,3 +328,13 @@ class GoogleImageClient:
                 response_json={},
             )
         return image_bytes
+
+    def clear_transient_state(self) -> None:
+        with self._lock:
+            self._prediction_futures.clear()
+            self._prediction_models.clear()
+            self._inline_assets.clear()
+
+    def close(self) -> None:
+        self.clear_transient_state()
+        self._prediction_executor.shutdown(wait=False, cancel_futures=True)

@@ -27,7 +27,7 @@ from app.services.utils import deterministic_entry_id, source_row_hash
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
-MAX_PARALLEL_RUNS = 50
+MAX_PARALLEL_RUNS = 2
 
 
 def _dumps(value: dict[str, Any] | list[Any]) -> str:

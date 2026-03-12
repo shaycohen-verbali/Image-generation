@@ -229,8 +229,8 @@ class PipelineRunner:
 
     def _variant_pool_size(self, variant_count: int) -> int:
         # Variant expansion is an in-run fanout step, not the same control as max_parallel_runs.
-        # Let the whole batch execute concurrently, with a hard safety cap to avoid runaway threads.
-        return max(1, min(variant_count, 64))
+        # Keep the fanout intentionally small on Render's 512 MB instances.
+        return max(1, min(variant_count, 2))
 
     def _variant_filename(self, stage_name: str, entry: Entry, profile: dict[str, str], winner_attempt: int) -> str:
         profile_suffix = self._variant_suffix(profile)
@@ -384,6 +384,8 @@ class PipelineRunner:
                 error_detail=str(exc),
             )
             return self.repo.get_run(run.id) or run
+        finally:
+            self.google_images.close()
 
         return self.repo.get_run(run.id) or run
 

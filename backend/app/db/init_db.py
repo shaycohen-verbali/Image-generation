@@ -14,7 +14,8 @@ from app.services.prompt_templates import (
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
-DEFAULT_PARALLEL_RUNS = 10
+DEFAULT_PARALLEL_RUNS = 2
+SAFE_PARALLEL_RUNS = 2
 
 
 def init_db() -> None:
@@ -33,7 +34,7 @@ def init_db() -> None:
                     max_api_retries=settings.max_api_retries,
                     stage_retry_limit=settings.stage_retry_limit,
                     worker_poll_seconds=settings.worker_poll_seconds,
-                    max_parallel_runs=max(MIN_PARALLEL_RUNS, int(settings.max_parallel_runs)),
+                    max_parallel_runs=max(MIN_PARALLEL_RUNS, min(int(settings.max_parallel_runs), SAFE_PARALLEL_RUNS)),
                     flux_imagen_fallback_enabled=settings.flux_imagen_fallback_enabled,
                     openai_assistant_id=settings.openai_assistant_id,
                     openai_assistant_name=settings.openai_assistant_name,
@@ -57,6 +58,8 @@ def init_db() -> None:
                 existing.quality_threshold = MIN_QUALITY_THRESHOLD
             if int(existing.max_parallel_runs) < MIN_PARALLEL_RUNS:
                 existing.max_parallel_runs = DEFAULT_PARALLEL_RUNS
+            if int(existing.max_parallel_runs) > SAFE_PARALLEL_RUNS:
+                existing.max_parallel_runs = SAFE_PARALLEL_RUNS
             existing.stage3_critique_model = normalize_vision_model(existing.stage3_critique_model or existing.openai_model_vision)
             if not existing.stage3_generate_model or existing.stage3_generate_model == "flux-1.1-pro":
                 existing.stage3_generate_model = "nano-banana-2"
@@ -86,7 +89,7 @@ def _ensure_runtime_config_columns() -> None:
         rows = conn.execute(text("PRAGMA table_info(runtime_config)")).fetchall()
         existing = {row[1] for row in rows}
         if "max_parallel_runs" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 10"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
         if "stage3_critique_model" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
         if "stage3_generate_model" not in existing:
