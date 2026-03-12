@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { buildAssetContentUrl, getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
 import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
+import DeferredAssetImage from '../components/DeferredAssetImage'
 
 const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
 
@@ -470,7 +471,7 @@ export default function RunsPage() {
                     <div key={asset.id} className="asset-card">
                       <h4>{stageTitle(asset.stage_name)}</h4>
                       {asset.id ? (
-                        <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} attempt ${asset.attempt}`} loading="lazy" decoding="async" />
+                        <DeferredAssetImage asset={asset} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
                       ) : (
                         <p>Image URL unavailable.</p>
                       )}

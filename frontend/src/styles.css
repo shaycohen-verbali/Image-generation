@@ -294,6 +294,18 @@ pre {
   display: block;
 }
 
+.deferred-asset-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 12px;
+  background: linear-gradient(180deg, #fbf8f2 0%, #f3ede2 100%);
+}
+
+.deferred-asset-placeholder button {
+  width: fit-content;
+}
+
 .asset-meta {
   display: grid;
   gap: 4px;
@@ -911,6 +923,12 @@ pre {
 .run-asset-card {
   display: grid;
   grid-template-rows: auto 1fr auto;
+}
+
+.run-node-image-tag {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .asset-meta-empty {

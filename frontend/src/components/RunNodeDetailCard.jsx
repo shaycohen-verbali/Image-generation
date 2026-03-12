@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { buildAssetContentUrl } from '../lib/api'
+import DeferredAssetImage from './DeferredAssetImage'
 
 function shortHash(value) {
   if (!value) return ''
@@ -408,7 +409,7 @@ export default function RunNodeDetailCard({ node, assistantName = '' }) {
           ) : null}
           {assetContentUrl ? (
             <div className="run-node-image">
-              <img src={assetContentUrl} alt={`${node.label} output`} />
+              <DeferredAssetImage asset={node.asset} alt={`${node.label} output`} buttonLabel="Load block preview" className="run-node-image-tag" />
             </div>
           ) : null}
         </div>

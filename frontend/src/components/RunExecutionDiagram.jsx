@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import RunNodeDetailCard from './RunNodeDetailCard'
 import WorkflowCanvas from './WorkflowCanvas'
+import DeferredAssetImage from './DeferredAssetImage'
 import { buildRunDiagram, getAvailableAttempts } from '../lib/runDiagram'
 import { buildAssetContentUrl } from '../lib/api'
 
@@ -1018,7 +1019,7 @@ export default function RunExecutionDiagram({
                       <div key={asset.id} className="asset-card run-asset-card">
                         <h4>{stageImageLabel(asset.stage_name)}</h4>
                         {asset.id ? (
-                          <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} ${attemptLabel(asset)}`} loading="lazy" decoding="async" />
+                          <DeferredAssetImage asset={asset} alt={`${asset.stage_name} ${attemptLabel(asset)}`} />
                         ) : (
                           <p className="asset-meta-empty">Image URL unavailable.</p>
                         )}
@@ -1048,7 +1049,7 @@ export default function RunExecutionDiagram({
                         <div key={asset.id} className="asset-card run-asset-card">
                           <h4>{stageImageLabel(asset.stage_name)}</h4>
                           {asset.id ? (
-                            <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${group.label} ${attemptLabel(asset)}`} loading="lazy" decoding="async" />
+                            <DeferredAssetImage asset={asset} alt={`${group.label} ${attemptLabel(asset)}`} />
                           ) : (
                             <p className="asset-meta-empty">Image URL unavailable.</p>
                           )}

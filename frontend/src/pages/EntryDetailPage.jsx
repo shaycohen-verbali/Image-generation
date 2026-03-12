@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { buildAssetContentUrl, getRun } from '../lib/api'
+import DeferredAssetImage from '../components/DeferredAssetImage'
 
 const stagePriority = {
   stage2_draft: 1,
@@ -85,7 +86,7 @@ export default function EntryDetailPage() {
                   <div key={asset.id} className="asset-card">
                     <h4>{stageTitle(asset.stage_name)}</h4>
                     {asset.id ? (
-                      <img className="asset-image" src={buildAssetContentUrl(asset)} alt={`${asset.stage_name} attempt ${asset.attempt}`} loading="lazy" decoding="async" />
+                      <DeferredAssetImage asset={asset} alt={`${asset.stage_name} attempt ${asset.attempt}`} />
                     ) : (
                       <p>Image URL unavailable.</p>
                     )}
