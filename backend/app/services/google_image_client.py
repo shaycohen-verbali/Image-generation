@@ -273,27 +273,33 @@ class GoogleImageClient:
         image_size: str | None = None,
         edit_instruction: str = "",
     ) -> dict[str, Any]:
-        background_instruction = (
-            "Keep the background pure solid white and keep the subject cleanly isolated on white."
-            if white_background
-            else "Keep the same background scene, composition, lighting, and props."
-        )
-        prompt = (
-            "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
-            f"{edit_instruction.strip()} "
-            f"Change only the main person so the image clearly shows a {profile_description}. "
-            "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, silhouette, and head size, not only in the face. "
-            "When the person's age changes, make nearby objects scale appropriately relative to the person's body so the scene still reads naturally. "
-            "If the requested age is a teenager, the result must read as an older adolescent and must not look like a younger child or pre-teen. "
-            f"{background_instruction} Keep exactly one clear central person. "
-            "Keep the same single avatar identity across matching final and white-background outputs; do not invent a different child. "
-            "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "
-            "Keep the full body and the full soccer ball completely inside the frame with visible margin on all sides; do not crop the right edge, left edge, top, or bottom. "
-            "Do not create duplicate people, extra limbs, or multiple similar girls/boys. "
-            "If the requested person is female, the output must clearly read as female at a glance; if the requested person is male, the output must clearly read as male at a glance. "
-            f'The image must still clearly represent the concept "{word}" for AAC users. '
-            "Do not add text, watermark, or extra people."
-        )
+        if white_background:
+            prompt = (
+                "Using the provided image as the base, keep the exact same AAC concept, exact same avatar identity, exact same age, gender, skin tone, face, hairstyle, expression, pose, clothing, soccer ball position, and framing. "
+                "Do not redesign, redraw, restyle, or reinterpret the person. Do not change the person's identity or profile in any way. "
+                "Only remove the background and replace it with pure solid white while keeping the subject cleanly isolated on white. "
+                "Keep exactly one clear central person. "
+                "Keep the full body and the full soccer ball completely inside the frame with visible margin on all sides. "
+                f'The image must still clearly represent the concept "{word}" for AAC users. '
+                "Do not add text, watermark, extra people, extra limbs, or new props."
+            )
+        else:
+            prompt = (
+                "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+                f"{edit_instruction.strip()} "
+                f"Change only the main person so the image clearly shows a {profile_description}. "
+                "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, silhouette, and head size, not only in the face. "
+                "When the person's age changes, make nearby objects scale appropriately relative to the person's body so the scene still reads naturally. "
+                "If the requested age is a teenager, the result must read as an older adolescent and must not look like a younger child or pre-teen. "
+                "Keep the same background scene, composition, lighting, and props. Keep exactly one clear central person. "
+                "Keep the same single avatar identity across matching final and white-background outputs; do not invent a different child. "
+                "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "
+                "Keep the full body and the full soccer ball completely inside the frame with visible margin on all sides; do not crop the right edge, left edge, top, or bottom. "
+                "Do not create duplicate people, extra limbs, or multiple similar girls/boys. "
+                "If the requested person is female, the output must clearly read as female at a glance; if the requested person is male, the output must clearly read as male at a glance. "
+                f'The image must still clearly represent the concept "{word}" for AAC users. '
+                "Do not add text, watermark, or extra people."
+            )
         return {
             "model": "nano-banana-2",
             "provider_model": google_image_model_name("nano-banana-2"),
