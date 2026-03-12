@@ -142,6 +142,64 @@ body {
   word-break: break-word;
 }
 
+.matrix-legend-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.profile-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+  gap: 1rem;
+}
+
+.profile-matrix-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 0.9rem;
+  background: var(--panel-soft);
+  padding: 1rem;
+}
+
+.profile-matrix-card h5 {
+  margin: 0 0 0.75rem;
+}
+
+.profile-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.profile-matrix-table th,
+.profile-matrix-table td {
+  border-bottom: 1px solid var(--border-soft);
+  padding: 0.55rem 0.45rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.profile-matrix-table th {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.matrix-check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.matrix-check input {
+  margin: 0;
+}
+
 .option-group-card {
   border: 1px solid var(--line);
   border-radius: 12px;

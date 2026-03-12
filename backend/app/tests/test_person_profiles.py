@@ -3,6 +3,7 @@ from app.services.person_profiles import (
     additional_variant_profiles,
     all_selected_profiles,
     entry_default_profile,
+    planned_review_profiles,
     profile_prompt_fragment,
     variant_branch_plan,
 )
@@ -36,7 +37,10 @@ def test_default_profile_uses_locked_defaults_first() -> None:
 def test_all_selected_profiles_returns_full_cross_product() -> None:
     profiles = all_selected_profiles(make_entry())
     assert len(profiles) == 32
-    assert len(additional_variant_profiles(make_entry())) == 31
+    assert len(planned_review_profiles(make_entry())) == 10
+    assert len(additional_variant_profiles(make_entry())) == 9
+    assert {"gender": "female", "age": "kid", "skin_color": "white"} in planned_review_profiles(make_entry())
+    assert {"gender": "male", "age": "teenager", "skin_color": "white"} in planned_review_profiles(make_entry())
 
 
 def test_profile_prompt_fragment_makes_age_and_gender_explicit() -> None:

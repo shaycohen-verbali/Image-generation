@@ -43,7 +43,9 @@ export default function SubmitPage() {
   const selectedAgeCount = form.person_age_options.length
   const selectedSkinCount = form.person_skin_color_options.length
   const selectedCombinationCount = selectedGenderCount * selectedAgeCount * selectedSkinCount
-  const extraVariantCount = Math.max(0, selectedCombinationCount - 1)
+  const generatedProfileCap = 10
+  const generatedProfileCount = Math.min(selectedCombinationCount, generatedProfileCap)
+  const extraVariantCount = Math.max(0, generatedProfileCount - 1)
 
   useEffect(() => {
     let mounted = true
@@ -281,6 +283,9 @@ export default function SubmitPage() {
             </fieldset>
             <p className="config-help-text">
               Selected combinations: {selectedCombinationCount} total person profile{selectedCombinationCount === 1 ? '' : 's'}.
+              {selectedCombinationCount > generatedProfileCap
+                ? ` The generator will use a capped review set of ${generatedProfileCount} profiles to avoid creating too many images.`
+                : ''}
               {extraVariantCount > 0
                 ? ` This means ${extraVariantCount} additional final-image variant${extraVariantCount === 1 ? '' : 's'} plus ${extraVariantCount} additional white-background variant${extraVariantCount === 1 ? '' : 's'}.`
                 : ' No extra person variants will be created beyond the base run.'}

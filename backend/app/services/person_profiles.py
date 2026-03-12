@@ -7,6 +7,7 @@ from typing import Any
 DEFAULT_GENDER = "male"
 DEFAULT_AGE = "kid"
 DEFAULT_SKIN_COLOR = "white"
+MAX_TOTAL_PROFILES = 10
 
 GENDER_OPTIONS = ("male", "female")
 AGE_OPTIONS = ("toddler", "kid", "tween", "teenager")
@@ -198,8 +199,85 @@ def all_selected_profiles(entry: Any) -> list[dict[str, str]]:
 
 
 def additional_variant_profiles(entry: Any) -> list[dict[str, str]]:
-    profiles = all_selected_profiles(entry)
+    profiles = planned_review_profiles(entry)
     return profiles[1:] if profiles else []
+
+
+def _append_unique_profile(
+    target: list[dict[str, str]],
+    seen: set[str],
+    profile: dict[str, str],
+) -> None:
+    key = profile_key(profile)
+    if key in seen:
+        return
+    target.append(profile)
+    seen.add(key)
+
+
+def planned_review_profiles(entry: Any) -> list[dict[str, str]]:
+    genders = entry_gender_options(entry)
+    ages = entry_age_options(entry)
+    skins = entry_skin_color_options(entry)
+    default = entry_default_profile(entry)
+
+    ordered: list[dict[str, str]] = []
+    seen: set[str] = set()
+    _append_unique_profile(ordered, seen, default)
+
+    if "female" in genders:
+        _append_unique_profile(
+            ordered,
+            seen,
+            {
+                "gender": "female",
+                "age": DEFAULT_AGE,
+                "skin_color": DEFAULT_SKIN_COLOR,
+            },
+        )
+
+    for age in ages:
+        if age == default["age"]:
+            continue
+        if "male" in genders:
+            _append_unique_profile(
+                ordered,
+                seen,
+                {"gender": "male", "age": age, "skin_color": DEFAULT_SKIN_COLOR},
+            )
+        if "female" in genders:
+            _append_unique_profile(
+                ordered,
+                seen,
+                {"gender": "female", "age": age, "skin_color": DEFAULT_SKIN_COLOR},
+            )
+
+    for skin in skins:
+        if skin == default["skin_color"]:
+            continue
+        if "male" in genders:
+            _append_unique_profile(
+                ordered,
+                seen,
+                {"gender": "male", "age": DEFAULT_AGE, "skin_color": skin},
+            )
+        if "female" in genders:
+            _append_unique_profile(
+                ordered,
+                seen,
+                {"gender": "female", "age": DEFAULT_AGE, "skin_color": skin},
+            )
+
+    for gender, age, skin in product(genders, ages, skins):
+        _append_unique_profile(
+            ordered,
+            seen,
+            {"gender": gender, "age": age, "skin_color": skin},
+        )
+        if len(ordered) >= MAX_TOTAL_PROFILES:
+            return ordered
+
+    return ordered[:MAX_TOTAL_PROFILES]
 
 
 def variant_branch_plan(entry: Any) -> dict[str, Any]:

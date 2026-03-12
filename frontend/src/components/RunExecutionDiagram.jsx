@@ -321,6 +321,90 @@ function createdImageRows(assets, profileIndex) {
   })
 }
 
+const MATRIX_GENDERS = ['male', 'female']
+const MATRIX_AGES = ['toddler', 'kid', 'tween', 'teenager']
+const MATRIX_SKINS = ['white', 'black', 'asian', 'brown']
+
+function plannedProfileMatrix(stages, selectedAttempt, filteredAssets, profileIndex) {
+  const profiles = new Map()
+  const stageRows = safeArray(stages).filter(
+    (stage) =>
+      ['stage4_variant_generate', 'stage5_variant_white_bg'].includes(stage.stage_name) &&
+      Number(stage.attempt || 0) === Number(selectedAttempt || 0),
+  )
+
+  stageRows.forEach((stage) => {
+    const request = safeObject(stage.request_json)
+    const branchPlan = safeObject(request.branch_plan)
+    const baseProfile = safeObject(branchPlan.base_profile)
+    if (Object.keys(baseProfile).length > 0) {
+      profiles.set(profileKeyString(baseProfile), baseProfile)
+    }
+    safeArray(request.profiles).forEach((profile) => {
+      const safeProfile = safeObject(profile)
+      if (Object.keys(safeProfile).length === 0) return
+      profiles.set(profileKeyString(safeProfile), safeProfile)
+    })
+  })
+
+  safeArray(filteredAssets).forEach((asset) => {
+    if (asset.stage_name === 'stage3_upgraded' || asset.stage_name === 'stage4_white_bg') {
+      const baseProfile = { gender: 'male', age: 'kid', skin_color: 'white' }
+      profiles.set(profileKeyString(baseProfile), baseProfile)
+      return
+    }
+    const meta = profileIndex.get(asset.id)
+    if (!meta) return
+    profiles.set(profileKeyString(meta.profile), safeObject(meta.profile))
+  })
+
+  const statusByProfile = new Map()
+  profiles.forEach((profile, key) => {
+    statusByProfile.set(key, {
+      profile,
+      regular: false,
+      white: false,
+    })
+  })
+
+  safeArray(filteredAssets).forEach((asset) => {
+    if (asset.stage_name === 'stage3_upgraded') {
+      const key = profileKeyString({ gender: 'male', age: 'kid', skin_color: 'white' })
+      const row = statusByProfile.get(key)
+      if (row) row.regular = true
+      return
+    }
+    if (asset.stage_name === 'stage4_white_bg') {
+      const key = profileKeyString({ gender: 'male', age: 'kid', skin_color: 'white' })
+      const row = statusByProfile.get(key)
+      if (row) row.white = true
+      return
+    }
+    const meta = profileIndex.get(asset.id)
+    if (!meta) return
+    const key = profileKeyString(meta.profile)
+    const row = statusByProfile.get(key)
+    if (!row) return
+    if (asset.stage_name === 'stage4_variant_generate') row.regular = true
+    if (asset.stage_name === 'stage5_variant_white_bg') row.white = true
+  })
+
+  return statusByProfile
+}
+
+function profileKeyString(profile) {
+  const safeProfile = safeObject(profile)
+  return [
+    String(safeProfile.gender || ''),
+    String(safeProfile.age || ''),
+    String(safeProfile.skin_color || ''),
+  ].join('|')
+}
+
+function matrixCellState(matrix, gender, age, skin) {
+  return matrix.get([gender, age, skin].join('|')) || { regular: false, white: false }
+}
+
 function variantPanelData(node) {
   if (!node) return null
   const request = safeObject(node.requestJson)
@@ -851,6 +935,7 @@ export default function RunExecutionDiagram({
   const profileIndex = variantProfileIndex(stages)
   const qualityReviewGroups = groupAssetsForQualityReview(filteredRunAssets, profileIndex)
   const imageRows = createdImageRows(filteredRunAssets, profileIndex)
+  const profileMatrix = plannedProfileMatrix(stages, selectedAttempt, filteredRunAssets, profileIndex)
   const visibleVariantPanels = (() => {
     if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
       return whiteVariantPanel?.hasActivity ? [whiteVariantPanel] : []
@@ -1018,6 +1103,62 @@ export default function RunExecutionDiagram({
                   </div>
                 ))}
               </div>
+            ) : null}
+
+            {imageFilter !== IMAGE_FILTER.DRAFT ? (
+              <section className="run-overview-card">
+                <div className="section-head-row">
+                  <div>
+                    <h4>Profile Coverage Matrix</h4>
+                    <p>Check which profile images exist for the selected attempt. `Regular` means the final variant image. `White BG` means the matching white-background image.</p>
+                  </div>
+                </div>
+                <div className="matrix-legend-row">
+                  <span><strong>Regular</strong> = final image</span>
+                  <span><strong>White BG</strong> = white-background image</span>
+                </div>
+                <div className="profile-matrix-grid">
+                  {MATRIX_GENDERS.map((gender) => (
+                    <section key={gender} className="profile-matrix-card">
+                      <h5>{humanGender(gender)}</h5>
+                      <div className="table-wrap">
+                        <table className="profile-matrix-table">
+                          <thead>
+                            <tr>
+                              <th>Age \ Skin</th>
+                              {MATRIX_SKINS.map((skin) => (
+                                <th key={skin}>{humanSkinColor(skin)}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {MATRIX_AGES.map((age) => (
+                              <tr key={age}>
+                                <th>{humanAge(age)}</th>
+                                {MATRIX_SKINS.map((skin) => {
+                                  const cell = matrixCellState(profileMatrix, gender, age, skin)
+                                  return (
+                                    <td key={`${gender}-${age}-${skin}`}>
+                                      <label className="matrix-check">
+                                        <input type="checkbox" checked={cell.regular} readOnly disabled />
+                                        <span>Regular</span>
+                                      </label>
+                                      <label className="matrix-check">
+                                        <input type="checkbox" checked={cell.white} readOnly disabled />
+                                        <span>White BG</span>
+                                      </label>
+                                    </td>
+                                  )
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </section>
             ) : null}
 
             <section className="run-overview-card">
