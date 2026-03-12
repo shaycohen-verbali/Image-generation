@@ -116,6 +116,32 @@ body {
   color: #425560;
 }
 
+.created-images-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.created-images-table th,
+.created-images-table td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+}
+
+.created-images-table th {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.created-images-file-cell {
+  max-width: 24rem;
+  word-break: break-word;
+}
+
 .option-group-card {
   border: 1px solid var(--line);
   border-radius: 12px;

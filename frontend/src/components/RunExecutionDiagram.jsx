@@ -302,6 +302,25 @@ function groupAssetsForQualityReview(assets, profileIndex) {
   return { baseAssets, variantGroups }
 }
 
+function createdImageRows(assets, profileIndex) {
+  return safeArray(assets).map((asset) => {
+    const profileMeta = profileIndex.get(asset.id)
+    return {
+      id: asset.id,
+      stageLabel: stageImageLabel(asset.stage_name),
+      attemptLabel: attemptLabel(asset),
+      profileLabel: profileMeta ? variantGroupLabel(profileMeta.profile) : '',
+      fileName: asset.file_name || '-',
+      modelName: asset.model_name || '-',
+      dimensions:
+        asset.width && asset.height
+          ? `${asset.width} x ${asset.height}`
+          : '-',
+      createdAt: compactDate(asset.created_at),
+    }
+  })
+}
+
 function variantPanelData(node) {
   if (!node) return null
   const request = safeObject(node.requestJson)
@@ -829,7 +848,9 @@ export default function RunExecutionDiagram({
       return Number(asset.attempt || 0) === selectedAttempt
     })
   })()
-  const qualityReviewGroups = groupAssetsForQualityReview(filteredRunAssets, variantProfileIndex(stages))
+  const profileIndex = variantProfileIndex(stages)
+  const qualityReviewGroups = groupAssetsForQualityReview(filteredRunAssets, profileIndex)
+  const imageRows = createdImageRows(filteredRunAssets, profileIndex)
   const visibleVariantPanels = (() => {
     if (imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND) {
       return whiteVariantPanel?.hasActivity ? [whiteVariantPanel] : []
@@ -998,6 +1019,47 @@ export default function RunExecutionDiagram({
                 ))}
               </div>
             ) : null}
+
+            <section className="run-overview-card">
+              <div className="section-head-row">
+                <div>
+                  <h4>Created Images</h4>
+                  <p>Asset metadata for the current filter. This table does not load image previews.</p>
+                </div>
+              </div>
+              {imageRows.length > 0 ? (
+                <div className="table-wrap">
+                  <table className="created-images-table">
+                    <thead>
+                      <tr>
+                        <th>Stage</th>
+                        <th>Attempt</th>
+                        <th>Profile</th>
+                        <th>File</th>
+                        <th>Model</th>
+                        <th>Size</th>
+                        <th>Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {imageRows.map((row) => (
+                        <tr key={row.id}>
+                          <td>{row.stageLabel}</td>
+                          <td>{row.attemptLabel}</td>
+                          <td>{row.profileLabel || '-'}</td>
+                          <td className="created-images-file-cell">{row.fileName}</td>
+                          <td>{row.modelName}</td>
+                          <td>{row.dimensions}</td>
+                          <td>{row.createdAt}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p>No image assets were created for this filter yet.</p>
+              )}
+            </section>
 
             {filteredRunAssets.length === 0 ? (
               <div className="empty-state-card">
