@@ -874,6 +874,18 @@ pre {
   background: #f6f2e8;
 }
 
+.workflow-node-meta {
+  display: grid;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.workflow-node-meta-line {
+  font-size: 0.74rem;
+  line-height: 1.25;
+  color: #314955;
+}
+
 .run-diagram-loop-note {
   margin: 0;
   font-size: 0.85rem;

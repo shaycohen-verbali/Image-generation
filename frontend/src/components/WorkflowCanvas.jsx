@@ -165,6 +165,13 @@ export default function WorkflowCanvas({
                 <span className="workflow-node-title">{node.label}</span>
                 {node.subtitle ? <span className="workflow-node-subtitle">{node.subtitle}</span> : null}
                 {node.badge ? <span className="workflow-node-badge">{node.badge}</span> : null}
+                {Array.isArray(node.meta) && node.meta.length ? (
+                  <span className="workflow-node-meta">
+                    {node.meta.map((line) => (
+                      <span key={line} className="workflow-node-meta-line">{line}</span>
+                    ))}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
