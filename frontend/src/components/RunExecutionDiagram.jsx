@@ -400,6 +400,8 @@ function buildProfileCoverageData(stages, selectedAttempt, filteredAssets, profi
       profile,
       regular: false,
       white: false,
+      regularAsset: null,
+      whiteAsset: null,
     })
   })
 
@@ -407,13 +409,19 @@ function buildProfileCoverageData(stages, selectedAttempt, filteredAssets, profi
     if (asset.stage_name === 'stage3_upgraded') {
       const key = profileKeyString({ gender: 'male', age: 'kid', skin_color: 'white' })
       const row = statusByProfile.get(key)
-      if (row) row.regular = true
+      if (row) {
+        row.regular = true
+        row.regularAsset = asset
+      }
       return
     }
     if (asset.stage_name === 'stage4_white_bg') {
       const key = profileKeyString({ gender: 'male', age: 'kid', skin_color: 'white' })
       const row = statusByProfile.get(key)
-      if (row) row.white = true
+      if (row) {
+        row.white = true
+        row.whiteAsset = asset
+      }
       return
     }
     const meta = assetProfileMeta(asset, profileIndex)
@@ -421,8 +429,14 @@ function buildProfileCoverageData(stages, selectedAttempt, filteredAssets, profi
     const key = profileKeyString(meta.profile)
     const row = statusByProfile.get(key)
     if (!row) return
-    if (asset.stage_name === 'stage4_variant_generate') row.regular = true
-    if (asset.stage_name === 'stage5_variant_white_bg') row.white = true
+    if (asset.stage_name === 'stage4_variant_generate') {
+      row.regular = true
+      row.regularAsset = asset
+    }
+    if (asset.stage_name === 'stage5_variant_white_bg') {
+      row.white = true
+      row.whiteAsset = asset
+    }
   })
 
   const sections = MATRIX_GENDERS.map((gender) => {
@@ -455,7 +469,12 @@ function profileKeyString(profile) {
 }
 
 function matrixCellState(matrix, gender, age, skin) {
-  return matrix.get([gender, age, skin].join('|')) || { regular: false, white: false }
+  return matrix.get([gender, age, skin].join('|')) || {
+    regular: false,
+    white: false,
+    regularAsset: null,
+    whiteAsset: null,
+  }
 }
 
 function variantPanelData(node) {
@@ -828,6 +847,8 @@ export default function RunExecutionDiagram({
   const [showDetailedExecutionLog, setShowDetailedExecutionLog] = useState(false)
   const [copyMessage, setCopyMessage] = useState('')
   const [activeTab, setActiveTab] = useState(initialState.activeTab || DETAIL_TABS.OVERVIEW)
+  const [matrixPreviewAsset, setMatrixPreviewAsset] = useState(null)
+  const [matrixPreviewLabel, setMatrixPreviewLabel] = useState('')
 
   async function copyJson(label, value) {
     try {
@@ -1198,10 +1219,34 @@ export default function RunExecutionDiagram({
                                         <input type="checkbox" checked={cell.regular} readOnly disabled />
                                         <span>Regular</span>
                                       </label>
+                                      {cell.regularAsset ? (
+                                        <button
+                                          type="button"
+                                          className="matrix-view-button"
+                                          onClick={() => {
+                                            setMatrixPreviewAsset(cell.regularAsset)
+                                            setMatrixPreviewLabel(`${humanGender(section.gender)} | ${humanAge(age)} | ${humanSkinColor(skin)} | Regular`)
+                                          }}
+                                        >
+                                          View
+                                        </button>
+                                      ) : null}
                                       <label className="matrix-check">
                                         <input type="checkbox" checked={cell.white} readOnly disabled />
                                         <span>White BG</span>
                                       </label>
+                                      {cell.whiteAsset ? (
+                                        <button
+                                          type="button"
+                                          className="matrix-view-button"
+                                          onClick={() => {
+                                            setMatrixPreviewAsset(cell.whiteAsset)
+                                            setMatrixPreviewLabel(`${humanGender(section.gender)} | ${humanAge(age)} | ${humanSkinColor(skin)} | White BG`)
+                                          }}
+                                        >
+                                          View
+                                        </button>
+                                      ) : null}
                                     </td>
                                   )
                                 })}
@@ -1526,6 +1571,45 @@ export default function RunExecutionDiagram({
             </div>
             {copyMessage ? <p className="run-debug-copy-message">{copyMessage}</p> : null}
             {showRunJson ? <pre>{JSON.stringify(detail, null, 2)}</pre> : null}
+          </div>
+        </div>
+      ) : null}
+
+      {matrixPreviewAsset ? (
+        <div
+          className="matrix-preview-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={matrixPreviewLabel || 'Image preview'}
+          onClick={() => {
+            setMatrixPreviewAsset(null)
+            setMatrixPreviewLabel('')
+          }}
+        >
+          <div className="matrix-preview-card" onClick={(event) => event.stopPropagation()}>
+            <div className="matrix-preview-head">
+              <div>
+                <h4>{matrixPreviewLabel || 'Image preview'}</h4>
+                <p>{matrixPreviewAsset.file_name || ''}</p>
+              </div>
+              <button
+                type="button"
+                className="matrix-preview-close"
+                onClick={() => {
+                  setMatrixPreviewAsset(null)
+                  setMatrixPreviewLabel('')
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <div className="matrix-preview-body">
+              <img
+                className="matrix-preview-image"
+                src={buildAssetContentUrl(matrixPreviewAsset)}
+                alt={matrixPreviewLabel || 'Image preview'}
+              />
+            </div>
           </div>
         </div>
       ) : null}

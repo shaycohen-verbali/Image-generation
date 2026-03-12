@@ -216,12 +216,90 @@ body {
   font-weight: 700;
 }
 
+.matrix-view-button {
+  margin: 0 0 0.45rem 1.8rem;
+  border: 1px solid #0f7f7d;
+  background: #edf9f7;
+  color: #0f5f5e;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.matrix-view-button:hover {
+  background: #d7f1ec;
+}
+
 .profile-matrix-table td {
   background: rgba(255, 255, 255, 0.56);
 }
 
 .profile-matrix-table td:has(input:checked) {
   background: rgba(183, 228, 223, 0.42);
+}
+
+.matrix-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 34, 41, 0.58);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  z-index: 1200;
+}
+
+.matrix-preview-card {
+  width: min(92vw, 980px);
+  max-height: 92vh;
+  overflow: auto;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 24px 60px rgba(20, 25, 32, 0.28);
+  padding: 1rem;
+}
+
+.matrix-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.matrix-preview-head h4 {
+  margin: 0;
+}
+
+.matrix-preview-head p {
+  margin: 0.25rem 0 0;
+  color: #536873;
+  word-break: break-word;
+}
+
+.matrix-preview-close {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.matrix-preview-body {
+  display: flex;
+  justify-content: center;
+}
+
+.matrix-preview-image {
+  max-width: 100%;
+  max-height: 75vh;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #fff;
 }
 
 .option-group-card {
