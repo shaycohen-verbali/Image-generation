@@ -1051,7 +1051,18 @@ class PipelineRunner:
         submitted_profiles_by_stage: dict[str, dict[str, dict[str, Any]]] = {stage_name: {} for stage_name in stage_names}
         completed_profiles_by_stage: dict[str, dict[str, Any]] = {stage_name: {} for stage_name in stage_names}
         failed_profiles_by_stage: dict[str, dict[str, Any]] = {stage_name: {} for stage_name in stage_names}
-        final_assets_by_profile_key: dict[str, Asset] = {profile_key(branch_plan["base_profile"]): upgraded_asset}
+        def asset_snapshot(asset: Asset) -> dict[str, Any]:
+            return {
+                "id": asset.id,
+                "file_name": asset.file_name,
+                "abs_path": asset.abs_path,
+                "origin_url": asset.origin_url,
+                "model_name": asset.model_name,
+            }
+
+        final_assets_by_profile_key: dict[str, dict[str, Any]] = {
+            profile_key(branch_plan["base_profile"]): asset_snapshot(upgraded_asset)
+        }
         generated_final_profiles: list[dict[str, Any]] = []
 
         def stage_source_asset(stage_name: str) -> str:
@@ -1252,7 +1263,7 @@ class PipelineRunner:
                 source_profile=source_profile,
             )
             if stage_name == "stage4_variant_generate":
-                final_assets_by_profile_key[profile_key(profile)] = existing
+                final_assets_by_profile_key[profile_key(profile)] = asset_snapshot(existing)
                 generated_final_profiles.append(
                     {"profile": profile, "branch_role": branch_role, "source_profile": source_profile or {}}
                 )
@@ -1264,13 +1275,13 @@ class PipelineRunner:
             profile: dict[str, str],
             branch_role: str,
             source_profile: dict[str, str] | None,
-            source_asset: Asset,
+            source_asset: dict[str, Any],
             white_background: bool,
         ) -> dict[str, Any]:
             profile_description = profile_prompt_fragment(profile)
             try:
                 submitted = self._submit_profile_variant_prediction(
-                    Path(source_asset.abs_path),
+                    Path(str(source_asset["abs_path"])),
                     entry.word,
                     profile,
                     white_background,
@@ -1526,7 +1537,7 @@ class PipelineRunner:
                 },
             )
             if stage_name == "stage4_variant_generate":
-                final_assets_by_profile_key[profile_key(profile)] = variant_asset
+                final_assets_by_profile_key[profile_key(profile)] = asset_snapshot(variant_asset)
                 generated_final_profiles.append(
                     {"profile": profile, "branch_role": branch_role, "source_profile": source_profile or {}}
                 )
@@ -1558,7 +1569,7 @@ class PipelineRunner:
                         "profile": job["profile"],
                         "branch_role": str(job["branch_role"]),
                         "source_profile": job.get("source_profile") or {},
-                        "source_asset": job["source_asset"].abs_path,
+                        "source_asset": str(job["source_asset"]["abs_path"]),
                     },
                 )
                 pending_jobs.append(job)
@@ -1621,7 +1632,7 @@ class PipelineRunner:
                 "profile": profile,
                 "branch_role": "male_age_variant",
                 "source_profile": branch_plan["base_profile"],
-                "source_asset": upgraded_asset,
+                "source_asset": asset_snapshot(upgraded_asset),
             }
             for profile in branch_plan.get("male_age_variants", [])
         ]
@@ -1633,7 +1644,7 @@ class PipelineRunner:
                     "profile": female_seed_profile,
                     "branch_role": "female_seed",
                     "source_profile": branch_plan["base_profile"],
-                    "source_asset": upgraded_asset,
+                    "source_asset": asset_snapshot(upgraded_asset),
                 }
             )
 
@@ -1643,14 +1654,16 @@ class PipelineRunner:
             white_background=False,
         )
 
-        female_seed_asset: Asset | None = None
+        female_seed_asset: dict[str, Any] | None = None
         if female_seed_profile:
             female_seed_asset = final_assets_by_profile_key.get(profile_key(female_seed_profile))
             if female_seed_asset is None:
-                female_seed_asset = next(
+                fallback_asset = next(
                     (asset for asset in initial_assets if asset and asset.file_name == self._variant_filename("stage4_variant_generate", entry, female_seed_profile, winner_attempt)),
                     None,
                 )
+                if fallback_asset is not None:
+                    female_seed_asset = asset_snapshot(fallback_asset)
 
         female_age_jobs: list[dict[str, Any]] = []
         for profile in branch_plan.get("female_age_variants", []):
