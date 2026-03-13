@@ -7,7 +7,7 @@ from collections.abc import Iterable
 
 COLUMN_ALIASES = {
     "word": ["word"],
-    "part_of_sentence": ["part of sentence", "part_of_sentence", "pos"],
+    "part_of_sentence": ["part of sentence", "part of speech", "part_of_sentence", "part_of_speech", "pos"],
     "category": ["category"],
     "context": ["context"],
     "boy_or_girl": ["boy or girl", "boy_or_girl"],

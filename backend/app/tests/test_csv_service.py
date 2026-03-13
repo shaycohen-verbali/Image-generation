@@ -14,6 +14,19 @@ def test_parse_entries_csv_supports_existing_column_names() -> None:
     assert rows[0]["category"] == "food"
 
 
+def test_parse_entries_csv_supports_part_of_speech_header() -> None:
+    content = (
+        'word,part of speech,category\n'
+        'soccer,noun,sport\n'
+    ).encode('utf-8')
+
+    rows = parse_entries_csv(content)
+
+    assert rows[0]["word"] == "soccer"
+    assert rows[0]["part_of_sentence"] == "noun"
+    assert rows[0]["category"] == "sport"
+
+
 def test_validate_entry_row_requires_word_and_part_of_sentence() -> None:
     error = validate_entry_row({"word": "", "part_of_sentence": "noun", "category": "food"})
     assert error is not None
