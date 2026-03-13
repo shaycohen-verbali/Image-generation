@@ -1042,6 +1042,7 @@ class PipelineRunner:
         runtime_config = self.repo.get_runtime_config()
         aspect_ratio = runtime_config.image_aspect_ratio
         image_size = runtime_config.image_resolution
+        variant_worker_limit = max(1, min(int(getattr(runtime_config, "max_variant_workers", 2)), 8))
 
         stage_names = ("stage4_variant_generate", "stage5_variant_white_bg")
         variants_by_stage: dict[str, list[dict[str, Any]]] = {stage_name: [] for stage_name in stage_names}
