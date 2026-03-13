@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.schemas import (
     AssetOut,
+    BatchJobSummaryOut,
     PromptOut,
     RunEventOut,
     RetryRunResponse,
@@ -68,12 +69,18 @@ def _sanitize_payload(value):
 
 def _run_out(run, entry, *, cost_summary: dict | None = None) -> RunOut:
     cost_summary = cost_summary or {}
+    batch = entry.batch if entry else ""
+    batch_job = None
+    if cost_summary.get("batch_job"):
+        batch_job = BatchJobSummaryOut(**cost_summary["batch_job"])
     return RunOut(
         id=run.id,
         entry_id=run.entry_id,
         word=entry.word if entry else "",
         part_of_sentence=entry.part_of_sentence if entry else "",
         category=entry.category if entry else "",
+        batch=batch,
+        batch_job=batch_job,
         status=run.status,
         current_stage=run.current_stage,
         quality_score=run.quality_score,
@@ -237,7 +244,10 @@ def create_runs(payload: RunsCreateRequest, db: Session = Depends(db_dependency)
     for run in runs:
         entry = repo.get_entry(run.entry_id)
         _, stages, _, assets, _ = repo.run_details(run.id)
-        payload_rows.append(_run_out(run, entry, cost_summary=summarize_run_costs(stages, assets)))
+        cost_summary = summarize_run_costs(stages, assets)
+        if entry and entry.batch:
+            cost_summary["batch_job"] = repo.batch_job_summary(entry.batch)
+        payload_rows.append(_run_out(run, entry, cost_summary=cost_summary))
     return payload_rows
 
 
@@ -255,7 +265,10 @@ def list_runs(
     for run in runs:
         entry = repo.get_entry(run.entry_id)
         _, stages, assets, _ = repo.run_snapshot(run.id)
-        payload_rows.append(_run_out(run, entry, cost_summary=summarize_run_costs(stages, assets)))
+        cost_summary = summarize_run_costs(stages, assets)
+        if entry and entry.batch:
+            cost_summary["batch_job"] = repo.batch_job_summary(entry.batch)
+        payload_rows.append(_run_out(run, entry, cost_summary=cost_summary))
     return payload_rows
 
 
@@ -274,6 +287,8 @@ def get_run(run_id: str, include_debug: bool = Query(default=False), db: Session
 
     entry = repo.get_entry(run.entry_id)
     cost_summary = summarize_run_costs(stages, assets)
+    if entry and entry.batch:
+        cost_summary["batch_job"] = repo.batch_job_summary(entry.batch)
     run_payload = _run_out(run, entry, cost_summary=cost_summary)
     execution_log, detailed_execution_log = ("", "")
     if include_debug:

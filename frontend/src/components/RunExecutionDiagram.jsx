@@ -63,6 +63,17 @@ function prettyRunStatus(status) {
   return status || '-'
 }
 
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds || 0)))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const secs = total % 60
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
 function stage4StatusText({ run, selectedSummary, winnerStage4Attempt }) {
   if (typeof winnerStage4Attempt === 'number' && winnerStage4Attempt > 0) {
     return `Background removal completed on winner attempt ${winnerStage4Attempt}.`
@@ -575,6 +586,7 @@ function renderOverviewSection({
   selectedAttempt,
 }) {
   const run = detail.run
+  const batchJob = safeObject(run.batch_job)
   const latestScore = selectedSummary?.score ?? run.quality_score ?? null
   const estimatedTotalCost = Number(run.estimated_total_cost_usd || 0)
   const estimatedCostPerImage = run.estimated_cost_per_image_usd
@@ -633,10 +645,40 @@ function renderOverviewSection({
             <span>Avg / image</span>
             <strong>{formatUsd(estimatedCostPerImage)}</strong>
           </div>
+          {run.batch ? (
+            <>
+              <div className="snapshot-metric">
+                <span>CSV job</span>
+                <strong>{run.batch}</strong>
+              </div>
+              <div className="snapshot-metric">
+                <span>Job elapsed</span>
+                <strong>{formatDuration(batchJob.duration_seconds)}</strong>
+              </div>
+              <div className="snapshot-metric">
+                <span>Job progress</span>
+                <strong>{`${Number(batchJob.terminal_run_count || 0)} / ${Number(batchJob.run_count || 0)}`}</strong>
+              </div>
+            </>
+          ) : null}
         </div>
       </section>
 
       <section className="run-kpi-grid">
+        {run.batch ? (
+          <article className="run-kpi-card">
+            <p className="detail-eyebrow">Full CSV job timer</p>
+            <h4>{formatDuration(batchJob.duration_seconds)}</h4>
+            <p>
+              {Number(batchJob.terminal_run_count || 0)} of {Number(batchJob.run_count || 0)} runs finished
+              {batchJob.is_complete ? ' | job complete' : ` | ${batchJob.status || 'running'}`}
+            </p>
+            <p>
+              Started {batchJob.started_at ? compactDate(batchJob.started_at) : '-'}
+              {batchJob.finished_at ? ` | finished ${compactDate(batchJob.finished_at)}` : ''}
+            </p>
+          </article>
+        ) : null}
         <article className="run-kpi-card run-cost-card">
           <p className="detail-eyebrow">Job price meter</p>
           <h4>{formatUsd(estimatedTotalCost)}</h4>

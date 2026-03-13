@@ -119,7 +119,11 @@ export default function SubmitPage() {
     try {
       const result = await importCsv(file)
       setUploadResult(result)
-      setMessage(`Imported ${result.imported_count} rows`)
+      setMessage(
+        result.batch_id
+          ? `Imported ${result.imported_count} rows into job ${result.batch_id}`
+          : `Imported ${result.imported_count} rows`
+      )
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -315,9 +319,10 @@ export default function SubmitPage() {
         <input type="file" accept=".csv" onChange={onCsvUpload} />
         <button onClick={onQueueImported} disabled={!uploadResult}>Queue Runs For Imported Rows</button>
         {uploadResult && (
-          <p>
-            Imported: {uploadResult.imported_count}, Skipped: {uploadResult.skipped_count}
-          </p>
+          <div>
+            <p>Imported: {uploadResult.imported_count}, Skipped: {uploadResult.skipped_count}</p>
+            {uploadResult.batch_id ? <p>Job id: {uploadResult.batch_id}</p> : null}
+          </div>
         )}
       </article>
 

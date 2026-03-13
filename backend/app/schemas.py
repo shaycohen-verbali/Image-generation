@@ -50,6 +50,7 @@ class EntryImportResponse(BaseModel):
     total_rows: int
     imported_count: int
     skipped_count: int
+    batch_id: str = ""
     rows: list[EntryImportRowResult]
 
 
@@ -59,12 +60,26 @@ class RunsCreateRequest(BaseModel):
     max_optimization_attempts: int | None = None
 
 
+class BatchJobSummaryOut(BaseModel):
+    batch_id: str
+    status: str
+    run_count: int
+    completed_run_count: int
+    terminal_run_count: int
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_seconds: float = 0
+    is_complete: bool = False
+
+
 class RunOut(BaseModel):
     id: str
     entry_id: str
     word: str = ""
     part_of_sentence: str = ""
     category: str = ""
+    batch: str = ""
+    batch_job: BatchJobSummaryOut | None = None
     status: str
     current_stage: str
     quality_score: float | None

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
@@ -10,6 +13,11 @@ from app.services.person_profiles import entry_age_options, entry_gender_options
 from app.services.repository import Repository
 
 router = APIRouter(prefix="/api/v1/entries", tags=["entries"])
+
+
+def _generated_batch_id() -> str:
+    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    return f"csv_{stamp}_{uuid4().hex[:6]}"
 
 
 @router.post("", response_model=EntryOut)
@@ -40,6 +48,8 @@ def import_csv(file: UploadFile = File(...), db: Session = Depends(db_dependency
     content = file.file.read()
     rows = parse_entries_csv(content)
     repo = Repository(db)
+    generated_batch_id = _generated_batch_id() if rows else ""
+    assigned_generated_batch = False
 
     results: list[EntryImportRowResult] = []
     imported_count = 0
@@ -52,7 +62,11 @@ def import_csv(file: UploadFile = File(...), db: Session = Depends(db_dependency
             results.append(EntryImportRowResult(row_index=index, status="invalid", error=error))
             continue
 
-        entry = repo.create_entry(row)
+        payload = {**row}
+        if not str(row.get("batch") or "").strip() and generated_batch_id:
+            assigned_generated_batch = True
+        payload["batch"] = str(row.get("batch") or generated_batch_id).strip()
+        entry = repo.create_entry(payload)
         imported_count += 1
         results.append(EntryImportRowResult(row_index=index, status="imported", entry_id=entry.id))
 
@@ -60,6 +74,7 @@ def import_csv(file: UploadFile = File(...), db: Session = Depends(db_dependency
         total_rows=len(rows),
         imported_count=imported_count,
         skipped_count=skipped_count,
+        batch_id=generated_batch_id if imported_count > 0 and assigned_generated_batch else "",
         rows=results,
     )
 
