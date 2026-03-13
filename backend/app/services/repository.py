@@ -144,6 +144,32 @@ class Repository:
         self.db.refresh(entry)
         return entry
 
+    def update_entries_profile_options(
+        self,
+        *,
+        entry_ids: list[str],
+        person_gender_options: list[str],
+        person_age_options: list[str],
+        person_skin_color_options: list[str],
+    ) -> int:
+        ids = [str(entry_id or "").strip() for entry_id in entry_ids if str(entry_id or "").strip()]
+        if not ids:
+            return 0
+        entries = list(self.db.execute(select(Entry).where(Entry.id.in_(ids))).scalars())
+        if not entries:
+            return 0
+        gender_options = normalize_option_set(person_gender_options, ("male", "female"), DEFAULT_GENDER)
+        age_options = normalize_option_set(person_age_options, ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+        skin_options = normalize_option_set(person_skin_color_options, ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
+        for entry in entries:
+            entry.boy_or_girl = gender_options[0]
+            entry.person_gender_options_json = dump_option_set(gender_options)
+            entry.person_age_options_json = dump_option_set(age_options)
+            entry.person_skin_color_options_json = dump_option_set(skin_options)
+            self.db.add(entry)
+        self.db.commit()
+        return len(entries)
+
     def list_entries(
         self,
         *,

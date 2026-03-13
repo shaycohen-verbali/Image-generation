@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { createEntry, createRuns, getConfig, importCsv, updateConfig } from '../lib/api'
+import { applyEntryProfileOptions, createEntry, createRuns, getConfig, importCsv, updateConfig } from '../lib/api'
 
 export default function SubmitPage() {
   const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
@@ -169,10 +169,16 @@ export default function SubmitPage() {
       setMessage('No valid rows to queue')
       return
     }
-    setMessage('Queueing imported entries...')
+    setMessage('Applying current person variants and queueing imported entries...')
     try {
+      await applyEntryProfileOptions({
+        entry_ids: entryIds,
+        person_gender_options: form.person_gender_options,
+        person_age_options: form.person_age_options,
+        person_skin_color_options: form.person_skin_color_options,
+      })
       const runs = await createRuns({ entry_ids: entryIds })
-      setMessage(`Queued ${runs.length} runs`)
+      setMessage(`Queued ${runs.length} runs with the current person variant settings`)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }

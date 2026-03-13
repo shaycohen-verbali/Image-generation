@@ -7,7 +7,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import db_dependency
-from app.schemas import EntryCreate, EntryImportResponse, EntryImportRowResult, EntryOut
+from app.schemas import (
+    EntryCreate,
+    EntryImportResponse,
+    EntryImportRowResult,
+    EntryOut,
+    EntryProfileOptionsUpdate,
+    EntryProfileOptionsUpdateResponse,
+)
 from app.services.csv_service import parse_entries_csv, validate_entry_row
 from app.services.person_profiles import entry_age_options, entry_gender_options, entry_skin_color_options
 from app.services.repository import Repository
@@ -120,3 +127,15 @@ def list_entries(
         )
         for entry, run in rows
     ]
+
+
+@router.put("/apply-profile-options", response_model=EntryProfileOptionsUpdateResponse)
+def apply_profile_options(payload: EntryProfileOptionsUpdate, db: Session = Depends(db_dependency)) -> EntryProfileOptionsUpdateResponse:
+    repo = Repository(db)
+    updated = repo.update_entries_profile_options(
+        entry_ids=payload.entry_ids,
+        person_gender_options=payload.person_gender_options,
+        person_age_options=payload.person_age_options,
+        person_skin_color_options=payload.person_skin_color_options,
+    )
+    return EntryProfileOptionsUpdateResponse(updated_entry_count=updated)

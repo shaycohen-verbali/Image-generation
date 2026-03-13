@@ -59,6 +59,15 @@ export async function importCsv(file) {
   return parseResponse(response)
 }
 
+export async function applyEntryProfileOptions(payload) {
+  const response = await fetch(`${API_BASE}/entries/apply-profile-options`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return parseResponse(response)
+}
+
 export async function listEntries(filters = {}) {
   const query = new URLSearchParams(filters)
   return fetchJson(`${API_BASE}/entries?${query.toString()}`, {}, 1)

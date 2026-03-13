@@ -54,6 +54,17 @@ class EntryImportResponse(BaseModel):
     rows: list[EntryImportRowResult]
 
 
+class EntryProfileOptionsUpdate(BaseModel):
+    entry_ids: list[str] = Field(min_length=1)
+    person_gender_options: list[str] = Field(default_factory=lambda: ["male"])
+    person_age_options: list[str] = Field(default_factory=lambda: ["kid"])
+    person_skin_color_options: list[str] = Field(default_factory=lambda: ["white"])
+
+
+class EntryProfileOptionsUpdateResponse(BaseModel):
+    updated_entry_count: int
+
+
 class RunsCreateRequest(BaseModel):
     entry_ids: list[str] = Field(min_length=1)
     quality_threshold: int | None = Field(default=None, ge=95)
