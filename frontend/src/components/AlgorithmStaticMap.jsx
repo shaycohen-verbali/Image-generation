@@ -440,7 +440,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       {
         id: 'stage8_race_expand',
         label: 'Step 8 Race Expansion',
-        subtitle: 'Create race variants from matching white age+gender baselines.',
+        subtitle: 'Create race variants from the matching white baseline for each gender+age.',
         badge: 'backend: stage4_variant_generate',
         meta: [
           'Input: matching white gender+age baselines + requested races',
@@ -470,6 +470,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { from: 'stage4_background', to: 'stage6_female_seed', label: 'female seed', fromPort: 'right', toPort: 'left' },
       { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'female ages', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'male baselines', fromPort: 'right', toPort: 'left' },
+      { from: 'stage6_female_seed', to: 'stage8_race_expand', label: 'female kid baseline', fromPort: 'right', toPort: 'left' },
       { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'female baselines', fromPort: 'right', toPort: 'left' },
       { from: 'stage8_race_expand', to: 'stage9_variant_white_bg', label: 'all finals -> white BG', fromPort: 'right', toPort: 'left' },
       { from: 'stage9_variant_white_bg', to: 'completed_pass', label: 'done', fromPort: 'right', toPort: 'left' },
