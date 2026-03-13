@@ -3,7 +3,7 @@ import RunNodeDetailCard from './RunNodeDetailCard'
 import WorkflowCanvas from './WorkflowCanvas'
 import DeferredAssetImage from './DeferredAssetImage'
 import { buildRunDiagram, getAvailableAttempts } from '../lib/runDiagram'
-import { buildAssetContentUrl } from '../lib/api'
+import { buildAssetContentUrl, getBatchReport } from '../lib/api'
 
 function runDetailStateKey(runId) {
   return `aac:run-detail:${runId || 'unknown'}`
@@ -554,6 +554,7 @@ function runNarrative(detail, selectedSummary, threshold) {
 
 function renderOverviewSection({
   detail,
+  batchReport,
   selectedSummary,
   currentAttempt,
   maxAttempts,
@@ -584,6 +585,9 @@ function renderOverviewSection({
 }) {
   const run = detail.run
   const batchJob = safeObject(run.batch_job)
+  const batchJobReport = safeObject(batchReport)
+  const batchIssues = safeArray(batchJobReport.issues)
+  const batchReasonCounts = safeObject(batchJobReport.reason_counts)
   const latestScore = selectedSummary?.score ?? run.quality_score ?? null
   const estimatedTotalCost = Number(run.estimated_total_cost_usd || 0)
   const estimatedCostPerImage = run.estimated_cost_per_image_usd
@@ -758,6 +762,74 @@ function renderOverviewSection({
         </section>
       ) : null}
 
+      {run.batch ? (
+        <section className="run-overview-card">
+          <div className="section-head-row">
+            <div>
+              <h4>CSV Job Report</h4>
+              <p>Batch-level summary for all words imported together in this CSV job.</p>
+            </div>
+          </div>
+          <div className="run-snapshot-metrics">
+            <div className="snapshot-metric">
+              <span>Passed</span>
+              <strong>{Number(batchJobReport.passed_run_count || batchJob.passed_run_count || 0)}</strong>
+            </div>
+            <div className="snapshot-metric">
+              <span>Below threshold</span>
+              <strong>{Number(batchJobReport.below_threshold_run_count || batchJob.below_threshold_run_count || 0)}</strong>
+            </div>
+            <div className="snapshot-metric">
+              <span>Technical failures</span>
+              <strong>{Number(batchJobReport.failed_technical_run_count || batchJob.failed_technical_run_count || 0)}</strong>
+            </div>
+            <div className="snapshot-metric">
+              <span>Avg / word</span>
+              <strong>{formatDuration(batchJobReport.avg_seconds_per_word || batchJob.avg_seconds_per_word || 0)}</strong>
+            </div>
+          </div>
+          {Object.keys(batchReasonCounts).length ? (
+            <div className="run-help-card">
+              <p><strong>Most common failure reasons</strong></p>
+              {Object.entries(batchReasonCounts)
+                .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
+                .slice(0, 5)
+                .map(([reason, count]) => (
+                  <p key={reason}>{count}x | {reason}</p>
+                ))}
+            </div>
+          ) : null}
+          {batchIssues.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Word</th>
+                    <th>Status</th>
+                    <th>Score</th>
+                    <th>Why it did not pass</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchIssues.map((issue) => (
+                    <tr key={issue.run_id}>
+                      <td>{issue.word || '-'}</td>
+                      <td>{prettyRunStatus(issue.status)}</td>
+                      <td>{issue.quality_score ?? '-'}</td>
+                      <td>{issue.reason || issue.error_detail || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="run-help-card">
+              <p><strong>All imported words are currently passing.</strong></p>
+            </div>
+          )}
+        </section>
+      ) : null}
+
       {(stage1NeedPerson || critiqueNeedPerson || critiqueRecommendation) ? (
         <section className="run-overview-card">
           <div className="section-head-row">
@@ -904,6 +976,7 @@ export default function RunExecutionDiagram({
   const [activeTab, setActiveTab] = useState(initialState.activeTab || DETAIL_TABS.OVERVIEW)
   const [matrixPreviewAsset, setMatrixPreviewAsset] = useState(null)
   const [matrixPreviewLabel, setMatrixPreviewLabel] = useState('')
+  const [batchReport, setBatchReport] = useState(null)
 
   async function copyJson(label, value) {
     try {
@@ -975,6 +1048,25 @@ export default function RunExecutionDiagram({
       onActiveTabChange(activeTab)
     }
   }, [activeTab, onActiveTabChange])
+
+  useEffect(() => {
+    let cancelled = false
+    const batchId = String(detail?.run?.batch || '').trim()
+    if (!batchId) {
+      setBatchReport(null)
+      return undefined
+    }
+    getBatchReport(batchId)
+      .then((payload) => {
+        if (!cancelled) setBatchReport(payload)
+      })
+      .catch(() => {
+        if (!cancelled) setBatchReport(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detail?.run?.batch, detail?.run?.updated_at])
 
   if (!detail) {
     return <p>Select a run row to see live execution.</p>
@@ -1140,6 +1232,7 @@ export default function RunExecutionDiagram({
 
       {activeTab === DETAIL_TABS.OVERVIEW ? renderOverviewSection({
         detail: detailWithSummaries,
+        batchReport,
         selectedSummary,
         currentAttempt,
         maxAttempts,

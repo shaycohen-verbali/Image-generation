@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from typing import Any
 
@@ -248,6 +249,9 @@ class Repository:
         runs = [run for run, _entry in rows]
         terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical"}
         completed_statuses = {"completed_pass", "completed_fail_threshold"}
+        passed_runs = [run for run in runs if run.status == "completed_pass"]
+        below_threshold_runs = [run for run in runs if run.status == "completed_fail_threshold"]
+        failed_technical_runs = [run for run in runs if run.status == "failed_technical"]
         terminal_runs = [run for run in runs if run.status in terminal_statuses]
         completed_runs = [run for run in runs if run.status in completed_statuses]
 
@@ -259,6 +263,7 @@ class Repository:
         duration_seconds = 0.0
         if started_at is not None:
             duration_seconds = max(0.0, (duration_end - started_at).total_seconds())
+        avg_seconds_per_word = duration_seconds / len(runs) if runs else 0.0
 
         if is_complete:
             status = "completed"
@@ -275,11 +280,99 @@ class Repository:
             "run_count": len(runs),
             "completed_run_count": len(completed_runs),
             "terminal_run_count": len(terminal_runs),
+            "passed_run_count": len(passed_runs),
+            "below_threshold_run_count": len(below_threshold_runs),
+            "failed_technical_run_count": len(failed_technical_runs),
             "started_at": started_at,
             "finished_at": finished_at,
             "duration_seconds": duration_seconds,
+            "avg_seconds_per_word": avg_seconds_per_word,
             "is_complete": is_complete,
         }
+
+    def batch_job_report(self, batch_id: str) -> dict[str, Any] | None:
+        summary = self.batch_job_summary(batch_id)
+        if summary is None:
+            return None
+
+        batch = str(batch_id or "").strip()
+        rows = list(
+            self.db.execute(
+                select(Run, Entry)
+                .join(Entry, Entry.id == Run.entry_id)
+                .where(Entry.batch == batch)
+                .order_by(Run.updated_at.desc())
+            )
+        )
+        issues: list[dict[str, Any]] = []
+        reason_counts: dict[str, int] = {}
+        for run, entry in rows:
+            if run.status == "completed_pass":
+                continue
+            if run.status == "failed_technical":
+                reason = str(run.error_detail or "").strip() or "Technical failure"
+            elif run.status == "completed_fail_threshold":
+                score = f"{run.quality_score:.0f}" if run.quality_score is not None else "unknown"
+                reason = f"Score below threshold ({score} < {run.quality_threshold})"
+            else:
+                reason = f"Status: {run.status}"
+            issues.append(
+                {
+                    "run_id": run.id,
+                    "entry_id": run.entry_id,
+                    "word": entry.word,
+                    "part_of_sentence": entry.part_of_sentence,
+                    "category": entry.category,
+                    "status": run.status,
+                    "quality_score": run.quality_score,
+                    "error_detail": run.error_detail,
+                    "reason": reason,
+                    "updated_at": run.updated_at,
+                }
+            )
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+        return {
+            **summary,
+            "issues": issues,
+            "reason_counts": reason_counts,
+        }
+
+    def _remove_run_asset_files(self, run_id: str) -> None:
+        assets = list(self.db.execute(select(Asset).where(Asset.run_id == run_id)).scalars())
+        for asset in assets:
+            path = str(asset.abs_path or "").strip()
+            if not path:
+                continue
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                continue
+
+    def delete_run(self, run_id: str) -> bool:
+        run = self.get_run(run_id)
+        if run is None:
+            return False
+        self._remove_run_asset_files(run.id)
+        self.db.delete(run)
+        self.db.commit()
+        return True
+
+    def clear_terminal_runs(self, *, batch_id: str | None = None) -> list[str]:
+        stmt = select(Run)
+        if batch_id:
+            stmt = stmt.join(Entry, Entry.id == Run.entry_id).where(Entry.batch == str(batch_id).strip())
+        terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical"}
+        stmt = stmt.where(Run.status.in_(terminal_statuses))
+        runs = list(self.db.execute(stmt).scalars())
+        deleted_ids: list[str] = []
+        for run in runs:
+            self._remove_run_asset_files(run.id)
+            deleted_ids.append(run.id)
+            self.db.delete(run)
+        self.db.commit()
+        return deleted_ids
 
     def claim_next_queued_run(self) -> Run | None:
         candidate = self.db.execute(

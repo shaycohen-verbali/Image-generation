@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.schemas import (
     AssetOut,
+    BatchJobReportOut,
     BatchJobSummaryOut,
+    DeleteRunsResponse,
     PromptOut,
     RunEventOut,
     RetryRunResponse,
@@ -380,3 +382,34 @@ def retry_run(run_id: str, db: Session = Depends(db_dependency)) -> RetryRunResp
 
     run = repo.retry_run_from_last_failure(run)
     return RetryRunResponse(run_id=run.id, status=run.status, retry_from_stage=run.retry_from_stage)
+
+
+@router.get("/batches/{batch_id}/report", response_model=BatchJobReportOut)
+def get_batch_report(batch_id: str, db: Session = Depends(db_dependency)) -> BatchJobReportOut:
+    repo = Repository(db)
+    report = repo.batch_job_report(batch_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return BatchJobReportOut(**report)
+
+
+@router.delete("/{run_id}", response_model=DeleteRunsResponse)
+def delete_run(run_id: str, db: Session = Depends(db_dependency)) -> DeleteRunsResponse:
+    repo = Repository(db)
+    deleted = repo.delete_run(run_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return DeleteRunsResponse(deleted_run_count=1, deleted_run_ids=[run_id])
+
+
+@router.delete("", response_model=DeleteRunsResponse)
+def clear_runs(
+    terminal_only: bool = Query(default=True),
+    batch_id: str | None = Query(default=None),
+    db: Session = Depends(db_dependency),
+) -> DeleteRunsResponse:
+    if not terminal_only:
+        raise HTTPException(status_code=400, detail="Only terminal history clearing is supported")
+    repo = Repository(db)
+    deleted_ids = repo.clear_terminal_runs(batch_id=batch_id)
+    return DeleteRunsResponse(deleted_run_count=len(deleted_ids), deleted_run_ids=deleted_ids)

@@ -66,10 +66,45 @@ class BatchJobSummaryOut(BaseModel):
     run_count: int
     completed_run_count: int
     terminal_run_count: int
+    passed_run_count: int = 0
+    below_threshold_run_count: int = 0
+    failed_technical_run_count: int = 0
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_seconds: float = 0
+    avg_seconds_per_word: float = 0
     is_complete: bool = False
+
+
+class BatchJobIssueOut(BaseModel):
+    run_id: str
+    entry_id: str
+    word: str
+    part_of_sentence: str = ""
+    category: str = ""
+    status: str
+    quality_score: float | None = None
+    error_detail: str = ""
+    reason: str = ""
+    updated_at: datetime
+
+
+class BatchJobReportOut(BaseModel):
+    batch_id: str
+    status: str
+    run_count: int
+    completed_run_count: int
+    terminal_run_count: int
+    passed_run_count: int = 0
+    below_threshold_run_count: int = 0
+    failed_technical_run_count: int = 0
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_seconds: float = 0
+    avg_seconds_per_word: float = 0
+    is_complete: bool = False
+    issues: list[BatchJobIssueOut] = Field(default_factory=list)
+    reason_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class RunOut(BaseModel):
@@ -170,6 +205,11 @@ class RetryRunResponse(BaseModel):
     run_id: str
     status: str
     retry_from_stage: str
+
+
+class DeleteRunsResponse(BaseModel):
+    deleted_run_count: int
+    deleted_run_ids: list[str] = Field(default_factory=list)
 
 
 class ExportCreateRequest(BaseModel):

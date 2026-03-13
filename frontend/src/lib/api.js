@@ -90,6 +90,24 @@ export async function retryRun(runId) {
   return parseResponse(response)
 }
 
+export async function deleteRun(runId) {
+  const response = await fetch(`${API_BASE}/runs/${runId}`, { method: 'DELETE' })
+  return parseResponse(response)
+}
+
+export async function clearTerminalRuns(options = {}) {
+  const query = new URLSearchParams()
+  query.set('terminal_only', 'true')
+  if (options.batchId) query.set('batch_id', options.batchId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const response = await fetch(`${API_BASE}/runs${suffix}`, { method: 'DELETE' })
+  return parseResponse(response)
+}
+
+export async function getBatchReport(batchId) {
+  return fetchJson(`${API_BASE}/runs/batches/${batchId}/report`, {}, 1)
+}
+
 export async function createExport(payload) {
   const response = await fetch(`${API_BASE}/exports`, {
     method: 'POST',

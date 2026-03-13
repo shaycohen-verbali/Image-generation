@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { buildAssetContentUrl, getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
+import { buildAssetContentUrl, clearTerminalRuns, deleteRun, getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
 import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 import DeferredAssetImage from '../components/DeferredAssetImage'
@@ -357,6 +357,36 @@ export default function RunsPage() {
     }
   }
 
+  const onDeleteRun = async (runId) => {
+    try {
+      const result = await deleteRun(runId)
+      setMessage(`Deleted ${result.deleted_run_count} run`)
+      if (selectedRunIdRef.current === runId) {
+        setSelectedRunId('')
+        selectedRunIdRef.current = ''
+        setStoredRunId('')
+        setDetail(null)
+      }
+      refreshRuns()
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const onClearTerminalHistory = async () => {
+    try {
+      const result = await clearTerminalRuns()
+      setMessage(`Cleared ${result.deleted_run_count} terminal runs`)
+      setSelectedRunId('')
+      selectedRunIdRef.current = ''
+      setStoredRunId('')
+      setDetail(null)
+      refreshRuns()
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
   const onSavePromptEngineerConfig = async () => {
     try {
       const updated = await updateConfig({
@@ -400,6 +430,8 @@ export default function RunsPage() {
             <div className="runs-floor-summary">
               <span>{filteredRuns.length} shown</span>
               <span>{runs.length} total</span>
+              <button type="button" onClick={() => refreshRuns()} className="button-secondary">Refresh</button>
+              <button type="button" onClick={onClearTerminalHistory} className="button-secondary">Clear Terminal History</button>
             </div>
           </div>
 
@@ -438,6 +470,7 @@ export default function RunsPage() {
                   <th>Est. cost</th>
                   <th>Est. avg / image</th>
                   <th>Retry</th>
+                  <th>Delete</th>
                 </tr>
               </thead>
               <tbody>
@@ -464,6 +497,17 @@ export default function RunsPage() {
                         disabled={!run.status.startsWith('failed')}
                       >
                         Retry
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onDeleteRun(run.id)
+                        }}
+                        disabled={!isTerminalRunStatus(run.status)}
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
