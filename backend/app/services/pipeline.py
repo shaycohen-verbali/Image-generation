@@ -227,10 +227,8 @@ class PipelineRunner:
             f"{profile.get('gender', 'person')}_{profile.get('age', 'age')}_{profile.get('skin_color', 'skin')}"
         )
 
-    def _variant_pool_size(self, variant_count: int) -> int:
-        # Variant expansion is an in-run fanout step, not the same control as max_parallel_runs.
-        # Keep the fanout intentionally small on Render's 512 MB instances.
-        return max(1, min(variant_count, 2))
+    def _variant_pool_size(self, variant_count: int, worker_limit: int) -> int:
+        return max(1, min(variant_count, worker_limit))
 
     def _variant_filename(self, stage_name: str, entry: Entry, profile: dict[str, str], winner_attempt: int) -> str:
         profile_suffix = self._variant_suffix(profile)
@@ -328,8 +326,10 @@ class PipelineRunner:
             return run
 
         config = self.repo.get_runtime_config()
+        variant_worker_limit = max(1, min(int(getattr(config, "max_variant_workers", 2)), 8))
         self.openai.settings.max_api_retries = config.max_api_retries
         self.replicate.settings.max_api_retries = config.max_api_retries
+        self.google_images.configure_workers(variant_worker_limit)
         assistant_id = ""
         if config.prompt_engineer_mode == "assistant":
             assistant_id = self.openai.resolve_assistant_id(config.openai_assistant_id, config.openai_assistant_name)
@@ -1566,7 +1566,7 @@ class PipelineRunner:
                 sync_variant_progress(stage_name)
                 return reused_assets
 
-            worker_count = self._variant_pool_size(len(pending_jobs))
+            worker_count = self._variant_pool_size(len(pending_jobs), variant_worker_limit)
             sync_variant_progress(stage_name, active_count=len(pending_jobs))
             created_assets = list(reused_assets)
             with ThreadPoolExecutor(max_workers=worker_count) as executor:

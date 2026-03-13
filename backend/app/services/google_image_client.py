@@ -27,11 +27,26 @@ class GoogleImageAPIError(RuntimeError):
 class GoogleImageClient:
     def __init__(self) -> None:
         self.settings = get_settings()
-        self._prediction_executor = ThreadPoolExecutor(max_workers=max(1, min(int(self.settings.max_parallel_runs or 1), 2)))
+        self._prediction_executor = ThreadPoolExecutor(max_workers=self._executor_limit(int(self.settings.max_variant_workers or 1)))
         self._prediction_futures: dict[str, Future[dict[str, Any]]] = {}
         self._prediction_models: dict[str, str] = {}
         self._inline_assets: dict[str, bytes] = {}
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _executor_limit(worker_count: int) -> int:
+        return max(1, min(int(worker_count or 1), 8))
+
+    def configure_workers(self, worker_count: int) -> None:
+        desired = self._executor_limit(worker_count)
+        current = self._executor_limit(int(getattr(self.settings, "max_variant_workers", 1) or 1))
+        if desired == current:
+            self.settings.max_variant_workers = desired
+            return
+        old_executor = self._prediction_executor
+        self._prediction_executor = ThreadPoolExecutor(max_workers=desired)
+        self.settings.max_variant_workers = desired
+        old_executor.shutdown(wait=False, cancel_futures=True)
 
     @classmethod
     def _sanitize_payload(cls, value: Any) -> Any:

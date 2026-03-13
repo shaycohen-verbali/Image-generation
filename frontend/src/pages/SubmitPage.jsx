@@ -18,7 +18,8 @@ export default function SubmitPage() {
   const [lastEntryId, setLastEntryId] = useState('')
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
-  const [workerCount, setWorkerCount] = useState(10)
+  const [runWorkerCount, setRunWorkerCount] = useState(1)
+  const [variantWorkerCount, setVariantWorkerCount] = useState(2)
   const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
   const [promptEngineerModel, setPromptEngineerModel] = useState('gpt-5.4')
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
@@ -53,7 +54,10 @@ export default function SubmitPage() {
       try {
         const config = await getConfig()
         if (mounted && config?.max_parallel_runs) {
-          setWorkerCount(config.max_parallel_runs)
+          setRunWorkerCount(config.max_parallel_runs)
+        }
+        if (mounted && config?.max_variant_workers) {
+          setVariantWorkerCount(config.max_variant_workers)
         }
         if (mounted && config?.prompt_engineer_mode) {
           setPromptEngineerMode(config.prompt_engineer_mode)
@@ -138,16 +142,22 @@ export default function SubmitPage() {
   }
 
   const onSaveWorkerConfig = async () => {
-    const parsed = Number(workerCount)
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 50) {
-      setMessage('Workers must be an integer between 1 and 50')
+    const parsedRuns = Number(runWorkerCount)
+    const parsedVariants = Number(variantWorkerCount)
+    if (!Number.isInteger(parsedRuns) || parsedRuns < 1 || parsedRuns > 4) {
+      setMessage('Run workers must be an integer between 1 and 4')
+      return
+    }
+    if (!Number.isInteger(parsedVariants) || parsedVariants < 1 || parsedVariants > 8) {
+      setMessage('Variant workers must be an integer between 1 and 8')
       return
     }
     setMessage('Saving worker configuration...')
     try {
-      const updated = await updateConfig({ max_parallel_runs: parsed })
-      setWorkerCount(updated.max_parallel_runs)
-      setMessage(`Saved workers: ${updated.max_parallel_runs}`)
+      const updated = await updateConfig({ max_parallel_runs: parsedRuns, max_variant_workers: parsedVariants })
+      setRunWorkerCount(updated.max_parallel_runs)
+      setVariantWorkerCount(updated.max_variant_workers)
+      setMessage(`Saved workers: run=${updated.max_parallel_runs}, variants=${updated.max_variant_workers}`)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -318,20 +328,33 @@ export default function SubmitPage() {
 
       <article className="card">
         <h2>Processing Speed</h2>
-        <p>Set how many runs the worker can process in parallel.</p>
+        <p>Split throughput by goal: run workers start whole words, variant workers fan out image variations inside a run.</p>
         <div className="inline-fields">
           <label>
-            Max parallel workers
+            Run workers
             <input
               type="number"
               min="1"
-              max="50"
-              value={workerCount}
-              onChange={(e) => setWorkerCount(e.target.value)}
+              max="4"
+              value={runWorkerCount}
+              onChange={(e) => setRunWorkerCount(e.target.value)}
+            />
+          </label>
+          <label>
+            Variant workers
+            <input
+              type="number"
+              min="1"
+              max="8"
+              value={variantWorkerCount}
+              onChange={(e) => setVariantWorkerCount(e.target.value)}
             />
           </label>
           <button type="button" onClick={onSaveWorkerConfig}>Save Workers</button>
         </div>
+        <p className="config-help-text">
+          Recommendation for the current 512 MB Render instance: use <strong>1</strong> run worker and <strong>2</strong> variant workers. If you upgrade memory, move to <strong>2</strong> run workers and <strong>4</strong> variant workers.
+        </p>
       </article>
 
       <article className="card">

@@ -27,12 +27,12 @@ def run_worker() -> None:
     logger.info("worker started")
     active_runs: dict[Future, str] = {}
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         while True:
             with SessionLocal() as db:
                 repo = Repository(db)
                 config = repo.get_runtime_config()
-                max_parallel_runs = max(1, min(int(config.max_parallel_runs), 2))
+                max_parallel_runs = max(1, min(int(config.max_parallel_runs), 4))
                 poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
 
             done = [future for future in active_runs if future.done()]

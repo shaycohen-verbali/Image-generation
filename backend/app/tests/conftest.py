@@ -43,6 +43,7 @@ def db_session(tmp_path: Path):
                 stage_retry_limit=3,
                 worker_poll_seconds=0.1,
                 max_parallel_runs=2,
+                max_variant_workers=2,
                 flux_imagen_fallback_enabled=True,
                 openai_assistant_id="asst_test",
                 openai_assistant_name="Prompt generator -JSON output",

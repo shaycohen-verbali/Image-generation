@@ -26,6 +26,12 @@ def test_runtime_config_update_rejects_worker_count_out_of_range() -> None:
     except ValidationError:
         assert True
 
+    try:
+        RuntimeConfigUpdate(max_variant_workers=0)
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
 
 def test_runtime_config_update_rejects_unknown_model_values() -> None:
     try:
@@ -48,6 +54,12 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
 
     try:
         RuntimeConfigUpdate(max_parallel_runs=51)
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
+        RuntimeConfigUpdate(max_variant_workers=17)
         assert False, "expected ValidationError"
     except ValidationError:
         assert True

@@ -33,7 +33,9 @@ from app.services.utils import deterministic_entry_id, source_row_hash
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
-MAX_PARALLEL_RUNS = 2
+MAX_PARALLEL_RUNS = 4
+MIN_VARIANT_WORKERS = 1
+MAX_VARIANT_WORKERS = 8
 
 
 def _dumps(value: dict[str, Any] | list[Any]) -> str:
@@ -86,6 +88,7 @@ class Repository:
         config.openai_model_vision = config.stage3_critique_model
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
         config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))
+        config.max_variant_workers = max(MIN_VARIANT_WORKERS, min(int(config.max_variant_workers), MAX_VARIANT_WORKERS))
         self.db.add(config)
         self.db.commit()
         self.db.refresh(config)

@@ -189,6 +189,7 @@ class RuntimeConfigOut(BaseModel):
     stage_retry_limit: int
     worker_poll_seconds: float
     max_parallel_runs: int
+    max_variant_workers: int
     flux_imagen_fallback_enabled: bool
     openai_assistant_id: str
     openai_assistant_name: str
@@ -215,6 +216,7 @@ class RuntimeConfigUpdate(BaseModel):
     stage_retry_limit: int | None = None
     worker_poll_seconds: float | None = None
     max_parallel_runs: int | None = Field(default=None, ge=1, le=50)
+    max_variant_workers: int | None = Field(default=None, ge=1, le=16)
     flux_imagen_fallback_enabled: bool | None = None
     openai_assistant_id: str | None = None
     openai_assistant_name: str | None = None
