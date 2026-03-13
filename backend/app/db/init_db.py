@@ -77,6 +77,11 @@ def init_db() -> None:
             if int(getattr(existing, "max_variant_workers", DEFAULT_VARIANT_WORKERS)) > SAFE_VARIANT_WORKERS:
                 existing.max_variant_workers = SAFE_VARIANT_WORKERS
             existing.stage3_critique_model = normalize_vision_model(existing.stage3_critique_model or existing.openai_model_vision)
+            if (
+                existing.stage3_critique_model == "gpt-4o-mini"
+                and normalize_vision_model(existing.openai_model_vision) == "gpt-4o-mini"
+            ):
+                existing.stage3_critique_model = "gpt-5.4"
             if not existing.stage3_generate_model or existing.stage3_generate_model == "flux-1.1-pro":
                 existing.stage3_generate_model = "nano-banana-2"
             else:
@@ -96,6 +101,8 @@ def init_db() -> None:
             existing.stage1_prompt_template = existing.stage1_prompt_template or DEFAULT_STAGE1_PROMPT_TEMPLATE
             existing.stage3_prompt_template = existing.stage3_prompt_template or DEFAULT_STAGE3_PROMPT_TEMPLATE
             existing.openai_model_vision = normalize_vision_model(existing.openai_model_vision)
+            if existing.openai_model_vision == "gpt-4o-mini" and existing.stage3_critique_model == "gpt-5.4":
+                existing.openai_model_vision = "gpt-5.4"
             db.add(existing)
             db.commit()
 
@@ -111,7 +118,7 @@ def _ensure_runtime_config_columns() -> None:
         if "max_variant_workers" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 2"))
         if "stage3_critique_model" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
         if "stage3_generate_model" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
         if "quality_gate_model" not in existing:

@@ -593,6 +593,7 @@ function renderOverviewSection({
   const costSummary = safeObject(detail.cost_summary)
   const costBreakdown = safeArray(costSummary.stage_costs)
   const estimateNote = String(costSummary.estimate_note || '').trim()
+  const runErrorDetail = String(run.error_detail || '').trim()
 
   return (
     <div className="run-detail-section-grid">
@@ -740,6 +741,21 @@ function renderOverviewSection({
           {imageCreationFailed ? <span className="run-flag run-flag-error">Flag: image creation failed in this run</span> : null}
           {scoreTooLow ? <span className="run-flag run-flag-warn">Flag: score is below threshold ({threshold})</span> : null}
         </div>
+      ) : null}
+
+      {runErrorDetail ? (
+        <section className="run-overview-card">
+          <div className="section-head-row">
+            <div>
+              <h4>Run Error</h4>
+              <p>This is the technical error recorded for the selected run.</p>
+            </div>
+          </div>
+          <div className="run-help-card run-error-card">
+            <p><strong>{prettyStage(run.current_stage)}</strong></p>
+            <p>{runErrorDetail}</p>
+          </div>
+        </section>
       ) : null}
 
       {(stage1NeedPerson || critiqueNeedPerson || critiqueRecommendation) ? (

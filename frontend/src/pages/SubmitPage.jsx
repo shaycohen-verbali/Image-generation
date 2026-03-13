@@ -4,6 +4,8 @@ import { createEntry, createRuns, getConfig, importCsv, updateConfig } from '../
 export default function SubmitPage() {
   const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
   const IMAGE_RESOLUTION_OPTIONS = ['1K', '2K', '4K']
+  const SAMPLE_CSV_URL = `${import.meta.env.BASE_URL || '/'}test_word_list.csv`
+  const SAMPLE_CSV_NAME = 'test_word_list.csv'
   const defaultGender = 'male'
   const defaultAge = 'kid'
   const defaultSkinColor = 'white'
@@ -24,7 +26,7 @@ export default function SubmitPage() {
   const [variantWorkerCount, setVariantWorkerCount] = useState(2)
   const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
   const [promptEngineerModel, setPromptEngineerModel] = useState('gpt-5.4')
-  const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
+  const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-5.4')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
   const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
@@ -133,6 +135,27 @@ export default function SubmitPage() {
         result.batch_id
           ? `Imported ${result.imported_count} rows into job ${result.batch_id}`
           : `Imported ${result.imported_count} rows`
+      )
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const onUseSampleCsv = async () => {
+    setMessage('Loading sample CSV...')
+    try {
+      const response = await fetch(SAMPLE_CSV_URL)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      const blob = await response.blob()
+      const file = new File([blob], SAMPLE_CSV_NAME, { type: 'text/csv' })
+      const result = await importCsv(file)
+      setUploadResult(result)
+      setMessage(
+        result.batch_id
+          ? `Imported sample CSV into job ${result.batch_id}`
+          : 'Imported sample CSV'
       )
     } catch (error) {
       setMessage(`Error: ${error.message}`)
@@ -338,6 +361,10 @@ export default function SubmitPage() {
       <article className="card">
         <h2>Bulk CSV Import</h2>
         <input type="file" accept=".csv" onChange={onCsvUpload} />
+        <div className="inline-fields">
+          <button type="button" onClick={onUseSampleCsv}>Use Sample CSV</button>
+          <a href={SAMPLE_CSV_URL} download={SAMPLE_CSV_NAME}>Download sample CSV</a>
+        </div>
         <button onClick={onQueueImported} disabled={!uploadResult}>Queue Runs For Imported Rows</button>
         {uploadResult && (
           <div>
