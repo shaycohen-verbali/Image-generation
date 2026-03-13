@@ -1030,6 +1030,11 @@ pre {
   background: #dcf4e8;
 }
 
+.status-warn {
+  border-color: #b16b00;
+  background: #fff0d2;
+}
+
 .status-error {
   border-color: #8f1f1f;
   background: #ffdede;
@@ -1054,6 +1059,11 @@ pre {
 .workflow-node.status-ok {
   border-color: #17784e;
   background: #e5f7ec;
+}
+
+.workflow-node.status-warn {
+  border-color: #b16b00;
+  background: #fff7e7;
 }
 
 .workflow-node.status-error {
@@ -1227,6 +1237,14 @@ pre {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+}
+
+.run-snapshot-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .run-snapshot-head h3 {

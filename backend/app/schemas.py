@@ -218,6 +218,13 @@ class RetryRunResponse(BaseModel):
     retry_from_stage: str
 
 
+class StopRunResponse(BaseModel):
+    run_id: str
+    status: str
+    current_stage: str
+    message: str = ""
+
+
 class DeleteRunsResponse(BaseModel):
     deleted_run_count: int
     deleted_run_ids: list[str] = Field(default_factory=list)

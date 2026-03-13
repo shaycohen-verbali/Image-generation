@@ -106,6 +106,7 @@ const STATUS_LABELS = {
   running: 'Running',
   ok: 'OK',
   error: 'Error',
+  warn: 'Stopping',
   skipped: 'Skipped',
 }
 
@@ -257,6 +258,7 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
   if (stageId === 'completed') {
     if (run.status === 'completed_pass' && attempt === Number(run.optimization_attempt || 0)) return 'ok'
     if ((run.status === 'completed_fail_threshold' || run.status === 'failed_technical') && attempt === Number(run.optimization_attempt || 0)) return 'error'
+    if (run.status === 'canceled' && attempt === Number(run.optimization_attempt || 0)) return 'warn'
     return 'queued'
   }
 
@@ -269,6 +271,7 @@ function nodeSubtitle(stageId, run, score, attempt) {
     if (run.status === 'completed_pass' && attempt === Number(run.optimization_attempt || 0)) return 'Pass'
     if (run.status === 'completed_fail_threshold' && attempt === Number(run.optimization_attempt || 0)) return 'Fail threshold'
     if (run.status === 'failed_technical' && attempt === Number(run.optimization_attempt || 0)) return 'Technical failure'
+    if (run.status === 'canceled' && attempt === Number(run.optimization_attempt || 0)) return 'Canceled'
     return 'Pending'
   }
   if (stageId === 'quality_gate' && score) {

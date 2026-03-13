@@ -273,7 +273,7 @@ class Repository:
             return None
 
         runs = [run for run, _entry in rows]
-        terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical"}
+        terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical", "canceled"}
         completed_statuses = {"completed_pass", "completed_fail_threshold"}
         passed_runs = [run for run in runs if run.status == "completed_pass"]
         below_threshold_runs = [run for run in runs if run.status == "completed_fail_threshold"]
@@ -295,6 +295,8 @@ class Repository:
             status = "completed"
         elif any(run.status == "running" for run in runs):
             status = "running"
+        elif any(run.status == "cancel_requested" for run in runs):
+            status = "canceling"
         elif any(run.status in {"queued", "retry_queued"} for run in runs):
             status = "queued"
         else:
@@ -337,6 +339,8 @@ class Repository:
                 continue
             if run.status == "failed_technical":
                 reason = str(run.error_detail or "").strip() or "Technical failure"
+            elif run.status == "canceled":
+                reason = str(run.error_detail or "").strip() or "Stopped by user"
             elif run.status == "completed_fail_threshold":
                 score = f"{run.quality_score:.0f}" if run.quality_score is not None else "unknown"
                 reason = f"Score below threshold ({score} < {run.quality_threshold})"
@@ -389,7 +393,7 @@ class Repository:
         stmt = select(Run)
         if batch_id:
             stmt = stmt.join(Entry, Entry.id == Run.entry_id).where(Entry.batch == str(batch_id).strip())
-        terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical"}
+        terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical", "canceled"}
         stmt = stmt.where(Run.status.in_(terminal_statuses))
         runs = list(self.db.execute(stmt).scalars())
         deleted_ids: list[str] = []
@@ -419,6 +423,23 @@ class Repository:
 
         self.db.commit()
         return self.get_run(candidate.id)
+
+    def request_stop_run(self, run: Run) -> Run:
+        current_status = str(run.status or "").strip().lower()
+        if current_status in {"completed_pass", "completed_fail_threshold", "failed_technical", "canceled"}:
+            return run
+        if current_status in {"queued", "retry_queued"}:
+            run.status = "canceled"
+            run.current_stage = "canceled"
+            run.retry_from_stage = ""
+            run.error_detail = "Stopped by user"
+        else:
+            run.status = "cancel_requested"
+            run.error_detail = "Stop requested by user"
+        self.db.add(run)
+        self.db.commit()
+        self.db.refresh(run)
+        return run
 
     def update_run(self, run: Run, **updates: Any) -> Run:
         for key, value in updates.items():

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { buildAssetContentUrl, clearTerminalRuns, deleteRun, getConfig, getRun, listRuns, retryRun, updateConfig } from '../lib/api'
+import { buildAssetContentUrl, clearTerminalRuns, deleteRun, getConfig, getRun, listRuns, retryRun, stopRun, updateConfig } from '../lib/api'
 import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 import DeferredAssetImage from '../components/DeferredAssetImage'
@@ -11,12 +11,17 @@ const DETAIL_POLL_WAITING_MS = 20000
 
 function isTerminalRunStatus(status) {
   const value = String(status || '').toLowerCase()
-  return ['completed_pass', 'completed_fail_threshold', 'failed_technical'].includes(value)
+  return ['completed_pass', 'completed_fail_threshold', 'failed_technical', 'canceled'].includes(value)
 }
 
 function isWaitingRunStatus(status) {
   const value = String(status || '').toLowerCase()
   return ['queued', 'retry_queued'].includes(value)
+}
+
+function canStopRun(status) {
+  const value = String(status || '').toLowerCase()
+  return ['queued', 'retry_queued', 'running', 'cancel_requested'].includes(value)
 }
 
 function shouldPollRuns(runs) {
@@ -357,6 +362,19 @@ export default function RunsPage() {
     }
   }
 
+  const onStop = async (runId) => {
+    try {
+      const result = await stopRun(runId)
+      setMessage(result.message || `Run ${runId} stop requested`)
+      refreshRuns()
+      if (selectedRunIdRef.current === runId) {
+        loadRunDetail(runId, { includeDebug: selectedDetailTab === 'debug' })
+      }
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
   const onDeleteRun = async (runId) => {
     try {
       const result = await deleteRun(runId)
@@ -469,6 +487,7 @@ export default function RunsPage() {
                   <th>Attempt</th>
                   <th>Est. cost</th>
                   <th>Est. avg / image</th>
+                  <th>Stop</th>
                   <th>Retry</th>
                   <th>Delete</th>
                 </tr>
@@ -488,6 +507,17 @@ export default function RunsPage() {
                     <td>{run.optimization_attempt}</td>
                     <td>{typeof run.estimated_total_cost_usd === 'number' ? `$${Number(run.estimated_total_cost_usd).toFixed(4)}` : '-'}</td>
                     <td>{run.estimated_cost_per_image_usd != null ? `$${Number(run.estimated_cost_per_image_usd).toFixed(4)}` : '-'}</td>
+                    <td>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onStop(run.id)
+                        }}
+                        disabled={!canStopRun(run.status)}
+                      >
+                        {String(run.status || '').toLowerCase() === 'cancel_requested' ? 'Stopping…' : 'Stop'}
+                      </button>
+                    </td>
                     <td>
                       <button
                         onClick={(event) => {
@@ -558,6 +588,7 @@ export default function RunsPage() {
                   setImageResolution,
                 }}
                 onSavePromptEngineerConfig={onSavePromptEngineerConfig}
+                onStopRun={onStop}
               />
             </PageErrorBoundary>
           ) : (

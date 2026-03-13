@@ -18,6 +18,7 @@ from app.schemas import (
     RunOut,
     RunsCreateRequest,
     ScoreOut,
+    StopRunResponse,
     StageResultOut,
 )
 from app.services.cost_estimator import summarize_run_costs
@@ -382,6 +383,33 @@ def retry_run(run_id: str, db: Session = Depends(db_dependency)) -> RetryRunResp
 
     run = repo.retry_run_from_last_failure(run)
     return RetryRunResponse(run_id=run.id, status=run.status, retry_from_stage=run.retry_from_stage)
+
+
+@router.post("/{run_id}/stop", response_model=StopRunResponse)
+def stop_run(run_id: str, db: Session = Depends(db_dependency)) -> StopRunResponse:
+    repo = Repository(db)
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    updated = repo.request_stop_run(run)
+    message = "Run stop requested"
+    if updated.status == "canceled":
+        message = "Run canceled"
+    repo.add_run_event(
+        run_id=updated.id,
+        stage_name=updated.current_stage,
+        attempt=max(0, int(updated.optimization_attempt or 0)),
+        event_type="run_stop_requested" if updated.status == "cancel_requested" else "run_canceled",
+        status=updated.status,
+        message=message,
+        payload_json={"current_stage": updated.current_stage},
+    )
+    return StopRunResponse(
+        run_id=updated.id,
+        status=updated.status,
+        current_stage=updated.current_stage,
+        message=message,
+    )
 
 
 @router.get("/batches/{batch_id}/report", response_model=BatchJobReportOut)

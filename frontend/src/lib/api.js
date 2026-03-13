@@ -99,6 +99,11 @@ export async function retryRun(runId) {
   return parseResponse(response)
 }
 
+export async function stopRun(runId) {
+  const response = await fetch(`${API_BASE}/runs/${runId}/stop`, { method: 'POST' })
+  return parseResponse(response)
+}
+
 export async function deleteRun(runId) {
   const response = await fetch(`${API_BASE}/runs/${runId}`, { method: 'DELETE' })
   return parseResponse(response)

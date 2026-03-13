@@ -57,6 +57,8 @@ function prettyRunStatus(status) {
   if (status === 'completed_pass') return 'Completed (Pass)'
   if (status === 'completed_fail_threshold') return 'Completed (Below threshold)'
   if (status === 'failed_technical') return 'Failed (Technical)'
+  if (status === 'cancel_requested') return 'Stopping'
+  if (status === 'canceled') return 'Canceled'
   if (status === 'running') return 'Running'
   if (status === 'queued') return 'Queued'
   if (status === 'retry_queued') return 'Queued for retry'
@@ -156,6 +158,7 @@ function currentNodeId(detail) {
 function statusTone(status) {
   const value = String(status || '').toLowerCase()
   if (value.includes('completed_pass')) return 'ok'
+  if (value.includes('cancel')) return 'warn'
   if (value.includes('running')) return 'running'
   if (value.includes('queued')) return 'queued'
   if (value.includes('fail')) return 'error'
@@ -534,8 +537,14 @@ function runNarrative(detail, selectedSummary, threshold) {
   if (run.status === 'queued' || run.status === 'retry_queued') {
     return 'The run is waiting in the queue. No provider call is active yet.'
   }
+  if (run.status === 'cancel_requested') {
+    return `Stop was requested. The run will cancel after the current work in ${prettyStage(run.current_stage)} reaches a safe checkpoint.`
+  }
   if (run.status === 'running') {
     return `The run is active. It is currently in ${prettyStage(run.current_stage)} and working on attempt ${Math.max(1, Number(run.optimization_attempt || 1))}.`
+  }
+  if (run.status === 'canceled') {
+    return `The run was stopped by user request during ${prettyStage(run.current_stage)}.`
   }
   if (run.status === 'completed_pass') {
     return `The run completed successfully. Attempt ${run.optimization_attempt} met the quality threshold of ${threshold} and the winner image moved to white background processing.`
@@ -582,6 +591,7 @@ function renderOverviewSection({
   setSelectedAttempt,
   setImageFilter,
   selectedAttempt,
+  onStopRun,
 }) {
   const run = detail.run
   const batchJob = safeObject(run.batch_job)
@@ -611,7 +621,19 @@ function renderOverviewSection({
               {run.category ? ` | ${run.category}` : ' | No category'}
             </p>
           </div>
-          <span className={`status-pill status-${statusTone(run.status)}`}>{prettyRunStatus(run.status)}</span>
+          <div className="run-snapshot-actions">
+            <span className={`status-pill status-${statusTone(run.status)}`}>{prettyRunStatus(run.status)}</span>
+            {['queued', 'retry_queued', 'running', 'cancel_requested'].includes(String(run.status || '').toLowerCase()) ? (
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => onStopRun?.(run.id)}
+                disabled={String(run.status || '').toLowerCase() === 'cancel_requested'}
+              >
+                {String(run.status || '').toLowerCase() === 'cancel_requested' ? 'Stopping…' : 'Stop run'}
+              </button>
+            ) : null}
+          </div>
         </div>
         <p className="run-snapshot-summary">{runNarrative(detail, selectedSummary, threshold)}</p>
         <div className="run-snapshot-metrics">
@@ -962,6 +984,7 @@ export default function RunExecutionDiagram({
   promptEngineerConfig,
   onSavePromptEngineerConfig,
   onActiveTabChange,
+  onStopRun,
 }) {
   const attempts = useMemo(() => getAvailableAttempts(detail), [detail?.run?.id, detail?.run?.updated_at, detail])
   const initialState = loadRunDetailState(detail?.run?.id) || {}
@@ -1260,6 +1283,7 @@ export default function RunExecutionDiagram({
         setSelectedAttempt,
         setImageFilter,
         selectedAttempt,
+        onStopRun,
       }) : null}
 
       {activeTab === DETAIL_TABS.IMAGES ? (

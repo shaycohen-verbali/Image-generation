@@ -31,6 +31,14 @@ from app.services.utils import sanitize_filename
 logger = logging.getLogger(__name__)
 
 
+class RunCanceledError(RuntimeError):
+    def __init__(self, stage_name: str, message: str = "Run stopped by user") -> None:
+        super().__init__(message)
+        self.stage_name = stage_name
+        self.request_json = {}
+        self.response_json = {}
+
+
 class PipelineRunner:
     def __init__(
         self,
@@ -189,6 +197,35 @@ class PipelineRunner:
             error_detail=detail,
             technical_retry_count=run.technical_retry_count + 1,
         )
+
+    def _get_latest_run(self, run_id: str) -> Run | None:
+        return self.repo.get_run(run_id)
+
+    def _raise_if_stop_requested(self, run: Run, stage_name: str) -> None:
+        latest = self._get_latest_run(run.id)
+        if latest is None:
+            raise RunCanceledError(stage_name, "Run missing while stop was being processed")
+        if str(latest.status or "").strip().lower() in {"cancel_requested", "canceled"}:
+            raise RunCanceledError(stage_name)
+
+    def _set_canceled(self, run: Run, stage_name: str, detail: str = "Stopped by user") -> Run:
+        updated = self.repo.update_run(
+            run,
+            status="canceled",
+            current_stage=stage_name,
+            retry_from_stage="",
+            error_detail=detail,
+        )
+        self._record_event(
+            run_id=updated.id,
+            stage_name=stage_name,
+            attempt=max(0, int(updated.optimization_attempt or 0)),
+            event_type="run_canceled",
+            status="canceled",
+            message=detail,
+            payload={"current_stage": stage_name},
+        )
+        return updated
 
     @staticmethod
     def _entry_slug(entry: Entry) -> str:
@@ -353,15 +390,22 @@ class PipelineRunner:
         )
 
         try:
+            self._raise_if_stop_requested(run, start_stage)
             if start_stage in {"stage1_prompt", "queued"}:
                 run = self._run_stage1(run, entry, assistant_id, config.stage_retry_limit)
+                self._raise_if_stop_requested(run, "stage1_prompt")
                 run = self._run_stage2(run, entry, config.stage_retry_limit)
+                self._raise_if_stop_requested(run, "stage2_draft")
             elif start_stage == "stage2_draft":
                 run = self._run_stage2(run, entry, config.stage_retry_limit)
+                self._raise_if_stop_requested(run, "stage2_draft")
 
             if start_stage in {"stage1_prompt", "stage2_draft", "stage3_upgrade", "stage4_background", "quality_gate", "queued"}:
                 run = self._run_optimization_loop(run, entry, assistant_id, config.stage_retry_limit)
 
+        except RunCanceledError as exc:
+            stage_name = str(getattr(exc, "stage_name", "") or run.current_stage or start_stage)
+            return self._set_canceled(run, stage_name, str(exc))
         except Exception as exc:  # noqa: BLE001
             self._set_failed_technical(run, run.current_stage, str(exc))
             request_json = getattr(exc, "request_json", {})
@@ -613,6 +657,7 @@ class PipelineRunner:
         best_rubric: dict[str, Any] = {}
 
         while current_attempt <= total_attempt_budget:
+            self._raise_if_stop_requested(run, "stage3_upgrade")
             run = self.repo.update_run(run, current_stage="stage3_upgrade", optimization_attempt=current_attempt)
 
             self._execute_with_stage_retry(
@@ -626,6 +671,7 @@ class PipelineRunner:
                 ),
             )
 
+            self._raise_if_stop_requested(run, "quality_gate")
             run = self.repo.update_run(run, current_stage="quality_gate", optimization_attempt=current_attempt)
             score, _passed, rubric = self._execute_with_stage_retry(
                 retry_limit,
@@ -653,6 +699,7 @@ class PipelineRunner:
         if best_attempt is None or best_score is None:
             raise RuntimeError("No scored attempt available to select winner")
 
+        self._raise_if_stop_requested(run, "stage4_background")
         run = self.repo.update_run(run, current_stage="stage4_background", optimization_attempt=best_attempt, quality_score=best_score)
         self._execute_with_stage_retry(
             retry_limit,
@@ -663,6 +710,7 @@ class PipelineRunner:
                 winner_score=best_score,
             ),
         )
+        self._raise_if_stop_requested(run, "stage4_variant_generate")
         self._execute_with_stage_retry(
             retry_limit,
             lambda: self._run_person_variants(
@@ -1544,9 +1592,11 @@ class PipelineRunner:
             return variant_asset
 
         def run_variant_batch(stage_name: str, jobs: list[dict[str, Any]], *, white_background: bool) -> list[Asset]:
+            self._raise_if_stop_requested(run, stage_name)
             reused_assets: list[Asset] = []
             pending_jobs: list[dict[str, Any]] = []
             for job in jobs:
+                self._raise_if_stop_requested(run, stage_name)
                 existing = reuse_existing_variant(stage_name, job["profile"], str(job["branch_role"]), job.get("source_profile"))
                 if existing is not None:
                     reused_assets.append(existing)
@@ -1581,7 +1631,8 @@ class PipelineRunner:
             worker_count = self._variant_pool_size(len(pending_jobs), variant_worker_limit)
             sync_variant_progress(stage_name, active_count=len(pending_jobs))
             created_assets = list(reused_assets)
-            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            executor = ThreadPoolExecutor(max_workers=worker_count)
+            try:
                 future_map = {
                     executor.submit(
                         run_variant_remote_step,
@@ -1602,8 +1653,12 @@ class PipelineRunner:
                         created_assets.append(asset)
                     remaining -= 1
                     sync_variant_progress(stage_name, active_count=remaining)
+                    self._raise_if_stop_requested(run, stage_name)
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
             return created_assets
 
+        self._raise_if_stop_requested(run, "stage4_variant_generate")
         self.repo.update_run(run, current_stage="stage4_variant_generate")
         sync_variant_progress("stage4_variant_generate")
         sync_variant_progress("stage5_variant_white_bg")
@@ -1740,6 +1795,7 @@ class PipelineRunner:
             },
         )
 
+        self._raise_if_stop_requested(run, "stage5_variant_white_bg")
         self.repo.update_run(run, current_stage="stage5_variant_white_bg")
         log_variant_event(
             stage_name="stage5_variant_white_bg",
