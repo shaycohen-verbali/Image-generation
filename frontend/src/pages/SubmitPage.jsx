@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { createEntry, createRuns, getConfig, importCsv, updateConfig } from '../lib/api'
 
 export default function SubmitPage() {
+  const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
+  const IMAGE_RESOLUTION_OPTIONS = ['1K', '2K', '4K']
   const defaultGender = 'male'
   const defaultAge = 'kid'
   const defaultSkinColor = 'white'
@@ -25,6 +27,8 @@ export default function SubmitPage() {
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-4o-mini')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
+  const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
+  const [imageResolution, setImageResolution] = useState('1K')
 
   const toggleOption = (field, option, { locked = false } = {}) => {
     if (locked) return
@@ -73,6 +77,12 @@ export default function SubmitPage() {
         }
         if (mounted && (config?.quality_gate_model || config?.openai_model_vision)) {
           setQualityGateModel(config.quality_gate_model || config.openai_model_vision)
+        }
+        if (mounted && config?.image_aspect_ratio) {
+          setImageAspectRatio(config.image_aspect_ratio)
+        }
+        if (mounted && config?.image_resolution) {
+          setImageResolution(config.image_resolution)
         }
       } catch (_error) {
         // Keep default UI value when config endpoint is unavailable.
@@ -184,6 +194,17 @@ export default function SubmitPage() {
       const updated = await updateConfig(updates)
       if (updated.prompt_engineer_mode) setPromptEngineerMode(updated.prompt_engineer_mode)
       if (updated.responses_prompt_engineer_model) setPromptEngineerModel(updated.responses_prompt_engineer_model)
+      setMessage(successMessage)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const saveImageOutputConfig = async (updates, successMessage) => {
+    try {
+      const updated = await updateConfig(updates)
+      if (updated.image_aspect_ratio) setImageAspectRatio(updated.image_aspect_ratio)
+      if (updated.image_resolution) setImageResolution(updated.image_resolution)
       setMessage(successMessage)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
@@ -466,6 +487,54 @@ export default function SubmitPage() {
           </label>
           <p className="config-help-text">
             The selected mode and prompt engineer model are applied automatically when you click Start Run or Queue Runs.
+          </p>
+        </div>
+      </article>
+
+      <article className="card">
+        <h2>Image Output</h2>
+        <p>Set the output size before you run a word or queue a CSV job. These saved values apply to new image generation runs.</p>
+        <div className="form-grid">
+          <label>
+            Output aspect ratio
+            <select
+              value={imageAspectRatio}
+              onChange={(e) => {
+                const value = e.target.value
+                setImageAspectRatio(value)
+                setMessage('Saving output aspect ratio...')
+                saveImageOutputConfig(
+                  { image_aspect_ratio: value },
+                  `Saved output aspect ratio: ${value}`
+                )
+              }}
+            >
+              {IMAGE_ASPECT_RATIO_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Output resolution
+            <select
+              value={imageResolution}
+              onChange={(e) => {
+                const value = e.target.value
+                setImageResolution(value)
+                setMessage('Saving output resolution...')
+                saveImageOutputConfig(
+                  { image_resolution: value },
+                  `Saved output resolution: ${value}`
+                )
+              }}
+            >
+              {IMAGE_RESOLUTION_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <p className="config-help-text">
+            Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. These options follow the documented API settings used by the image-generation pipeline.
           </p>
         </div>
       </article>

@@ -119,9 +119,6 @@ const DETAIL_TABS = {
   DEBUG: 'debug',
 }
 
-const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
-const IMAGE_RESOLUTION_OPTIONS = ['1K', '2K', '4K']
-
 function stageImageLabel(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
@@ -1495,28 +1492,6 @@ export default function RunExecutionDiagram({
                 />
               </label>
               <label>
-                Output aspect ratio
-                <select
-                  value={promptEngineerConfig.imageAspectRatio}
-                  onChange={(e) => promptEngineerConfig.setImageAspectRatio(e.target.value)}
-                >
-                  {IMAGE_ASPECT_RATIO_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Output resolution
-                <select
-                  value={promptEngineerConfig.imageResolution}
-                  onChange={(e) => promptEngineerConfig.setImageResolution(e.target.value)}
-                >
-                  {IMAGE_RESOLUTION_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
                 Illustration style id
                 <input value={promptEngineerConfig.visualStyleId} onChange={(e) => promptEngineerConfig.setVisualStyleId(e.target.value)} />
               </label>
@@ -1541,9 +1516,6 @@ export default function RunExecutionDiagram({
               </p>
               <p className="config-help-text">
                 OpenAI models use Responses API with the vector store. Gemini prompt engineer models use the direct Google API and do not use the vector store.
-              </p>
-              <p className="config-help-text">
-                Google image output settings follow the documented API options. Default aspect ratio is 1:1. Default resolution is 1K.
               </p>
               <button type="button" onClick={onSavePromptEngineerConfig}>Save Prompt Engineer Settings</button>
             </div>
