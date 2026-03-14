@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import Asset, Entry, Export, Prompt, Run, RunEvent, RuntimeConfig, Score, StageResult
 from app.services.model_catalog import (
     normalize_image_aspect_ratio,
+    normalize_image_format,
     normalize_image_resolution,
     normalize_prompt_engineer_model,
     normalize_stage3_generation_model,
@@ -56,6 +57,13 @@ class Repository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    def _release_instance(self, instance):
+        try:
+            self.db.expunge(instance)
+        except Exception:  # noqa: BLE001
+            pass
+        return instance
+
     def get_runtime_config(self) -> RuntimeConfig:
         config = self.db.execute(select(RuntimeConfig).where(RuntimeConfig.id == 1)).scalar_one_or_none()
         if config is None:
@@ -87,6 +95,7 @@ class Repository:
         config.quality_gate_model = normalize_vision_model(config.quality_gate_model)
         config.image_aspect_ratio = normalize_image_aspect_ratio(getattr(config, "image_aspect_ratio", "1:1"))
         config.image_resolution = normalize_image_resolution(getattr(config, "image_resolution", "1K"))
+        config.image_format = normalize_image_format(getattr(config, "image_format", "image/jpeg"))
         config.openai_model_vision = config.stage3_critique_model
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
         config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))
@@ -439,7 +448,7 @@ class Repository:
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
-        return run
+        return self._release_instance(run)
 
     def update_run(self, run: Run, **updates: Any) -> Run:
         for key, value in updates.items():
@@ -447,7 +456,7 @@ class Repository:
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
-        return run
+        return self._release_instance(run)
 
     def add_stage_result(
         self,
@@ -475,7 +484,7 @@ class Repository:
             self.db.add(existing)
             self.db.commit()
             self.db.refresh(existing)
-            return existing
+            return self._release_instance(existing)
 
         record = StageResult(
             run_id=run_id,
@@ -490,7 +499,7 @@ class Repository:
         self.db.add(record)
         self.db.commit()
         self.db.refresh(record)
-        return record
+        return self._release_instance(record)
 
     def add_run_event(
         self,
@@ -515,7 +524,7 @@ class Repository:
         self.db.add(event)
         self.db.commit()
         self.db.refresh(event)
-        return event
+        return self._release_instance(event)
 
     def list_run_events(self, run_id: str) -> list[RunEvent]:
         return list(
@@ -549,7 +558,7 @@ class Repository:
         self.db.add(prompt)
         self.db.commit()
         self.db.refresh(prompt)
-        return prompt
+        return self._release_instance(prompt)
 
     def add_asset(
         self,
@@ -585,7 +594,7 @@ class Repository:
             self.db.add(existing)
             self.db.commit()
             self.db.refresh(existing)
-            return existing
+            return self._release_instance(existing)
 
         asset = Asset(
             run_id=run_id,
@@ -603,7 +612,7 @@ class Repository:
         self.db.add(asset)
         self.db.commit()
         self.db.refresh(asset)
-        return asset
+        return self._release_instance(asset)
 
     def get_asset_by_file_name(
         self,

@@ -13,6 +13,7 @@ import requests
 from app.core.config import get_settings
 from app.services.model_catalog import google_image_model_name, normalize_stage3_generation_model
 from app.services.retry import with_backoff
+from app.services.storage import write_temp_binary
 
 GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -30,7 +31,7 @@ class GoogleImageClient:
         self._prediction_executor = ThreadPoolExecutor(max_workers=self._executor_limit(int(self.settings.max_variant_workers or 1)))
         self._prediction_futures: dict[str, Future[dict[str, Any]]] = {}
         self._prediction_models: dict[str, str] = {}
-        self._inline_assets: dict[str, bytes] = {}
+        self._inline_assets: dict[str, dict[str, str]] = {}
         self._lock = threading.Lock()
 
     @staticmethod
@@ -126,6 +127,13 @@ class GoogleImageClient:
         return {"inlineData": {"mimeType": mime_type, "data": data}}
 
     @staticmethod
+    def _temp_suffix(mime_type: str) -> str:
+        guessed = mimetypes.guess_extension(mime_type or "")
+        if guessed:
+            return guessed
+        return ".bin"
+
+    @staticmethod
     def _response_text(response_json: dict[str, Any]) -> str:
         texts: list[str] = []
         for candidate in response_json.get("candidates", []):
@@ -189,6 +197,7 @@ class GoogleImageClient:
     def _run_generation(
         self,
         *,
+        run_id: str,
         model_name: str,
         prompt: str,
         image_paths: list[Path] | None = None,
@@ -222,8 +231,16 @@ class GoogleImageClient:
 
         image_bytes, mime_type = image_payload
         inline_url = f"google-inline://{prediction_id}"
+        temp_path = write_temp_binary(
+            run_id,
+            suffix=self._temp_suffix(mime_type),
+            payload=image_bytes,
+        )
         with self._lock:
-            self._inline_assets[inline_url] = image_bytes
+            self._inline_assets[inline_url] = {
+                "path": temp_path.as_posix(),
+                "mime_type": mime_type,
+            }
         return {
             "status": "succeeded",
             "id": prediction_id,
@@ -241,12 +258,14 @@ class GoogleImageClient:
         model_choice: str,
         prompt: str,
         *,
+        run_id: str,
         aspect_ratio: str | None,
         image_size: str | None,
     ) -> tuple[dict[str, Any], str]:
         selected = normalize_stage3_generation_model(model_choice)
         model_name = google_image_model_name(selected)
         return self._run_generation(
+            run_id=run_id,
             model_name=model_name,
             prompt=prompt,
             aspect_ratio=aspect_ratio,
@@ -258,6 +277,7 @@ class GoogleImageClient:
         image_path: Path,
         word: str,
         *,
+        run_id: str,
         aspect_ratio: str | None,
         image_size: str | None,
     ) -> dict[str, Any]:
@@ -270,6 +290,7 @@ class GoogleImageClient:
             "Do not add text in the image."
         )
         return self._run_generation(
+            run_id=run_id,
             model_name=google_image_model_name("nano-banana-2"),
             prompt=prompt,
             image_paths=[image_path],
@@ -329,6 +350,7 @@ class GoogleImageClient:
         self,
         image_path: Path,
         *,
+        run_id: str,
         word: str,
         profile_description: str,
         white_background: bool = False,
@@ -340,6 +362,7 @@ class GoogleImageClient:
         model_name = google_image_model_name("nano-banana-2")
         future = self._prediction_executor.submit(
             self._run_generation,
+            run_id=run_id,
             model_name=model_name,
             prompt=str(
                 self.profile_variant_request_summary(
@@ -396,21 +419,36 @@ class GoogleImageClient:
 
     def download_image(self, url: str) -> bytes:
         with self._lock:
-            image_bytes = self._inline_assets.pop(url, None)
-        if image_bytes is None:
+            stored = self._inline_assets.pop(url, None)
+        if stored is None:
             raise GoogleImageAPIError(
                 f"Missing inline Google image asset for {url}",
                 request_json={"url": url},
                 response_json={},
             )
-        return image_bytes
+        path = Path(str(stored.get("path") or ""))
+        if not path.exists():
+            raise GoogleImageAPIError(
+                f"Inline Google image temp file is missing for {url}",
+                request_json={"url": url, "path": path.as_posix()},
+                response_json={},
+            )
+        try:
+            return path.read_bytes()
+        finally:
+            path.unlink(missing_ok=True)
 
     def clear_transient_state(self) -> None:
         with self._lock:
             self._prediction_futures.clear()
             self._prediction_models.clear()
+            inline_assets = list(self._inline_assets.values())
             self._inline_assets.clear()
+        for item in inline_assets:
+            path = Path(str(item.get("path") or ""))
+            if path.exists():
+                path.unlink(missing_ok=True)
 
     def close(self) -> None:
+        self._prediction_executor.shutdown(wait=True, cancel_futures=True)
         self.clear_transient_state()
-        self._prediction_executor.shutdown(wait=False, cancel_futures=True)

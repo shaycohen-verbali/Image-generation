@@ -233,6 +233,7 @@ class MockGoogleImageClient:
         self._variant_predictions: dict[str, dict[str, object]] = {}
         self._variant_idx = 0
         self._inline_assets: dict[str, bytes] = {}
+        self.max_variant_workers = 1
 
     @staticmethod
     def _image_bytes() -> bytes:
@@ -241,12 +242,15 @@ class MockGoogleImageClient:
         img.save(buf, format="JPEG")
         return buf.getvalue()
 
+    def configure_workers(self, worker_count: int) -> None:
+        self.max_variant_workers = worker_count
+
     def _inline_url(self, prediction_id: str) -> str:
         url = f"google-inline://{prediction_id}"
         self._inline_assets[url] = self._image_bytes()
         return url
 
-    def generate_stage3(self, model_choice: str, prompt: str, *, aspect_ratio: str = "1:1", image_size: str = "1K"):
+    def generate_stage3(self, model_choice: str, prompt: str, *, run_id: str, aspect_ratio: str = "1:1", image_size: str = "1K"):
         self.stage3_calls += 1
         prediction_id = f"google_stage3_{self.stage3_calls}"
         return {
@@ -258,7 +262,7 @@ class MockGoogleImageClient:
             "response_json": {"mock": True},
         }, "gemini-3.1-flash-image-preview"
 
-    def nano_banana_white_bg(self, image_path: Path, word: str, *, aspect_ratio: str = "1:1", image_size: str = "1K"):
+    def nano_banana_white_bg(self, image_path: Path, word: str, *, run_id: str, aspect_ratio: str = "1:1", image_size: str = "1K"):
         self.stage4_calls += 1
         prediction_id = f"google_stage4_{self.stage4_calls}"
         if self.stage4_calls in self.stage4_failures:
@@ -304,6 +308,7 @@ class MockGoogleImageClient:
         self,
         image_path: Path,
         *,
+        run_id: str,
         word: str,
         profile_description: str,
         white_background: bool = False,
@@ -352,7 +357,11 @@ class MockGoogleImageClient:
         }
 
     def download_image(self, url: str) -> bytes:
-        return self._inline_assets[url]
+        return self._inline_assets.pop(url)
+
+    def close(self) -> None:
+        self._inline_assets.clear()
+        self._variant_predictions.clear()
 
 
 class RecordingPipelineRunner(PipelineRunner):
@@ -667,6 +676,8 @@ def test_variant_stages_record_progress_and_completed_profiles(db_session):
     assert stage5_response["progress"]["completed_count"] == len(stage5_response["variants"])
     assert len(stage4_response["submitted_profiles"]) >= len(stage4_response["completed_profiles"]) > 0
     assert len(stage5_response["submitted_profiles"]) >= len(stage5_response["completed_profiles"]) > 0
+    assert all("response" not in item for item in stage4_response["variants"])
+    assert all("request_json" not in item for item in stage4_response["failures"])
     assert any(asset.stage_name == "stage4_variant_generate" for asset in assets)
     assert any(asset.stage_name == "stage5_variant_white_bg" for asset in assets)
 
@@ -748,10 +759,9 @@ def test_variant_events_capture_request_poll_and_save(db_session):
 
     submit_event = next(event for event in events if event.event_type == "variant_submit_finished")
     submit_payload = json.loads(submit_event.payload_json)
-    assert submit_payload["request"]["provider_model"] == "gemini-3.1-flash-image-preview"
-    assert submit_payload["request"]["source_image_path"]
-    assert submit_payload["request"]["prompt"]
-    assert submit_payload["provider_response"]["id"].startswith("google_variant_")
+    assert submit_payload["provider_model"] == "gemini-3.1-flash-image-preview"
+    assert submit_payload["prediction_id"].startswith("google_variant_")
+    assert submit_payload["provider_status"] in {"processing", "succeeded"}
 
     poll_event = next(event for event in events if event.event_type == "variant_prediction_polled")
     poll_payload = json.loads(poll_event.payload_json)
@@ -759,5 +769,6 @@ def test_variant_events_capture_request_poll_and_save(db_session):
 
     save_event = next(event for event in events if event.event_type == "variant_asset_saved")
     save_payload = json.loads(save_event.payload_json)
+    assert save_payload["asset_id"].startswith("ast_")
+    assert save_payload["prediction_id"].startswith("google_variant_")
     assert save_payload["saved_asset_path"].endswith(".jpg")
-    assert save_payload["provider_response"]["status"] == "succeeded"

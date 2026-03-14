@@ -25,7 +25,7 @@ from app.services.prompt_templates import (
 )
 from app.services.replicate_client import ReplicateClient
 from app.services.repository import Repository
-from app.services.storage import image_dimensions, sha256_bytes, write_image, write_metadata
+from app.services.storage import image_dimensions, normalize_saved_image, sha256_bytes, write_image, write_metadata
 from app.services.utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -173,7 +173,9 @@ class PipelineRunner:
         origin_url: str,
         model_name: str,
     ) -> Asset:
-        path = write_image(run_id, filename, image_bytes)
+        output_mime_type = getattr(self.repo.get_runtime_config(), "image_format", "image/jpeg")
+        normalized_bytes, mime_type, suffix = normalize_saved_image(image_bytes, output_mime_type)
+        path = write_image(run_id, Path(sanitize_filename(filename)).with_suffix(suffix).name, normalized_bytes)
         width, height = image_dimensions(path)
         return self.repo.add_asset(
             run_id=run_id,
@@ -181,8 +183,8 @@ class PipelineRunner:
             attempt=attempt,
             file_name=path.name,
             abs_path=path.as_posix(),
-            mime_type="image/jpeg",
-            sha256=sha256_bytes(image_bytes),
+            mime_type=mime_type,
+            sha256=sha256_bytes(normalized_bytes),
             width=width,
             height=height,
             origin_url=origin_url,
@@ -281,7 +283,6 @@ class PipelineRunner:
         profile_description: str,
         branch_role: str,
         source_profile: dict[str, str] | None = None,
-        response: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         item = {
             "profile": profile,
@@ -293,7 +294,6 @@ class PipelineRunner:
                 "abs_path": asset.abs_path,
                 "origin_url": asset.origin_url,
             },
-            "response": response or {"status": "reused_existing_asset"},
         }
         if source_profile:
             item["source_profile"] = source_profile
@@ -349,7 +349,7 @@ class PipelineRunner:
                 "variants": variants,
                 "failures": failures,
             },
-            error_detail="; ".join(failure["error"] for failure in failures) if failures and status == "error" else "",
+            error_detail="; ".join(str(failure.get("error") or "") for failure in failures) if failures and status == "error" else "",
         )
 
     def process_run(self, run_id: str) -> Run:
@@ -601,7 +601,7 @@ class PipelineRunner:
 
             image_bytes = self._download_generated_image(output_url)
             filename = f"stage2_draft_{self._entry_slug(entry)}.jpg"
-            self._save_asset(
+            saved_asset = self._save_asset(
                 run_id=run.id,
                 stage_name="stage2_draft",
                 attempt=0,
@@ -631,7 +631,7 @@ class PipelineRunner:
                 payload={
                     "model": "black-forest-labs/flux-schnell",
                     "output_url": output_url,
-                    "saved_file": filename,
+                    "saved_file": saved_asset.file_name,
                 },
             )
             logger.info(
@@ -903,6 +903,7 @@ class PipelineRunner:
                 flux_result, model_name = self.google_images.generate_stage3(
                     selected_stage3_model,
                     enforced_upgraded_prompt,
+                    run_id=run.id,
                     aspect_ratio=runtime_config.image_aspect_ratio,
                     image_size=runtime_config.image_resolution,
                 )
@@ -972,7 +973,7 @@ class PipelineRunner:
             raise
 
         filename = f"stage3_upgraded_{self._entry_slug(entry)}_attempt_{attempt}.jpg"
-        self._save_asset(
+        saved_asset = self._save_asset(
             run_id=run.id,
             stage_name="stage3_upgraded",
             attempt=attempt,
@@ -1030,7 +1031,7 @@ class PipelineRunner:
                 "render_style_mode": enforced_decision["render_style_mode"],
                 "generation_model": model_name,
                 "generation_client": generation_client,
-                "saved_file": filename,
+                "saved_file": saved_asset.file_name,
                 "output_url": output_url,
             },
         )
@@ -1095,6 +1096,7 @@ class PipelineRunner:
         stage_names = ("stage4_variant_generate", "stage5_variant_white_bg")
         variants_by_stage: dict[str, list[dict[str, Any]]] = {stage_name: [] for stage_name in stage_names}
         failures_by_stage: dict[str, list[dict[str, Any]]] = {stage_name: [] for stage_name in stage_names}
+        detailed_failures_by_stage: dict[str, list[dict[str, Any]]] = {stage_name: [] for stage_name in stage_names}
         stage_variant_profile_keys: dict[str, set[str]] = {stage_name: set() for stage_name in stage_names}
         submitted_profiles_by_stage: dict[str, dict[str, dict[str, Any]]] = {stage_name: {} for stage_name in stage_names}
         completed_profiles_by_stage: dict[str, dict[str, Any]] = {stage_name: {} for stage_name in stage_names}
@@ -1149,10 +1151,11 @@ class PipelineRunner:
             item = {
                 "profile": profile,
                 "branch_role": branch_role,
-                "profile_description": profile_description or profile_prompt_fragment(profile),
             }
             if source_profile:
                 item["source_profile"] = source_profile
+            if profile_description:
+                item["profile_description"] = profile_description
             if prediction_id:
                 item["prediction_id"] = prediction_id
             if prediction_status:
@@ -1234,6 +1237,13 @@ class PipelineRunner:
             if any(profile_key(failure.get("profile", {})) == key for failure in stage_failures(stage_name)):
                 return
             stage_failures(stage_name).append(
+                {
+                    "profile": profile,
+                    "branch_role": branch_role,
+                    "error": error,
+                }
+            )
+            detailed_failures_by_stage[stage_name].append(
                 {
                     "profile": profile,
                     "branch_role": branch_role,
@@ -1331,6 +1341,7 @@ class PipelineRunner:
                 submitted = self._submit_profile_variant_prediction(
                     Path(str(source_asset["abs_path"])),
                     entry.word,
+                    run.id,
                     profile,
                     white_background,
                     source_profile=source_profile,
@@ -1437,12 +1448,10 @@ class PipelineRunner:
                 "source_profile": source_profile,
                 "source_asset": source_asset,
                 "profile_description": profile_description,
-                "request_summary": request_summary,
-                "created": created,
                 "prediction_id": prediction_id,
                 "prediction_status": last_status,
+                "provider_model": str(created.get("model") or prediction_result.get("model") or ""),
                 "status_transitions": status_transitions,
-                "prediction_result": prediction_result,
                 "payload": payload,
             }
 
@@ -1455,8 +1464,9 @@ class PipelineRunner:
             created = self._json_dict(result.get("created"))
             prediction_id = str(result.get("prediction_id") or created.get("id") or "")
             prediction_status = str(result.get("prediction_status") or created.get("status") or "").lower()
+            provider_model = str(result.get("provider_model") or created.get("model") or "")
 
-            if request_summary or created:
+            if prediction_id or request_summary or created:
                 mark_submitted(
                     stage_name,
                     profile=profile,
@@ -1475,8 +1485,9 @@ class PipelineRunner:
                         "profile": profile,
                         "branch_role": branch_role,
                         "source_profile": source_profile or {},
-                        "request": request_summary,
-                        "provider_response": created,
+                        "prediction_id": prediction_id,
+                        "provider_status": prediction_status or "processing",
+                        "provider_model": provider_model,
                     },
                 )
 
@@ -1559,7 +1570,6 @@ class PipelineRunner:
                     profile_description=payload["profile_description"],
                     branch_role=branch_role,
                     source_profile=source_profile,
-                    response=payload["response"],
                 ),
             )
             mark_completed(
@@ -1578,10 +1588,12 @@ class PipelineRunner:
                     "profile": profile,
                     "branch_role": branch_role,
                     "source_profile": source_profile or {},
+                    "prediction_id": prediction_id,
+                    "provider_status": prediction_status or "succeeded",
+                    "asset_id": variant_asset.id,
                     "saved_asset_path": variant_asset.abs_path,
                     "file_name": variant_asset.file_name,
                     "origin_url": payload["origin_url"],
-                    "provider_response": payload["response"],
                 },
             )
             if stage_name == "stage4_variant_generate":
@@ -1619,7 +1631,7 @@ class PipelineRunner:
                         "profile": job["profile"],
                         "branch_role": str(job["branch_role"]),
                         "source_profile": job.get("source_profile") or {},
-                        "source_asset": str(job["source_asset"]["abs_path"]),
+                        "source_file_name": str(job["source_asset"]["file_name"]),
                     },
                 )
                 pending_jobs.append(job)
@@ -1629,31 +1641,37 @@ class PipelineRunner:
                 return reused_assets
 
             worker_count = self._variant_pool_size(len(pending_jobs), variant_worker_limit)
-            sync_variant_progress(stage_name, active_count=len(pending_jobs))
+            sync_variant_progress(stage_name, active_count=min(len(pending_jobs), worker_count))
             created_assets = list(reused_assets)
             executor = ThreadPoolExecutor(max_workers=worker_count)
             try:
-                future_map = {
-                    executor.submit(
-                        run_variant_remote_step,
-                        stage_name=stage_name,
-                        profile=job["profile"],
-                        branch_role=str(job["branch_role"]),
-                        source_profile=job.get("source_profile"),
-                        source_asset=job["source_asset"],
-                        white_background=white_background,
-                    ): job
-                    for job in pending_jobs
-                }
-                remaining = len(future_map)
-                for future in as_completed(future_map):
-                    result = future.result()
-                    asset = consume_variant_result(stage_name, result)
-                    if asset is not None:
-                        created_assets.append(asset)
-                    remaining -= 1
-                    sync_variant_progress(stage_name, active_count=remaining)
-                    self._raise_if_stop_requested(run, stage_name)
+                remaining_total = len(pending_jobs)
+                for offset in range(0, len(pending_jobs), worker_count):
+                    batch = pending_jobs[offset : offset + worker_count]
+                    future_map = {
+                        executor.submit(
+                            run_variant_remote_step,
+                            stage_name=stage_name,
+                            profile=job["profile"],
+                            branch_role=str(job["branch_role"]),
+                            source_profile=job.get("source_profile"),
+                            source_asset=job["source_asset"],
+                            white_background=white_background,
+                        ): job
+                        for job in batch
+                    }
+                    remaining = len(future_map)
+                    for future in as_completed(future_map):
+                        result = future.result()
+                        asset = consume_variant_result(stage_name, result)
+                        if asset is not None:
+                            created_assets.append(asset)
+                        remaining -= 1
+                        remaining_total -= 1
+                        sync_variant_progress(stage_name, active_count=min(remaining, worker_count))
+                        self._raise_if_stop_requested(run, stage_name)
+                    if remaining_total > 0:
+                        sync_variant_progress(stage_name, active_count=min(remaining_total, worker_count))
             finally:
                 executor.shutdown(wait=False, cancel_futures=True)
             return created_assets
@@ -1864,6 +1882,8 @@ class PipelineRunner:
                 request_json={
                     "stage4_variant_generate_failures": stage_failures("stage4_variant_generate"),
                     "stage5_variant_white_bg_failures": stage_failures("stage5_variant_white_bg"),
+                    "stage4_variant_generate_failure_details": detailed_failures_by_stage["stage4_variant_generate"],
+                    "stage5_variant_white_bg_failure_details": detailed_failures_by_stage["stage5_variant_white_bg"],
                 },
                 response_json={},
             )
@@ -1872,6 +1892,7 @@ class PipelineRunner:
         self,
         image_path: Path,
         word: str,
+        run_id: str,
         profile: dict[str, str],
         white_background: bool,
         *,
@@ -1893,6 +1914,7 @@ class PipelineRunner:
         try:
             created = self.google_images.submit_nano_banana_profile_variant(
                 image_path,
+                run_id=run_id,
                 word=word,
                 profile_description=profile_description,
                 white_background=white_background,
@@ -1937,7 +1959,6 @@ class PipelineRunner:
         image_bytes = self._download_generated_image(output_url)
         return {
             "profile_description": profile_description,
-            "response": prediction_result,
             "origin_url": output_url,
             "image_bytes": image_bytes,
             "model_name": str(prediction_result.get("model") or "gemini-3.1-flash-image-preview"),
@@ -1971,6 +1992,7 @@ class PipelineRunner:
             result = self.google_images.nano_banana_white_bg(
                 Path(upgraded_asset.abs_path),
                 entry.word,
+                run_id=run.id,
                 aspect_ratio=runtime_config.image_aspect_ratio,
                 image_size=runtime_config.image_resolution,
             )

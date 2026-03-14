@@ -22,7 +22,7 @@ from app.services.prompt_templates import (
 def db_session(tmp_path: Path):
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True)
 
     settings = get_settings()
     settings.runtime_data_root = tmp_path / "runtime_data"
