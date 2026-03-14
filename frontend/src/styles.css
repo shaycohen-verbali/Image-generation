@@ -78,6 +78,63 @@ body {
   gap: 12px;
 }
 
+.submit-page {
+  display: grid;
+  gap: 12px;
+}
+
+.submit-settings-card,
+.submit-status-card {
+  grid-column: 1 / -1;
+}
+
+.submit-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(20rem, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.submit-actions-grid,
+.submit-support-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 12px;
+}
+
+.submit-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.submit-compact-form {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.submit-output-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.submit-output-note {
+  grid-column: 1 / -1;
+}
+
+.submit-action-row {
+  margin-top: 10px;
+}
+
+.submit-status-card {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.submit-status-card h2 {
+  margin-bottom: 4px;
+}
+
 .runs-layout {
   display: grid;
   gap: 12px;
@@ -309,6 +366,11 @@ body {
   padding: 12px;
 }
 
+.option-group-card h3 {
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+
 .checkbox-group {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -357,6 +419,14 @@ select,
 textarea,
 button {
   font: inherit;
+}
+
+@media (max-width: 860px) {
+  .submit-settings-grid,
+  .submit-form-grid,
+  .submit-output-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 input,

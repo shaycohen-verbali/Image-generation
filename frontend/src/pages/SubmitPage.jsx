@@ -264,379 +264,396 @@ export default function SubmitPage() {
   }
 
   return (
-    <section className="card-grid">
-      <article className="card">
+    <section className="submit-page">
+      <article className="card submit-settings-card">
         <h2>Shared Run Settings</h2>
         <p>Set these once before you run. The same person variants and output settings apply to both Single Concept and Bulk CSV jobs.</p>
-        <h3>Person Variants</h3>
-        <div className="form-grid option-group-card">
-          <div>
-            <strong>Applies To Single Concept And Bulk CSV</strong>
+        <div className="submit-settings-grid">
+          <div className="option-group-card">
+            <h3>Person Variants</h3>
             <p className="config-help-text">
               The base run always uses `male`, `kid (5-9)`, and `White`. Any extra checked options create additional final-image variants and white-background variants only when the concept requires a person.
             </p>
+            <div className="form-grid">
+              <div>
+                <strong>Applies To Single Concept And Bulk CSV</strong>
+              </div>
+              <fieldset className="checkbox-group">
+                <legend>Gender</legend>
+                <label className="checkbox-option checkbox-option-locked">
+                  <input type="checkbox" checked readOnly disabled />
+                  <span>Male (default base run)</span>
+                </label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_gender_options.includes('female')}
+                    onChange={() => toggleOption('person_gender_options', 'female')}
+                  />
+                  <span>Female</span>
+                </label>
+              </fieldset>
+              <fieldset className="checkbox-group">
+                <legend>Age</legend>
+                <label className="checkbox-option checkbox-option-locked">
+                  <input type="checkbox" checked readOnly disabled />
+                  <span>Kid (5-9) (default base run)</span>
+                </label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_age_options.includes('toddler')}
+                    onChange={() => toggleOption('person_age_options', 'toddler')}
+                  />
+                  <span>Toddler (2-4)</span>
+                </label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_age_options.includes('tween')}
+                    onChange={() => toggleOption('person_age_options', 'tween')}
+                  />
+                  <span>Tween (10-14)</span>
+                </label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_age_options.includes('teenager')}
+                    onChange={() => toggleOption('person_age_options', 'teenager')}
+                  />
+                  <span>Teenager (15-18)</span>
+                </label>
+              </fieldset>
+              <fieldset className="checkbox-group">
+                <legend>Skin color</legend>
+                <label className="checkbox-option checkbox-option-locked">
+                  <input type="checkbox" checked readOnly disabled />
+                  <span>White (default base run)</span>
+                </label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_skin_color_options.includes('black')}
+                    onChange={() => toggleOption('person_skin_color_options', 'black')}
+                  />
+                  <span>Black</span>
+                </label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_skin_color_options.includes('asian')}
+                    onChange={() => toggleOption('person_skin_color_options', 'asian')}
+                  />
+                  <span>Asian</span>
+                </label>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_skin_color_options.includes('brown')}
+                    onChange={() => toggleOption('person_skin_color_options', 'brown')}
+                  />
+                  <span>Brown (Indian origin)</span>
+                </label>
+              </fieldset>
+              <p className="config-help-text">
+                Selected combinations: {selectedCombinationCount} total person profile{selectedCombinationCount === 1 ? '' : 's'}.
+                {selectedCombinationCount > generatedProfileCap
+                  ? ` The generator will use a capped review set of ${generatedProfileCount} profiles to avoid creating too many images.`
+                  : ''}
+                {extraVariantCount > 0
+                  ? ` This means ${extraVariantCount} additional final-image variant${extraVariantCount === 1 ? '' : 's'} plus ${extraVariantCount} additional white-background variant${extraVariantCount === 1 ? '' : 's'}.`
+                  : ' No extra person variants will be created beyond the base run.'}
+              </p>
+            </div>
           </div>
-          <fieldset className="checkbox-group">
-            <legend>Gender</legend>
-            <label className="checkbox-option checkbox-option-locked">
-              <input type="checkbox" checked readOnly disabled />
-              <span>Male (default base run)</span>
-            </label>
-            <label className="checkbox-option">
-              <input
-                type="checkbox"
-                checked={form.person_gender_options.includes('female')}
-                onChange={() => toggleOption('person_gender_options', 'female')}
-              />
-              <span>Female</span>
-            </label>
-          </fieldset>
-          <fieldset className="checkbox-group">
-            <legend>Age</legend>
-            <label className="checkbox-option checkbox-option-locked">
-              <input type="checkbox" checked readOnly disabled />
-              <span>Kid (5-9) (default base run)</span>
-            </label>
-            <label className="checkbox-option">
-              <input
-                type="checkbox"
-                checked={form.person_age_options.includes('toddler')}
-                onChange={() => toggleOption('person_age_options', 'toddler')}
-              />
-              <span>Toddler (2-4)</span>
-            </label>
-            <label className="checkbox-option">
-              <input
-                type="checkbox"
-                checked={form.person_age_options.includes('tween')}
-                onChange={() => toggleOption('person_age_options', 'tween')}
-              />
-              <span>Tween (10-14)</span>
-            </label>
-            <label className="checkbox-option">
-              <input
-                type="checkbox"
-                checked={form.person_age_options.includes('teenager')}
-                onChange={() => toggleOption('person_age_options', 'teenager')}
-              />
-              <span>Teenager (15-18)</span>
-            </label>
-          </fieldset>
-          <fieldset className="checkbox-group">
-            <legend>Skin color</legend>
-            <label className="checkbox-option checkbox-option-locked">
-              <input type="checkbox" checked readOnly disabled />
-              <span>White (default base run)</span>
-            </label>
-            <label className="checkbox-option">
-              <input
-                type="checkbox"
-                checked={form.person_skin_color_options.includes('black')}
-                onChange={() => toggleOption('person_skin_color_options', 'black')}
-              />
-              <span>Black</span>
-            </label>
-            <label className="checkbox-option">
-              <input
-                type="checkbox"
-                checked={form.person_skin_color_options.includes('asian')}
-                onChange={() => toggleOption('person_skin_color_options', 'asian')}
-              />
-              <span>Asian</span>
-            </label>
-            <label className="checkbox-option">
-              <input
-                type="checkbox"
-                checked={form.person_skin_color_options.includes('brown')}
-                onChange={() => toggleOption('person_skin_color_options', 'brown')}
-              />
-              <span>Brown (Indian origin)</span>
-            </label>
-          </fieldset>
-          <p className="config-help-text">
-            Selected combinations: {selectedCombinationCount} total person profile{selectedCombinationCount === 1 ? '' : 's'}.
-            {selectedCombinationCount > generatedProfileCap
-              ? ` The generator will use a capped review set of ${generatedProfileCount} profiles to avoid creating too many images.`
-              : ''}
-            {extraVariantCount > 0
-              ? ` This means ${extraVariantCount} additional final-image variant${extraVariantCount === 1 ? '' : 's'} plus ${extraVariantCount} additional white-background variant${extraVariantCount === 1 ? '' : 's'}.`
-              : ' No extra person variants will be created beyond the base run.'}
-          </p>
-        </div>
-        <h3>Image Output</h3>
-        <p>These output settings are shared too. Single Concept runs and Bulk CSV jobs will both use the same aspect ratio, resolution, format, and Nano Banana safety level.</p>
-        <div className="form-grid">
-          <label>
-            Output aspect ratio
-            <select
-              value={imageAspectRatio}
-              onChange={(e) => {
-                const value = e.target.value
-                setImageAspectRatio(value)
-                setMessage('Saving output aspect ratio...')
-                saveImageOutputConfig(
-                  { image_aspect_ratio: value },
-                  `Saved output aspect ratio: ${value}`
-                )
-              }}
-            >
-              {IMAGE_ASPECT_RATIO_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Output resolution
-            <select
-              value={imageResolution}
-              onChange={(e) => {
-                const value = e.target.value
-                setImageResolution(value)
-                setMessage('Saving output resolution...')
-                saveImageOutputConfig(
-                  { image_resolution: value },
-                  `Saved output resolution: ${value}`
-                )
-              }}
-            >
-              {IMAGE_RESOLUTION_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Output image format
-            <select
-              value={imageFormat}
-              onChange={(e) => {
-                const value = e.target.value
-                setImageFormat(value)
-                setMessage('Saving output image format...')
-                saveImageOutputConfig(
-                  { image_format: value },
-                  `Saved output image format: ${value}`
-                )
-              }}
-            >
-              {IMAGE_FORMAT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Nano Banana safety
-            <select
-              value={nanoBananaSafetyLevel}
-              onChange={(e) => {
-                const value = e.target.value
-                setNanoBananaSafetyLevel(value)
-                setMessage('Saving Nano Banana safety level...')
-                saveImageOutputConfig(
-                  { nano_banana_safety_level: value },
-                  `Saved Nano Banana safety level: ${value}`
-                )
-              }}
-            >
-              {NANO_BANANA_SAFETY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <p className="config-help-text">
-            Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. Format now defaults to `JPEG`. Safety level maps to Gemini `safetySettings` thresholds for Nano Banana requests.
-          </p>
-        </div>
-      </article>
-
-      <article className="card">
-        <h2>Single Concept</h2>
-        <p>Enter one concept here. This run will use the shared Person Variants and Image Output settings from above.</p>
-        <form className="form-grid" onSubmit={onSubmit}>
-          <label>
-            Word
-            <input value={form.word} onChange={(e) => setForm({ ...form, word: e.target.value })} required />
-          </label>
-          <label>
-            Part of sentence
-            <input value={form.part_of_sentence} onChange={(e) => setForm({ ...form, part_of_sentence: e.target.value })} required />
-          </label>
-          <label>
-            Category (optional)
-            <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-          </label>
-          <label>
-            Context
-            <input value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} />
-          </label>
-          <label>
-            Batch
-            <input value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} />
-          </label>
-          <button type="submit">Save Entry</button>
-        </form>
-        <button onClick={onRun}>Start Run For Last Entry</button>
-      </article>
-
-      <article className="card">
-        <h2>Bulk CSV Import</h2>
-        <p>Import rows here, then queue them with the same shared Person Variants and Image Output settings shown above.</p>
-        <input type="file" accept=".csv" onChange={onCsvUpload} />
-        <div className="inline-fields">
-          <button type="button" onClick={onUseSampleCsv}>Use Sample CSV</button>
-          <a href={SAMPLE_CSV_URL} download={SAMPLE_CSV_NAME}>Download sample CSV</a>
-        </div>
-        <button onClick={onQueueImported} disabled={!uploadResult}>Queue Runs For Imported Rows</button>
-        {uploadResult && (
-          <div>
-            <p>Imported: {uploadResult.imported_count}, Skipped: {uploadResult.skipped_count}</p>
-            {uploadResult.batch_id ? <p>Job id: {uploadResult.batch_id}</p> : null}
+          <div className="option-group-card">
+            <h3>Image Output</h3>
+            <p className="config-help-text">Single Concept and Bulk CSV jobs both use the same aspect ratio, resolution, format, and Nano Banana safety level.</p>
+            <div className="submit-output-grid">
+              <label>
+                Output aspect ratio
+                <select
+                  value={imageAspectRatio}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setImageAspectRatio(value)
+                    setMessage('Saving output aspect ratio...')
+                    saveImageOutputConfig(
+                      { image_aspect_ratio: value },
+                      `Saved output aspect ratio: ${value}`
+                    )
+                  }}
+                >
+                  {IMAGE_ASPECT_RATIO_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Output resolution
+                <select
+                  value={imageResolution}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setImageResolution(value)
+                    setMessage('Saving output resolution...')
+                    saveImageOutputConfig(
+                      { image_resolution: value },
+                      `Saved output resolution: ${value}`
+                    )
+                  }}
+                >
+                  {IMAGE_RESOLUTION_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Output image format
+                <select
+                  value={imageFormat}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setImageFormat(value)
+                    setMessage('Saving output image format...')
+                    saveImageOutputConfig(
+                      { image_format: value },
+                      `Saved output image format: ${value}`
+                    )
+                  }}
+                >
+                  {IMAGE_FORMAT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Nano Banana safety
+                <select
+                  value={nanoBananaSafetyLevel}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setNanoBananaSafetyLevel(value)
+                    setMessage('Saving Nano Banana safety level...')
+                    saveImageOutputConfig(
+                      { nano_banana_safety_level: value },
+                      `Saved Nano Banana safety level: ${value}`
+                    )
+                  }}
+                >
+                  {NANO_BANANA_SAFETY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="config-help-text submit-output-note">
+                Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. Format defaults to `JPEG`. Safety level maps to Gemini `safetySettings` thresholds for Nano Banana requests.
+              </p>
+            </div>
           </div>
-        )}
+        </div>
       </article>
 
-      <article className="card message-card">
+      <article className="card message-card submit-status-card">
         <h2>Status</h2>
         <p>{message}</p>
       </article>
 
-      <article className="card">
-        <h2>Processing Speed</h2>
-        <p>Split throughput by goal: run workers start whole words, variant workers fan out image variations inside a run.</p>
-        <div className="inline-fields">
-          <label>
-            Run workers
-            <input
-              type="number"
-              min="1"
-              max="12"
-              value={runWorkerCount}
-              onChange={(e) => setRunWorkerCount(e.target.value)}
-            />
-          </label>
-          <label>
-            Variant workers
-            <input
-              type="number"
-              min="1"
-              max="12"
-              value={variantWorkerCount}
-              onChange={(e) => setVariantWorkerCount(e.target.value)}
-            />
-          </label>
-          <button type="button" onClick={onSaveWorkerConfig}>Save Workers</button>
-        </div>
-        <p className="config-help-text">
-          Recommendation for the current 512 MB Render instance is still <strong>1</strong> run worker and <strong>2</strong> variant workers. Higher values are now allowed, but memory use and provider pressure will rise quickly.
-        </p>
-      </article>
+      <div className="submit-actions-grid">
+        <article className="card">
+          <h2>Single Concept</h2>
+          <p>Enter one concept here. This run will use the shared Person Variants and Image Output settings from above.</p>
+          <form className="form-grid submit-form-grid" onSubmit={onSubmit}>
+            <label>
+              Word
+              <input value={form.word} onChange={(e) => setForm({ ...form, word: e.target.value })} required />
+            </label>
+            <label>
+              Part of sentence
+              <input value={form.part_of_sentence} onChange={(e) => setForm({ ...form, part_of_sentence: e.target.value })} required />
+            </label>
+            <label>
+              Category (optional)
+              <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+            </label>
+            <label>
+              Context
+              <input value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} />
+            </label>
+            <label>
+              Batch
+              <input value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} />
+            </label>
+          </form>
+          <div className="inline-fields submit-action-row">
+            <button type="button" onClick={onSubmit}>Save Entry</button>
+            <button onClick={onRun}>Start Run For Last Entry</button>
+          </div>
+        </article>
 
-      <article className="card">
-        <h2>Model Selection</h2>
-        <p>Choose models for Stage 3 critique, Stage 3 upgraded image, and Quality Gate scoring. Changes are saved automatically.</p>
-        <div className="form-grid">
-          <label>
-            Stage 3.1 Vision Critique
-            <select
-              value={stage3CritiqueModel}
-              onChange={(e) => {
-                const value = e.target.value
-                setStage3CritiqueModel(value)
-                setMessage('Saving Stage 3 critique model...')
-                saveModelConfig({ stage3_critique_model: value }, `Saved Stage 3 critique model: ${value}`)
-              }}
-            >
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gpt-5.4">gpt-5.4</option>
-              <option value="gemini-3-flash">Gemini-3-flash</option>
-              <option value="gemini-3-pro">Gemini-3-pro</option>
-            </select>
-          </label>
-          <label>
-            Stage 3.3 Upgraded Image
-            <select
-              value={stage3GenerateModel}
-              onChange={(e) => {
-                const value = e.target.value
-                setStage3GenerateModel(value)
-                setMessage('Saving Stage 3 upgraded image model...')
-                saveModelConfig({ stage3_generate_model: value }, `Saved Stage 3 upgraded image model: ${value}`)
-              }}
-            >
-              <option value="flux-1.1-pro">Flux 1.1 Pro</option>
-              <option value="imagen-3">Imagen 3</option>
-              <option value="imagen-4">Imagen 4</option>
-              <option value="nano-banana">Nano Banana</option>
-              <option value="nano-banana-2">Nano Banana 2</option>
-              <option value="nano-banana-pro">Nano Banana Pro</option>
-            </select>
-          </label>
-          <label>
-            Quality Gate
-            <select
-              value={qualityGateModel}
-              onChange={(e) => {
-                const value = e.target.value
-                setQualityGateModel(value)
-                setMessage('Saving Quality Gate model...')
-                saveModelConfig({ quality_gate_model: value }, `Saved Quality Gate model: ${value}`)
-              }}
-            >
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gemini-3-flash">Gemini-3-flash</option>
-              <option value="gemini-3-pro">Gemini-3-pro</option>
-            </select>
-          </label>
-        </div>
-      </article>
+        <article className="card">
+          <h2>Bulk CSV Import</h2>
+          <p>Import rows here, then queue them with the same shared Person Variants and Image Output settings shown above.</p>
+          <div className="form-grid">
+            <label>
+              CSV file
+              <input type="file" accept=".csv" onChange={onCsvUpload} />
+            </label>
+          </div>
+          <div className="inline-fields">
+            <button type="button" onClick={onUseSampleCsv}>Use Sample CSV</button>
+            <a href={SAMPLE_CSV_URL} download={SAMPLE_CSV_NAME}>Download sample CSV</a>
+          </div>
+          <button onClick={onQueueImported} disabled={!uploadResult}>Queue Runs For Imported Rows</button>
+          {uploadResult && (
+            <div>
+              <p>Imported: {uploadResult.imported_count}, Skipped: {uploadResult.skipped_count}</p>
+              {uploadResult.batch_id ? <p>Job id: {uploadResult.batch_id}</p> : null}
+            </div>
+          )}
+        </article>
+      </div>
 
-      <article className="card">
-        <h2>Prompt Engineer</h2>
-        <p>Choose which prompt engineer to use when you start new runs. Detailed prompt-engineer settings live in Runs + Details.</p>
-        <div className="form-grid">
-          <label>
-            Prompt engineer mode
-            <select
-              value={promptEngineerMode}
-              onChange={(e) => {
-                const value = e.target.value
-                setPromptEngineerMode(value)
-                setMessage('Saving prompt engineer mode...')
-                savePromptEngineerConfig(
-                  { prompt_engineer_mode: value },
-                  `Saved prompt engineer mode: ${value}`
-                )
-              }}
-            >
-              <option value="responses_api">Option 2: Responses API / Direct Model</option>
-              <option value="assistant">Option 1: OpenAI Assistant</option>
-            </select>
-          </label>
-          <label>
-            Prompt engineer model
-            <select
-              value={promptEngineerModel}
-              onChange={(e) => {
-                const value = e.target.value
-                setPromptEngineerModel(value)
-                setMessage('Saving prompt engineer model...')
-                savePromptEngineerConfig(
-                  { responses_prompt_engineer_model: value },
-                  `Saved prompt engineer model: ${value}`
-                )
-              }}
-            >
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-              <option value="gpt-5.4">gpt-5.4</option>
-              <option value="gemini-3-flash">Gemini-3-flash</option>
-              <option value="gemini-3-pro">Gemini-3-pro</option>
-            </select>
-          </label>
+      <div className="submit-support-grid">
+        <article className="card">
+          <h2>Processing Speed</h2>
+          <p>Split throughput by goal: run workers start whole words, variant workers fan out image variations inside a run.</p>
+          <div className="inline-fields">
+            <label>
+              Run workers
+              <input
+                type="number"
+                min="1"
+                max="12"
+                value={runWorkerCount}
+                onChange={(e) => setRunWorkerCount(e.target.value)}
+              />
+            </label>
+            <label>
+              Variant workers
+              <input
+                type="number"
+                min="1"
+                max="12"
+                value={variantWorkerCount}
+                onChange={(e) => setVariantWorkerCount(e.target.value)}
+              />
+            </label>
+            <button type="button" onClick={onSaveWorkerConfig}>Save Workers</button>
+          </div>
           <p className="config-help-text">
-            The selected mode and prompt engineer model are applied automatically when you click Start Run or Queue Runs.
+            Recommendation for the current 512 MB Render instance is still <strong>1</strong> run worker and <strong>2</strong> variant workers. Higher values are now allowed, but memory use and provider pressure will rise quickly.
           </p>
-        </div>
-      </article>
+        </article>
+
+        <article className="card">
+          <h2>Model Selection</h2>
+          <p>Choose models for Stage 3 critique, Stage 3 upgraded image, and Quality Gate scoring. Changes are saved automatically.</p>
+          <div className="form-grid submit-compact-form">
+            <label>
+              Stage 3.1 Vision Critique
+              <select
+                value={stage3CritiqueModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setStage3CritiqueModel(value)
+                  setMessage('Saving Stage 3 critique model...')
+                  saveModelConfig({ stage3_critique_model: value }, `Saved Stage 3 critique model: ${value}`)
+                }}
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gemini-3-flash">Gemini-3-flash</option>
+                <option value="gemini-3-pro">Gemini-3-pro</option>
+              </select>
+            </label>
+            <label>
+              Stage 3.3 Upgraded Image
+              <select
+                value={stage3GenerateModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setStage3GenerateModel(value)
+                  setMessage('Saving Stage 3 upgraded image model...')
+                  saveModelConfig({ stage3_generate_model: value }, `Saved Stage 3 upgraded image model: ${value}`)
+                }}
+              >
+                <option value="flux-1.1-pro">Flux 1.1 Pro</option>
+                <option value="imagen-3">Imagen 3</option>
+                <option value="imagen-4">Imagen 4</option>
+                <option value="nano-banana">Nano Banana</option>
+                <option value="nano-banana-2">Nano Banana 2</option>
+                <option value="nano-banana-pro">Nano Banana Pro</option>
+              </select>
+            </label>
+            <label>
+              Quality Gate
+              <select
+                value={qualityGateModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setQualityGateModel(value)
+                  setMessage('Saving Quality Gate model...')
+                  saveModelConfig({ quality_gate_model: value }, `Saved Quality Gate model: ${value}`)
+                }}
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gemini-3-flash">Gemini-3-flash</option>
+                <option value="gemini-3-pro">Gemini-3-pro</option>
+              </select>
+            </label>
+          </div>
+        </article>
+
+        <article className="card">
+          <h2>Prompt Engineer</h2>
+          <p>Choose which prompt engineer to use when you start new runs. Detailed prompt-engineer settings live in Runs + Details.</p>
+          <div className="form-grid submit-compact-form">
+            <label>
+              Prompt engineer mode
+              <select
+                value={promptEngineerMode}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setPromptEngineerMode(value)
+                  setMessage('Saving prompt engineer mode...')
+                  savePromptEngineerConfig(
+                    { prompt_engineer_mode: value },
+                    `Saved prompt engineer mode: ${value}`
+                  )
+                }}
+              >
+                <option value="responses_api">Option 2: Responses API / Direct Model</option>
+                <option value="assistant">Option 1: OpenAI Assistant</option>
+              </select>
+            </label>
+            <label>
+              Prompt engineer model
+              <select
+                value={promptEngineerModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setPromptEngineerModel(value)
+                  setMessage('Saving prompt engineer model...')
+                  savePromptEngineerConfig(
+                    { responses_prompt_engineer_model: value },
+                    `Saved prompt engineer model: ${value}`
+                  )
+                }}
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gemini-3-flash">Gemini-3-flash</option>
+                <option value="gemini-3-pro">Gemini-3-pro</option>
+              </select>
+            </label>
+            <p className="config-help-text">
+              The selected mode and prompt engineer model are applied automatically when you click Start Run or Queue Runs.
+            </p>
+          </div>
+        </article>
+      </div>
 
     </section>
   )
