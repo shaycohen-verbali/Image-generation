@@ -47,7 +47,7 @@ def test_update_runtime_config_clamps_worker_count(db_session) -> None:
     assert config_low.max_parallel_runs == 1
 
     config_high = repo.update_runtime_config({"max_parallel_runs": 999})
-    assert config_high.max_parallel_runs == 4
+    assert config_high.max_parallel_runs == 12
 
 
 def test_update_runtime_config_clamps_variant_worker_count(db_session) -> None:
@@ -56,7 +56,7 @@ def test_update_runtime_config_clamps_variant_worker_count(db_session) -> None:
     assert config_low.max_variant_workers == 1
 
     config_high = repo.update_runtime_config({"max_variant_workers": 999})
-    assert config_high.max_variant_workers == 8
+    assert config_high.max_variant_workers == 12
 
 
 def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
@@ -82,6 +82,19 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
     assert config.visual_style_id
     assert config.visual_style_name
     assert config.visual_style_prompt_block
+    assert config.image_format == "image/jpeg"
+
+
+def test_update_runtime_config_normalizes_image_format(db_session) -> None:
+    repo = Repository(db_session)
+    config = repo.update_runtime_config({"image_format": "IMAGE/PNG"})
+    assert config.image_format == "image/png"
+
+
+def test_update_runtime_config_normalizes_nano_banana_safety_level(db_session) -> None:
+    repo = Repository(db_session)
+    config = repo.update_runtime_config({"nano_banana_safety_level": "BLOCK_ONLY_HIGH"})
+    assert config.nano_banana_safety_level == "block_only_high"
 
 
 def test_add_asset_is_idempotent_by_run_stage_attempt_and_file_name(db_session) -> None:

@@ -191,6 +191,8 @@ class RuntimeConfig(Base):
     quality_gate_model: Mapped[str] = mapped_column(String(128), default="gpt-4o-mini", nullable=False)
     image_aspect_ratio: Mapped[str] = mapped_column(String(16), default="1:1", nullable=False)
     image_resolution: Mapped[str] = mapped_column(String(8), default="1K", nullable=False)
+    image_format: Mapped[str] = mapped_column(String(32), default="image/jpeg", nullable=False)
+    nano_banana_safety_level: Mapped[str] = mapped_column(String(32), default="default", nullable=False)
     openai_model_vision: Mapped[str] = mapped_column(String(128), default="gpt-5.4", nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)

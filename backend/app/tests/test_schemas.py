@@ -68,3 +68,16 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
 def test_runtime_config_update_accepts_gpt54_for_stage3_critique() -> None:
     config = RuntimeConfigUpdate(stage3_critique_model="gpt-5.4")
     assert config.stage3_critique_model == "gpt-5.4"
+
+
+def test_runtime_config_update_rejects_unknown_image_format() -> None:
+    try:
+        RuntimeConfigUpdate(image_format="image/heic")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+
+def test_runtime_config_update_accepts_nano_banana_safety_level() -> None:
+    config = RuntimeConfigUpdate(nano_banana_safety_level="block_only_high")
+    assert config.nano_banana_safety_level == "block_only_high"

@@ -115,6 +115,7 @@ const IMAGE_FILTER = {
 
 const DETAIL_TABS = {
   OVERVIEW: 'overview',
+  CSV_JOB: 'csv_job',
   IMAGES: 'images',
   PROCESS: 'process',
   SETTINGS: 'settings',
@@ -595,9 +596,6 @@ function renderOverviewSection({
 }) {
   const run = detail.run
   const batchJob = safeObject(run.batch_job)
-  const batchJobReport = safeObject(batchReport)
-  const batchIssues = safeArray(batchJobReport.issues)
-  const batchReasonCounts = safeObject(batchJobReport.reason_counts)
   const latestScore = selectedSummary?.score ?? run.quality_score ?? null
   const estimatedTotalCost = Number(run.estimated_total_cost_usd || 0)
   const estimatedCostPerImage = run.estimated_cost_per_image_usd
@@ -784,74 +782,6 @@ function renderOverviewSection({
         </section>
       ) : null}
 
-      {run.batch ? (
-        <section className="run-overview-card">
-          <div className="section-head-row">
-            <div>
-              <h4>CSV Job Report</h4>
-              <p>Batch-level summary for all words imported together in this CSV job.</p>
-            </div>
-          </div>
-          <div className="run-snapshot-metrics">
-            <div className="snapshot-metric">
-              <span>Passed</span>
-              <strong>{Number(batchJobReport.passed_run_count || batchJob.passed_run_count || 0)}</strong>
-            </div>
-            <div className="snapshot-metric">
-              <span>Below threshold</span>
-              <strong>{Number(batchJobReport.below_threshold_run_count || batchJob.below_threshold_run_count || 0)}</strong>
-            </div>
-            <div className="snapshot-metric">
-              <span>Technical failures</span>
-              <strong>{Number(batchJobReport.failed_technical_run_count || batchJob.failed_technical_run_count || 0)}</strong>
-            </div>
-            <div className="snapshot-metric">
-              <span>Avg / word</span>
-              <strong>{formatDuration(batchJobReport.avg_seconds_per_word || batchJob.avg_seconds_per_word || 0)}</strong>
-            </div>
-          </div>
-          {Object.keys(batchReasonCounts).length ? (
-            <div className="run-help-card">
-              <p><strong>Most common failure reasons</strong></p>
-              {Object.entries(batchReasonCounts)
-                .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
-                .slice(0, 5)
-                .map(([reason, count]) => (
-                  <p key={reason}>{count}x | {reason}</p>
-                ))}
-            </div>
-          ) : null}
-          {batchIssues.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Word</th>
-                    <th>Status</th>
-                    <th>Score</th>
-                    <th>Why it did not pass</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {batchIssues.map((issue) => (
-                    <tr key={issue.run_id}>
-                      <td>{issue.word || '-'}</td>
-                      <td>{prettyRunStatus(issue.status)}</td>
-                      <td>{issue.quality_score ?? '-'}</td>
-                      <td>{issue.reason || issue.error_detail || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="run-help-card">
-              <p><strong>All imported words are currently passing.</strong></p>
-            </div>
-          )}
-        </section>
-      ) : null}
-
       {(stage1NeedPerson || critiqueNeedPerson || critiqueRecommendation) ? (
         <section className="run-overview-card">
           <div className="section-head-row">
@@ -978,6 +908,125 @@ function renderOverviewSection({
   )
 }
 
+function renderCsvJobSection({ detail, batchReport }) {
+  const run = detail.run
+  const batchJob = safeObject(run.batch_job)
+  const batchJobReport = safeObject(batchReport)
+  const batchIssues = safeArray(batchJobReport.issues)
+  const batchReasonCounts = safeObject(batchJobReport.reason_counts)
+
+  if (!run.batch) {
+    return null
+  }
+
+  return (
+    <div className="run-detail-section-grid">
+      <section className="run-snapshot-card">
+        <div className="run-snapshot-head">
+          <div>
+            <p className="detail-eyebrow">CSV job overview</p>
+            <h3>{run.batch}</h3>
+            <p className="run-snapshot-meta">This view summarizes the whole imported CSV job, not just the selected run.</p>
+          </div>
+          <div className="run-snapshot-actions">
+            <span className={`status-pill status-${statusTone(batchJob.status || run.status)}`}>{prettyRunStatus(batchJob.status || run.status)}</span>
+          </div>
+        </div>
+        <div className="run-snapshot-metrics">
+          <div className="snapshot-metric">
+            <span>Elapsed</span>
+            <strong>{formatDuration(batchJob.duration_seconds)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Started</span>
+            <strong>{compactDate(batchJob.started_at)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Finished</span>
+            <strong>{batchJob.finished_at ? compactDate(batchJob.finished_at) : (batchJob.is_complete ? '-' : 'Still running')}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Total words</span>
+            <strong>{Number(batchJob.run_count || 0)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Passed</span>
+            <strong>{Number(batchJobReport.passed_run_count || batchJob.passed_run_count || 0)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Below threshold</span>
+            <strong>{Number(batchJobReport.below_threshold_run_count || batchJob.below_threshold_run_count || 0)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Technical failures</span>
+            <strong>{Number(batchJobReport.failed_technical_run_count || batchJob.failed_technical_run_count || 0)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Canceled</span>
+            <strong>{Number(batchJobReport.canceled_run_count || batchJob.canceled_run_count || 0)}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Completed</span>
+            <strong>{`${Number(batchJob.terminal_run_count || 0)} / ${Number(batchJob.run_count || 0)}`}</strong>
+          </div>
+          <div className="snapshot-metric">
+            <span>Avg / word</span>
+            <strong>{formatDuration(batchJobReport.avg_seconds_per_word || batchJob.avg_seconds_per_word || 0)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="run-overview-card">
+        <div className="section-head-row">
+          <div>
+            <h4>Why words did not pass</h4>
+            <p>Use this report to review the whole CSV job without opening every word one by one.</p>
+          </div>
+        </div>
+        {Object.keys(batchReasonCounts).length ? (
+          <div className="run-help-card">
+            <p><strong>Most common reasons</strong></p>
+            {Object.entries(batchReasonCounts)
+              .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
+              .slice(0, 8)
+              .map(([reason, count]) => (
+                <p key={reason}>{count}x | {reason}</p>
+              ))}
+          </div>
+        ) : (
+          <div className="run-help-card">
+            <p>Every word in this CSV job passed.</p>
+          </div>
+        )}
+        {batchIssues.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Word</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th>Why it did not pass</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchIssues.map((issue) => (
+                  <tr key={issue.run_id}>
+                    <td>{issue.word || '-'}</td>
+                    <td>{prettyRunStatus(issue.status)}</td>
+                    <td>{issue.quality_score ?? '-'}</td>
+                    <td>{issue.reason || issue.error_detail || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
 export default function RunExecutionDiagram({
   detail,
   assistantName = '',
@@ -1071,6 +1120,12 @@ export default function RunExecutionDiagram({
       onActiveTabChange(activeTab)
     }
   }, [activeTab, onActiveTabChange])
+
+  useEffect(() => {
+    if (!detail?.run?.batch && activeTab === DETAIL_TABS.CSV_JOB) {
+      setActiveTab(DETAIL_TABS.OVERVIEW)
+    }
+  }, [detail?.run?.batch, activeTab])
 
   useEffect(() => {
     let cancelled = false
@@ -1247,6 +1302,9 @@ export default function RunExecutionDiagram({
 
       <div className="detail-subnav-row">
         <button className={activeTab === DETAIL_TABS.OVERVIEW ? 'tab active' : 'tab'} onClick={() => setActiveTab(DETAIL_TABS.OVERVIEW)}>Overview</button>
+        {detail.run.batch ? (
+          <button className={activeTab === DETAIL_TABS.CSV_JOB ? 'tab active' : 'tab'} onClick={() => setActiveTab(DETAIL_TABS.CSV_JOB)}>CSV Job</button>
+        ) : null}
         <button className={activeTab === DETAIL_TABS.IMAGES ? 'tab active' : 'tab'} onClick={() => setActiveTab(DETAIL_TABS.IMAGES)}>Images</button>
         <button className={activeTab === DETAIL_TABS.PROCESS ? 'tab active' : 'tab'} onClick={() => setActiveTab(DETAIL_TABS.PROCESS)}>Process</button>
         <button className={activeTab === DETAIL_TABS.SETTINGS ? 'tab active' : 'tab'} onClick={() => setActiveTab(DETAIL_TABS.SETTINGS)}>Settings</button>
@@ -1284,6 +1342,11 @@ export default function RunExecutionDiagram({
         setImageFilter,
         selectedAttempt,
         onStopRun,
+      }) : null}
+
+      {activeTab === DETAIL_TABS.CSV_JOB ? renderCsvJobSection({
+        detail: detailWithSummaries,
+        batchReport,
       }) : null}
 
       {activeTab === DETAIL_TABS.IMAGES ? (

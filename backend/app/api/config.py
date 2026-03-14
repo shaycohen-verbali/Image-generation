@@ -36,6 +36,8 @@ def _to_schema(config) -> RuntimeConfigOut:
         quality_gate_model=config.quality_gate_model,
         image_aspect_ratio=config.image_aspect_ratio,
         image_resolution=config.image_resolution,
+        image_format=config.image_format,
+        nano_banana_safety_level=config.nano_banana_safety_level,
     )
 
 

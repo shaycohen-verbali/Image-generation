@@ -27,7 +27,7 @@ def run_worker() -> None:
     logger.info("worker started")
     active_runs: dict[Future, str] = {}
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=12) as executor:
         while True:
             with SessionLocal() as db:
                 repo = Repository(db)

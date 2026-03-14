@@ -216,7 +216,7 @@ class PipelineRunner:
         origin_url: str,
         model_name: str,
     ) -> Asset:
-        output_mime_type = getattr(self.repo.get_runtime_config(), "image_format", "image/png")
+        output_mime_type = getattr(self.repo.get_runtime_config(), "image_format", "image/jpeg")
         normalized_bytes, mime_type, suffix = normalize_saved_image(image_bytes, output_mime_type)
         path = write_image(run_id, Path(sanitize_filename(filename)).with_suffix(suffix).name, normalized_bytes)
         width, height = image_dimensions(path)
@@ -409,6 +409,7 @@ class PipelineRunner:
         self.openai.settings.max_api_retries = config.max_api_retries
         self.replicate.settings.max_api_retries = config.max_api_retries
         self.google_images.configure_workers(variant_worker_limit)
+        self.google_images.settings.nano_banana_safety_level = getattr(config, "nano_banana_safety_level", "default")
         assistant_id = ""
         if config.prompt_engineer_mode == "assistant":
             assistant_id = self.openai.resolve_assistant_id(config.openai_assistant_id, config.openai_assistant_name)
@@ -1859,6 +1860,17 @@ class PipelineRunner:
             },
         )
 
+        if stage_failures("stage4_variant_generate"):
+            self.repo.update_run(run, current_stage="stage4_variant_generate")
+            self._raise_with_context(
+                "; ".join(failure["error"] for failure in stage_failures("stage4_variant_generate")),
+                request_json={
+                    "stage4_variant_generate_failures": stage_failures("stage4_variant_generate"),
+                    "stage4_variant_generate_failure_details": detailed_failures_by_stage["stage4_variant_generate"],
+                },
+                response_json={},
+            )
+
         self._raise_if_stop_requested(run, "stage5_variant_white_bg")
         self.repo.update_run(run, current_stage="stage5_variant_white_bg")
         log_variant_event(
@@ -1916,18 +1928,13 @@ class PipelineRunner:
                 "failed_count": len(stage_failures("stage5_variant_white_bg")),
             },
         )
-        if stage_failures("stage4_variant_generate") or stage_failures("stage5_variant_white_bg"):
-            if stage_failures("stage4_variant_generate"):
-                self.repo.update_run(run, current_stage="stage4_variant_generate")
+        if stage_failures("stage5_variant_white_bg"):
             self._raise_with_context(
                 "; ".join(
-                    [failure["error"] for failure in stage_failures("stage4_variant_generate")]
-                    + [failure["error"] for failure in stage_failures("stage5_variant_white_bg")]
+                    [failure["error"] for failure in stage_failures("stage5_variant_white_bg")]
                 ),
                 request_json={
-                    "stage4_variant_generate_failures": stage_failures("stage4_variant_generate"),
                     "stage5_variant_white_bg_failures": stage_failures("stage5_variant_white_bg"),
-                    "stage4_variant_generate_failure_details": detailed_failures_by_stage["stage4_variant_generate"],
                     "stage5_variant_white_bg_failure_details": detailed_failures_by_stage["stage5_variant_white_bg"],
                 },
                 response_json={},

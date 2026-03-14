@@ -14,6 +14,7 @@ from app.services.model_catalog import (
     normalize_image_aspect_ratio,
     normalize_image_format,
     normalize_image_resolution,
+    normalize_nano_banana_safety_level,
     normalize_prompt_engineer_model,
     normalize_stage3_generation_model,
     normalize_vision_model,
@@ -36,9 +37,9 @@ from app.services.utils import deterministic_entry_id, source_row_hash
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
-MAX_PARALLEL_RUNS = 4
+MAX_PARALLEL_RUNS = 12
 MIN_VARIANT_WORKERS = 1
-MAX_VARIANT_WORKERS = 8
+MAX_VARIANT_WORKERS = 12
 
 
 def _dumps(value: dict[str, Any] | list[Any]) -> str:
@@ -95,7 +96,10 @@ class Repository:
         config.quality_gate_model = normalize_vision_model(config.quality_gate_model)
         config.image_aspect_ratio = normalize_image_aspect_ratio(getattr(config, "image_aspect_ratio", "1:1"))
         config.image_resolution = normalize_image_resolution(getattr(config, "image_resolution", "1K"))
-        config.image_format = normalize_image_format(getattr(config, "image_format", "image/png"))
+        config.image_format = normalize_image_format(getattr(config, "image_format", "image/jpeg"))
+        config.nano_banana_safety_level = normalize_nano_banana_safety_level(
+            getattr(config, "nano_banana_safety_level", "default")
+        )
         config.openai_model_vision = config.stage3_critique_model
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
         config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))
@@ -287,18 +291,21 @@ class Repository:
         passed_runs = [run for run in runs if run.status == "completed_pass"]
         below_threshold_runs = [run for run in runs if run.status == "completed_fail_threshold"]
         failed_technical_runs = [run for run in runs if run.status == "failed_technical"]
+        canceled_runs = [run for run in runs if run.status == "canceled"]
         terminal_runs = [run for run in runs if run.status in terminal_statuses]
         completed_runs = [run for run in runs if run.status in completed_statuses]
+        timed_runs = [run for run in runs if run.status != "canceled"] or runs
 
-        started_at = min((run.created_at for run in runs), default=None)
+        started_at = min((run.created_at for run in timed_runs), default=None)
         is_complete = len(terminal_runs) == len(runs)
-        finished_at = max((run.updated_at for run in terminal_runs), default=None) if is_complete else None
+        timed_terminal_runs = [run for run in timed_runs if run.status in terminal_statuses]
+        finished_at = max((run.updated_at for run in timed_terminal_runs), default=None) if is_complete else None
         now = datetime.utcnow()
         duration_end = finished_at or now
         duration_seconds = 0.0
         if started_at is not None:
             duration_seconds = max(0.0, (duration_end - started_at).total_seconds())
-        avg_seconds_per_word = duration_seconds / len(runs) if runs else 0.0
+        avg_seconds_per_word = duration_seconds / len(timed_runs) if timed_runs else 0.0
 
         if is_complete:
             status = "completed"
@@ -320,6 +327,7 @@ class Repository:
             "passed_run_count": len(passed_runs),
             "below_threshold_run_count": len(below_threshold_runs),
             "failed_technical_run_count": len(failed_technical_runs),
+            "canceled_run_count": len(canceled_runs),
             "started_at": started_at,
             "finished_at": finished_at,
             "duration_seconds": duration_seconds,

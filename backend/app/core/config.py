@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     quality_gate_model: str = Field(default="gpt-4o-mini", alias="QUALITY_GATE_MODEL")
     image_aspect_ratio: str = Field(default="1:1", alias="IMAGE_ASPECT_RATIO")
     image_resolution: str = Field(default="1K", alias="IMAGE_RESOLUTION")
+    image_format: str = Field(default="image/jpeg", alias="IMAGE_FORMAT")
+    nano_banana_safety_level: str = Field(default="default", alias="NANO_BANANA_SAFETY_LEVEL")
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
 
     replicate_api_token: str = Field(default="", alias="REPLICATE_API_TOKEN")

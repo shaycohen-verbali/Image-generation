@@ -5,9 +5,17 @@ export default function SubmitPage() {
   const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
   const IMAGE_RESOLUTION_OPTIONS = ['1K', '2K', '4K']
   const IMAGE_FORMAT_OPTIONS = [
-    { value: 'image/png', label: 'PNG (.png)' },
     { value: 'image/jpeg', label: 'JPEG (.jpg)' },
+    { value: 'image/png', label: 'PNG (.png)' },
     { value: 'image/webp', label: 'WEBP (.webp)' },
+  ]
+  const NANO_BANANA_SAFETY_OPTIONS = [
+    { value: 'default', label: 'Provider default' },
+    { value: 'off', label: 'Off' },
+    { value: 'block_none', label: 'Block none' },
+    { value: 'block_only_high', label: 'Block only high' },
+    { value: 'block_medium_and_above', label: 'Block medium and above' },
+    { value: 'block_low_and_above', label: 'Block low and above' },
   ]
   const SAMPLE_CSV_URL = `${import.meta.env.BASE_URL || '/'}test_word_list.csv`
   const SAMPLE_CSV_NAME = 'test_word_list.csv'
@@ -36,7 +44,8 @@ export default function SubmitPage() {
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
   const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
   const [imageResolution, setImageResolution] = useState('1K')
-  const [imageFormat, setImageFormat] = useState('image/png')
+  const [imageFormat, setImageFormat] = useState('image/jpeg')
+  const [nanoBananaSafetyLevel, setNanoBananaSafetyLevel] = useState('default')
 
   const toggleOption = (field, option, { locked = false } = {}) => {
     if (locked) return
@@ -94,6 +103,9 @@ export default function SubmitPage() {
         }
         if (mounted && config?.image_format) {
           setImageFormat(config.image_format)
+        }
+        if (mounted && config?.nano_banana_safety_level) {
+          setNanoBananaSafetyLevel(config.nano_banana_safety_level)
         }
       } catch (_error) {
         // Keep default UI value when config endpoint is unavailable.
@@ -196,12 +208,12 @@ export default function SubmitPage() {
   const onSaveWorkerConfig = async () => {
     const parsedRuns = Number(runWorkerCount)
     const parsedVariants = Number(variantWorkerCount)
-    if (!Number.isInteger(parsedRuns) || parsedRuns < 1 || parsedRuns > 4) {
-      setMessage('Run workers must be an integer between 1 and 4')
+    if (!Number.isInteger(parsedRuns) || parsedRuns < 1 || parsedRuns > 12) {
+      setMessage('Run workers must be an integer between 1 and 12')
       return
     }
-    if (!Number.isInteger(parsedVariants) || parsedVariants < 1 || parsedVariants > 8) {
-      setMessage('Variant workers must be an integer between 1 and 8')
+    if (!Number.isInteger(parsedVariants) || parsedVariants < 1 || parsedVariants > 12) {
+      setMessage('Variant workers must be an integer between 1 and 12')
       return
     }
     setMessage('Saving worker configuration...')
@@ -244,6 +256,7 @@ export default function SubmitPage() {
       if (updated.image_aspect_ratio) setImageAspectRatio(updated.image_aspect_ratio)
       if (updated.image_resolution) setImageResolution(updated.image_resolution)
       if (updated.image_format) setImageFormat(updated.image_format)
+      if (updated.nano_banana_safety_level) setNanoBananaSafetyLevel(updated.nano_banana_safety_level)
       setMessage(successMessage)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
@@ -253,8 +266,9 @@ export default function SubmitPage() {
   return (
     <section className="card-grid">
       <article className="card">
-        <h2>Shared Person Variants</h2>
-        <p>These settings apply to both workflows on this page. A Single Concept run and a Bulk CSV job will both use the same person-variant selection.</p>
+        <h2>Shared Run Settings</h2>
+        <p>Set these once before you run. The same person variants and output settings apply to both Single Concept and Bulk CSV jobs.</p>
+        <h3>Person Variants</h3>
         <div className="form-grid option-group-card">
           <div>
             <strong>Applies To Single Concept And Bulk CSV</strong>
@@ -349,6 +363,89 @@ export default function SubmitPage() {
               : ' No extra person variants will be created beyond the base run.'}
           </p>
         </div>
+        <h3>Image Output</h3>
+        <p>These output settings are shared too. Single Concept runs and Bulk CSV jobs will both use the same aspect ratio, resolution, format, and Nano Banana safety level.</p>
+        <div className="form-grid">
+          <label>
+            Output aspect ratio
+            <select
+              value={imageAspectRatio}
+              onChange={(e) => {
+                const value = e.target.value
+                setImageAspectRatio(value)
+                setMessage('Saving output aspect ratio...')
+                saveImageOutputConfig(
+                  { image_aspect_ratio: value },
+                  `Saved output aspect ratio: ${value}`
+                )
+              }}
+            >
+              {IMAGE_ASPECT_RATIO_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Output resolution
+            <select
+              value={imageResolution}
+              onChange={(e) => {
+                const value = e.target.value
+                setImageResolution(value)
+                setMessage('Saving output resolution...')
+                saveImageOutputConfig(
+                  { image_resolution: value },
+                  `Saved output resolution: ${value}`
+                )
+              }}
+            >
+              {IMAGE_RESOLUTION_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Output image format
+            <select
+              value={imageFormat}
+              onChange={(e) => {
+                const value = e.target.value
+                setImageFormat(value)
+                setMessage('Saving output image format...')
+                saveImageOutputConfig(
+                  { image_format: value },
+                  `Saved output image format: ${value}`
+                )
+              }}
+            >
+              {IMAGE_FORMAT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Nano Banana safety
+            <select
+              value={nanoBananaSafetyLevel}
+              onChange={(e) => {
+                const value = e.target.value
+                setNanoBananaSafetyLevel(value)
+                setMessage('Saving Nano Banana safety level...')
+                saveImageOutputConfig(
+                  { nano_banana_safety_level: value },
+                  `Saved Nano Banana safety level: ${value}`
+                )
+              }}
+            >
+              {NANO_BANANA_SAFETY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <p className="config-help-text">
+            Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. Format now defaults to `JPEG`. Safety level maps to Gemini `safetySettings` thresholds for Nano Banana requests.
+          </p>
+        </div>
       </article>
 
       <article className="card">
@@ -411,7 +508,7 @@ export default function SubmitPage() {
             <input
               type="number"
               min="1"
-              max="4"
+              max="12"
               value={runWorkerCount}
               onChange={(e) => setRunWorkerCount(e.target.value)}
             />
@@ -421,7 +518,7 @@ export default function SubmitPage() {
             <input
               type="number"
               min="1"
-              max="8"
+              max="12"
               value={variantWorkerCount}
               onChange={(e) => setVariantWorkerCount(e.target.value)}
             />
@@ -429,7 +526,7 @@ export default function SubmitPage() {
           <button type="button" onClick={onSaveWorkerConfig}>Save Workers</button>
         </div>
         <p className="config-help-text">
-          Recommendation for the current 512 MB Render instance: use <strong>1</strong> run worker and <strong>2</strong> variant workers. If you upgrade memory, move to <strong>2</strong> run workers and <strong>4</strong> variant workers.
+          Recommendation for the current 512 MB Render instance is still <strong>1</strong> run worker and <strong>2</strong> variant workers. Higher values are now allowed, but memory use and provider pressure will rise quickly.
         </p>
       </article>
 
@@ -541,72 +638,6 @@ export default function SubmitPage() {
         </div>
       </article>
 
-      <article className="card">
-        <h2>Image Output</h2>
-        <p>These saved output settings are shared too. Single Concept runs and Bulk CSV jobs will both use the same aspect ratio, resolution, and output format.</p>
-        <div className="form-grid">
-          <label>
-            Output aspect ratio
-            <select
-              value={imageAspectRatio}
-              onChange={(e) => {
-                const value = e.target.value
-                setImageAspectRatio(value)
-                setMessage('Saving output aspect ratio...')
-                saveImageOutputConfig(
-                  { image_aspect_ratio: value },
-                  `Saved output aspect ratio: ${value}`
-                )
-              }}
-            >
-              {IMAGE_ASPECT_RATIO_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Output resolution
-            <select
-              value={imageResolution}
-              onChange={(e) => {
-                const value = e.target.value
-                setImageResolution(value)
-                setMessage('Saving output resolution...')
-                saveImageOutputConfig(
-                  { image_resolution: value },
-                  `Saved output resolution: ${value}`
-                )
-              }}
-            >
-              {IMAGE_RESOLUTION_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Output image format
-            <select
-              value={imageFormat}
-              onChange={(e) => {
-                const value = e.target.value
-                setImageFormat(value)
-                setMessage('Saving output image format...')
-                saveImageOutputConfig(
-                  { image_format: value },
-                  `Saved output image format: ${value}`
-                )
-              }}
-            >
-              {IMAGE_FORMAT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <p className="config-help-text">
-            Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. Format defaults to `PNG`. The output format choices are limited to the image MIME types we support end-to-end in the pipeline: `PNG`, `JPEG`, and `WEBP`.
-          </p>
-        </div>
-      </article>
     </section>
   )
 }

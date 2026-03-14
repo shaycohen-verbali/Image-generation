@@ -52,6 +52,15 @@ SUPPORTED_IMAGE_FORMATS = {
     "image/webp",
 }
 
+SUPPORTED_NANO_BANANA_SAFETY_LEVELS = {
+    "default",
+    "off",
+    "block_none",
+    "block_only_high",
+    "block_medium_and_above",
+    "block_low_and_above",
+}
+
 GOOGLE_IMAGE_MODEL_BY_SELECTION = {
     "nano-banana": "gemini-2.5-flash-image",
     "nano-banana-2": "gemini-3.1-flash-image-preview",
@@ -100,7 +109,14 @@ def normalize_image_resolution(value: str) -> str:
 def normalize_image_format(value: str) -> str:
     normalized = str(value or "").strip().lower()
     if normalized not in SUPPORTED_IMAGE_FORMATS:
-        return "image/png"
+        return "image/jpeg"
+    return normalized
+
+
+def normalize_nano_banana_safety_level(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in SUPPORTED_NANO_BANANA_SAFETY_LEVELS:
+        return "default"
     return normalized
 
 

@@ -87,6 +87,8 @@ def _compact_event_payload_for_log(event_type: str, status: str, payload: dict) 
         compact.pop("provider_response", None)
         compact.pop("planned_profiles", None)
         compact.pop("branch_plan", None)
+        compact.pop("source_prompt", None)
+        compact.pop("prompt_text", None)
     if event_type in {"stage_started", "stage_completed"}:
         source_asset = compact.get("source_asset")
         if isinstance(source_asset, str) and "/" in source_asset:

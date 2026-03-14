@@ -11,7 +11,7 @@ from typing import Any
 import requests
 
 from app.core.config import get_settings
-from app.services.model_catalog import google_image_model_name, normalize_stage3_generation_model
+from app.services.model_catalog import google_image_model_name, normalize_nano_banana_safety_level, normalize_stage3_generation_model
 from app.services.retry import with_backoff
 from app.services.storage import write_temp_binary
 
@@ -36,7 +36,7 @@ class GoogleImageClient:
 
     @staticmethod
     def _executor_limit(worker_count: int) -> int:
-        return max(1, min(int(worker_count or 1), 8))
+        return max(1, min(int(worker_count or 1), 12))
 
     def configure_workers(self, worker_count: int) -> None:
         desired = self._executor_limit(worker_count)
@@ -178,6 +178,28 @@ class GoogleImageClient:
             config["imageConfig"] = image_config
         return config
 
+    @staticmethod
+    def _safety_settings(safety_level: str | None) -> list[dict[str, str]]:
+        normalized = normalize_nano_banana_safety_level(safety_level or "default")
+        threshold_by_level = {
+            "off": "OFF",
+            "block_none": "BLOCK_NONE",
+            "block_only_high": "BLOCK_ONLY_HIGH",
+            "block_medium_and_above": "BLOCK_MEDIUM_AND_ABOVE",
+            "block_low_and_above": "BLOCK_LOW_AND_ABOVE",
+        }
+        threshold = threshold_by_level.get(normalized)
+        if not threshold:
+            return []
+        categories = [
+            "HARM_CATEGORY_HARASSMENT",
+            "HARM_CATEGORY_HATE_SPEECH",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "HARM_CATEGORY_CIVIC_INTEGRITY",
+        ]
+        return [{"category": category, "threshold": threshold} for category in categories]
+
     def _build_request(
         self,
         *,
@@ -185,14 +207,19 @@ class GoogleImageClient:
         image_paths: list[Path] | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        safety_level: str | None = None,
     ) -> dict[str, Any]:
         parts = [self._text_part(prompt)]
         for image_path in image_paths or []:
             parts.append(self._inline_part(image_path))
-        return {
+        request = {
             "contents": [{"parts": parts}],
             "generationConfig": self._generation_config(aspect_ratio=aspect_ratio, image_size=image_size),
         }
+        safety_settings = self._safety_settings(safety_level)
+        if safety_settings:
+            request["safetySettings"] = safety_settings
+        return request
 
     def _run_generation(
         self,
@@ -203,6 +230,7 @@ class GoogleImageClient:
         image_paths: list[Path] | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        safety_level: str | None = None,
         timeout: int = 300,
     ) -> dict[str, Any]:
         request_json = self._build_request(
@@ -210,6 +238,7 @@ class GoogleImageClient:
             image_paths=image_paths,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            safety_level=safety_level,
         )
         response_json = self._request(model_name, request_json, timeout=timeout)
         image_payload = self._response_inline_image(response_json)
@@ -270,6 +299,7 @@ class GoogleImageClient:
             prompt=prompt,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            safety_level=self.settings.nano_banana_safety_level,
         ), model_name
 
     def nano_banana_white_bg(
@@ -296,6 +326,7 @@ class GoogleImageClient:
             image_paths=[image_path],
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            safety_level=self.settings.nano_banana_safety_level,
         )
 
     def profile_variant_request_summary(
@@ -344,6 +375,7 @@ class GoogleImageClient:
             "white_background": white_background,
             "aspect_ratio": aspect_ratio or "",
             "image_size": image_size or "",
+            "safety_level": normalize_nano_banana_safety_level(self.settings.nano_banana_safety_level),
         }
 
     def submit_nano_banana_profile_variant(
@@ -378,6 +410,7 @@ class GoogleImageClient:
             image_paths=[image_path],
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            safety_level=self.settings.nano_banana_safety_level,
         )
         with self._lock:
             self._prediction_futures[prediction_id] = future

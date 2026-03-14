@@ -5,7 +5,9 @@ from app.db.session import SessionLocal, engine
 from app.models import Base, RuntimeConfig
 from app.services.model_catalog import (
     normalize_image_aspect_ratio,
+    normalize_image_format,
     normalize_image_resolution,
+    normalize_nano_banana_safety_level,
     normalize_prompt_engineer_model,
     normalize_stage3_generation_model,
     normalize_vision_model,
@@ -21,10 +23,10 @@ from app.services.prompt_templates import (
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
 DEFAULT_PARALLEL_RUNS = 1
-SAFE_PARALLEL_RUNS = 4
+SAFE_PARALLEL_RUNS = 12
 MIN_VARIANT_WORKERS = 1
 DEFAULT_VARIANT_WORKERS = 2
-SAFE_VARIANT_WORKERS = 8
+SAFE_VARIANT_WORKERS = 12
 
 
 def init_db() -> None:
@@ -61,6 +63,8 @@ def init_db() -> None:
                     quality_gate_model=normalize_vision_model(settings.quality_gate_model or settings.openai_model_vision),
                     image_aspect_ratio=normalize_image_aspect_ratio(settings.image_aspect_ratio),
                     image_resolution=normalize_image_resolution(settings.image_resolution),
+                    image_format=normalize_image_format(settings.image_format),
+                    nano_banana_safety_level=normalize_nano_banana_safety_level(settings.nano_banana_safety_level),
                     openai_model_vision=normalize_vision_model(settings.openai_model_vision),
                 )
             )
@@ -89,6 +93,12 @@ def init_db() -> None:
             existing.quality_gate_model = normalize_vision_model(existing.quality_gate_model or existing.openai_model_vision)
             existing.image_aspect_ratio = normalize_image_aspect_ratio(getattr(existing, "image_aspect_ratio", settings.image_aspect_ratio))
             existing.image_resolution = normalize_image_resolution(getattr(existing, "image_resolution", settings.image_resolution))
+            existing.image_format = normalize_image_format(getattr(existing, "image_format", settings.image_format))
+            existing.nano_banana_safety_level = normalize_nano_banana_safety_level(
+                getattr(existing, "nano_banana_safety_level", settings.nano_banana_safety_level)
+            )
+            if existing.image_format == "image/png":
+                existing.image_format = "image/jpeg"
             existing.prompt_engineer_mode = existing.prompt_engineer_mode if existing.prompt_engineer_mode in {"assistant", "responses_api"} else "responses_api"
             if not existing.responses_prompt_engineer_model or existing.responses_prompt_engineer_model == "gpt-4.1-mini":
                 existing.responses_prompt_engineer_model = "gpt-5.4"
@@ -127,6 +137,10 @@ def _ensure_runtime_config_columns() -> None:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
         if "image_resolution" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_resolution TEXT NOT NULL DEFAULT '1K'"))
+        if "image_format" not in existing:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_format TEXT NOT NULL DEFAULT 'image/jpeg'"))
+        if "nano_banana_safety_level" not in existing:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN nano_banana_safety_level TEXT NOT NULL DEFAULT 'default'"))
         if "prompt_engineer_mode" not in existing:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
         if "responses_prompt_engineer_model" not in existing:

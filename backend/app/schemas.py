@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 PromptEngineerModel = Literal["gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
 ImageAspectRatio = Literal["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
 ImageResolution = Literal["1K", "2K", "4K"]
+ImageFormat = Literal["image/png", "image/jpeg", "image/webp"]
+NanoBananaSafetyLevel = Literal["default", "off", "block_none", "block_only_high", "block_medium_and_above", "block_low_and_above"]
 
 
 class EntryCreate(BaseModel):
@@ -80,6 +82,7 @@ class BatchJobSummaryOut(BaseModel):
     passed_run_count: int = 0
     below_threshold_run_count: int = 0
     failed_technical_run_count: int = 0
+    canceled_run_count: int = 0
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_seconds: float = 0
@@ -109,6 +112,7 @@ class BatchJobReportOut(BaseModel):
     passed_run_count: int = 0
     below_threshold_run_count: int = 0
     failed_technical_run_count: int = 0
+    canceled_run_count: int = 0
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_seconds: float = 0
@@ -280,6 +284,8 @@ class RuntimeConfigOut(BaseModel):
     quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
     image_aspect_ratio: ImageAspectRatio
     image_resolution: ImageResolution
+    image_format: ImageFormat
+    nano_banana_safety_level: NanoBananaSafetyLevel
 
 
 class RuntimeConfigUpdate(BaseModel):
@@ -307,3 +313,5 @@ class RuntimeConfigUpdate(BaseModel):
     quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None
     image_aspect_ratio: ImageAspectRatio | None = None
     image_resolution: ImageResolution | None = None
+    image_format: ImageFormat | None = None
+    nano_banana_safety_level: NanoBananaSafetyLevel | None = None

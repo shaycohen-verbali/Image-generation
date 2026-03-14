@@ -131,7 +131,7 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
             "toddler": "male toddler boy",
             "kid": "school-age boy",
             "tween": "pre-teen boy",
-            "teenager": "teenage boy",
+            "teenager": "17-year-old teenage boy",
         }.get(age, "male person")
 
     age_guidance = {
@@ -247,7 +247,10 @@ def profile_edit_instruction(target: dict[str, str], source: dict[str, str] | No
         )
     if target_skin and target_skin != source_skin:
         changes.append(
-            f"Update the image to {profile_race_phrase(target_skin, target_gender or source_gender or DEFAULT_GENDER, target_age or source_age or DEFAULT_AGE)}. Make sure to be appropriate with the race's physical nuances but not any stigma features."
+            f"Update the image to {profile_race_phrase(target_skin, target_gender or source_gender or DEFAULT_GENDER, target_age or source_age or DEFAULT_AGE)}. "
+            "Preserve the exact same person identity, age, gender, pose, framing, clothing palette, expression, and action while changing only the skin tone and ancestry cues needed for the requested race. "
+            "Do not drift into a different race than requested and do not change the person into a different child. "
+            "Make sure to be appropriate with the race's physical nuances but not any stigma features."
         )
     if not changes:
         changes.append(
