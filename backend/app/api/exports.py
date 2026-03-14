@@ -11,7 +11,7 @@ from app.api.deps import db_dependency
 from app.schemas import ExportCreateRequest, ExportOut
 from app.services.export_service import ExportService
 from app.services.repository import Repository
-from app.services.storage import exports_root
+from app.services.storage import exports_root, is_remote_path, materialize_path
 
 router = APIRouter(prefix="/api/v1/exports", tags=["exports"])
 
@@ -26,6 +26,9 @@ def _json_dict(value: str) -> dict:
 
 def _resolve_export_file(record, *, preferred_path: str, fallback_name: str) -> str:
     export_dir = (exports_root() / record.id).resolve()
+    if preferred_path and is_remote_path(preferred_path):
+        local = materialize_path(preferred_path, cache_namespace="exports")
+        return local.as_posix() if local.exists() else ""
     candidate = Path(preferred_path).resolve() if preferred_path else (export_dir / fallback_name).resolve()
     if not candidate.is_relative_to(export_dir):
         return ""

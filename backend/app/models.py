@@ -43,6 +43,7 @@ class Run(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"run_{uuid.uuid4().hex[:24]}")
     entry_id: Mapped[str] = mapped_column(ForeignKey("entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="legacy", nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(64), default="queued", nullable=False, index=True)
     current_stage: Mapped[str] = mapped_column(String(64), default="queued", nullable=False)
     retry_from_stage: Mapped[str] = mapped_column(String(64), default="", nullable=False)
@@ -162,6 +163,104 @@ class Export(Base):
     error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CsvJob(Base):
+    __tablename__ = "csv_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"csvjob_{uuid.uuid4().hex[:24]}")
+    batch_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="csv_dag", nullable=False)
+    source_file_name: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    config_snapshot_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    status: Mapped[str] = mapped_column(String(64), default="imported", nullable=False, index=True)
+    error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+    items: Mapped[list[CsvJobItem]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    tasks: Mapped[list[CsvTaskNode]] = relationship(back_populates="job", cascade="all, delete-orphan")
+
+
+class CsvJobItem(Base):
+    __tablename__ = "csv_job_items"
+    __table_args__ = (
+        UniqueConstraint("csv_job_id", "row_index", name="uq_csv_job_items_row"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"csvitm_{uuid.uuid4().hex[:24]}")
+    csv_job_id: Mapped[str] = mapped_column(ForeignKey("csv_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    entry_id: Mapped[str] = mapped_column(ForeignKey("entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    row_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_row_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    shadow_run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    base_regular_asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    base_white_bg_asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="pending", nullable=False, index=True)
+    error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+    job: Mapped[CsvJob] = relationship(back_populates="items")
+    entry: Mapped[Entry] = relationship()
+    shadow_run: Mapped[Run | None] = relationship()
+    base_regular_asset: Mapped[Asset | None] = relationship(foreign_keys=[base_regular_asset_id])
+    base_white_bg_asset: Mapped[Asset | None] = relationship(foreign_keys=[base_white_bg_asset_id])
+    tasks: Mapped[list[CsvTaskNode]] = relationship(back_populates="job_item", cascade="all, delete-orphan")
+
+
+class CsvTaskNode(Base):
+    __tablename__ = "csv_task_nodes"
+    __table_args__ = (
+        UniqueConstraint("csv_job_id", "task_key", name="uq_csv_task_nodes_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"csvtsk_{uuid.uuid4().hex[:24]}")
+    csv_job_id: Mapped[str] = mapped_column(ForeignKey("csv_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    csv_job_item_id: Mapped[str] = mapped_column(ForeignKey("csv_job_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    task_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    profile_key: Mapped[str] = mapped_column(String(128), default="", nullable=False, index=True)
+    source_profile_key: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    branch_role: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    dependency_keys_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    dependency_task_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    source_asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    regular_asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    white_bg_asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), default="queued", nullable=False, index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    error_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+    job: Mapped[CsvJob] = relationship(back_populates="tasks")
+    job_item: Mapped[CsvJobItem] = relationship(back_populates="tasks")
+    source_asset: Mapped[Asset | None] = relationship(foreign_keys=[source_asset_id])
+    regular_asset: Mapped[Asset | None] = relationship(foreign_keys=[regular_asset_id])
+    white_bg_asset: Mapped[Asset | None] = relationship(foreign_keys=[white_bg_asset_id])
+    attempts: Mapped[list[CsvTaskAttempt]] = relationship(back_populates="task", cascade="all, delete-orphan")
+
+
+class CsvTaskAttempt(Base):
+    __tablename__ = "csv_task_attempts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"csvatt_{uuid.uuid4().hex[:24]}")
+    csv_task_node_id: Mapped[str] = mapped_column(ForeignKey("csv_task_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    status: Mapped[str] = mapped_column(String(64), default="running", nullable=False)
+    request_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    response_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    task: Mapped[CsvTaskNode] = relationship(back_populates="attempts")
 
 
 class RuntimeConfig(Base):

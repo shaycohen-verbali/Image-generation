@@ -59,6 +59,52 @@ export async function importCsv(file) {
   return parseResponse(response)
 }
 
+export async function importCsvJob(file, payload = {}) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('execution_mode', payload.execution_mode || 'csv_dag')
+  form.append('person_gender_options', JSON.stringify(payload.person_gender_options || ['male']))
+  form.append('person_age_options', JSON.stringify(payload.person_age_options || ['kid']))
+  form.append('person_skin_color_options', JSON.stringify(payload.person_skin_color_options || ['white']))
+  const response = await fetch(`${API_BASE}/csv-jobs/import`, {
+    method: 'POST',
+    body: form,
+  })
+  return parseResponse(response)
+}
+
+export async function listCsvJobs() {
+  return fetchJson(`${API_BASE}/csv-jobs`, {}, 1)
+}
+
+export async function getCsvJob(jobId) {
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}`, {}, 1)
+}
+
+export async function getCsvJobOverview(jobId) {
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/overview`, {}, 1)
+}
+
+export async function startCsvJob(jobId) {
+  const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/start`, { method: 'POST' })
+  return parseResponse(response)
+}
+
+export async function retryCsvJobFailures(jobId) {
+  const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/retry-failures`, { method: 'POST' })
+  return parseResponse(response)
+}
+
+export async function cancelCsvJob(jobId) {
+  const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/cancel`, { method: 'POST' })
+  return parseResponse(response)
+}
+
+export async function exportCsvJob(jobId) {
+  const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/export`, { method: 'POST' })
+  return parseResponse(response)
+}
+
 export async function applyEntryProfileOptions(payload) {
   const response = await fetch(`${API_BASE}/entries/apply-profile-options`, {
     method: 'PUT',

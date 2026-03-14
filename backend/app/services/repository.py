@@ -9,7 +9,21 @@ from sqlalchemy import Select, desc, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Asset, Entry, Export, Prompt, Run, RunEvent, RuntimeConfig, Score, StageResult
+from app.models import (
+    Asset,
+    CsvJob,
+    CsvJobItem,
+    CsvTaskAttempt,
+    CsvTaskNode,
+    Entry,
+    Export,
+    Prompt,
+    Run,
+    RunEvent,
+    RuntimeConfig,
+    Score,
+    StageResult,
+)
 from app.services.model_catalog import (
     normalize_image_aspect_ratio,
     normalize_image_format,
@@ -52,6 +66,14 @@ def _loads(value: str) -> dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     except json.JSONDecodeError:
         return {}
+
+
+def _loads_list(value: str) -> list[Any]:
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except json.JSONDecodeError:
+        return []
 
 
 class Repository:
@@ -225,12 +247,14 @@ class Repository:
         *,
         quality_threshold: int,
         max_optimization_attempts: int,
+        execution_mode: str = "legacy",
     ) -> list[Run]:
         threshold = max(MIN_QUALITY_THRESHOLD, int(quality_threshold))
         runs: list[Run] = []
         for entry_id in entry_ids:
             run = Run(
                 entry_id=entry_id,
+                execution_mode=execution_mode,
                 status="queued",
                 current_stage="queued",
                 quality_threshold=threshold,
@@ -263,6 +287,7 @@ class Repository:
             stmt = stmt.where(Run.quality_score >= min_score)
         if max_score is not None:
             stmt = stmt.where(Run.quality_score <= max_score)
+        stmt = stmt.where(Run.execution_mode == "legacy")
         stmt = stmt.order_by(desc(Run.created_at))
         return list(self.db.execute(stmt).scalars())
 
@@ -279,6 +304,7 @@ class Repository:
                 select(Run, Entry)
                 .join(Entry, Entry.id == Run.entry_id)
                 .where(Entry.batch == batch)
+                .where(Run.execution_mode == "legacy")
                 .order_by(Run.created_at.asc())
             )
         )
@@ -346,6 +372,7 @@ class Repository:
                 select(Run, Entry)
                 .join(Entry, Entry.id == Run.entry_id)
                 .where(Entry.batch == batch)
+                .where(Run.execution_mode == "legacy")
                 .order_by(Run.updated_at.desc())
             )
         )
@@ -423,7 +450,11 @@ class Repository:
 
     def claim_next_queued_run(self) -> Run | None:
         candidate = self.db.execute(
-            select(Run).where(Run.status.in_(["queued", "retry_queued"])).order_by(Run.created_at.asc()).limit(1)
+            select(Run)
+            .where(Run.execution_mode == "legacy")
+            .where(Run.status.in_(["queued", "retry_queued"]))
+            .order_by(Run.created_at.asc())
+            .limit(1)
         ).scalar_one_or_none()
         if candidate is None:
             return None
@@ -431,6 +462,7 @@ class Repository:
         updated = self.db.execute(
             update(Run)
             .where(Run.id == candidate.id)
+            .where(Run.execution_mode == "legacy")
             .where(Run.status.in_(["queued", "retry_queued"]))
             .values(status="running", current_stage=candidate.retry_from_stage or candidate.current_stage)
         )
@@ -743,6 +775,320 @@ class Repository:
     def get_asset(self, asset_id: str) -> Asset | None:
         return self.db.execute(select(Asset).where(Asset.id == asset_id)).scalar_one_or_none()
 
+    def create_csv_job(
+        self,
+        *,
+        batch_id: str,
+        source_file_name: str,
+        execution_mode: str,
+        config_snapshot: dict[str, Any],
+    ) -> CsvJob:
+        job = CsvJob(
+            batch_id=batch_id,
+            source_file_name=source_file_name,
+            execution_mode=execution_mode,
+            config_snapshot_json=_dumps(config_snapshot),
+            status="imported",
+        )
+        self.db.add(job)
+        self.db.commit()
+        self.db.refresh(job)
+        return self._release_instance(job)
+
+    def get_csv_job(self, job_id: str) -> CsvJob | None:
+        return self.db.execute(select(CsvJob).where(CsvJob.id == job_id)).scalar_one_or_none()
+
+    def get_csv_job_by_batch(self, batch_id: str) -> CsvJob | None:
+        return self.db.execute(select(CsvJob).where(CsvJob.batch_id == batch_id)).scalar_one_or_none()
+
+    def list_csv_jobs(self) -> list[CsvJob]:
+        return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.created_at))).scalars())
+
+    def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
+        for key, value in updates.items():
+            setattr(job, key, value)
+        self.db.add(job)
+        self.db.commit()
+        self.db.refresh(job)
+        return self._release_instance(job)
+
+    def create_csv_job_item(
+        self,
+        *,
+        csv_job_id: str,
+        entry_id: str,
+        row_index: int,
+        source_row: dict[str, Any],
+    ) -> CsvJobItem:
+        item = CsvJobItem(
+            csv_job_id=csv_job_id,
+            entry_id=entry_id,
+            row_index=row_index,
+            source_row_json=_dumps(source_row),
+            status="pending",
+        )
+        self.db.add(item)
+        self.db.commit()
+        self.db.refresh(item)
+        return self._release_instance(item)
+
+    def list_csv_job_items(self, csv_job_id: str) -> list[CsvJobItem]:
+        return list(
+            self.db.execute(
+                select(CsvJobItem)
+                .where(CsvJobItem.csv_job_id == csv_job_id)
+                .order_by(CsvJobItem.row_index.asc())
+            ).scalars()
+        )
+
+    def get_csv_job_item(self, item_id: str) -> CsvJobItem | None:
+        return self.db.execute(select(CsvJobItem).where(CsvJobItem.id == item_id)).scalar_one_or_none()
+
+    def update_csv_job_item(self, item: CsvJobItem, **updates: Any) -> CsvJobItem:
+        for key, value in updates.items():
+            setattr(item, key, value)
+        self.db.add(item)
+        self.db.commit()
+        self.db.refresh(item)
+        return self._release_instance(item)
+
+    def create_csv_task_node(
+        self,
+        *,
+        csv_job_id: str,
+        csv_job_item_id: str,
+        step_name: str,
+        task_key: str,
+        profile_key: str,
+        source_profile_key: str,
+        branch_role: str,
+        dependency_keys: list[str],
+        dependency_task_ids: list[str],
+        max_attempts: int = 2,
+        status: str = "pending",
+    ) -> CsvTaskNode:
+        node = CsvTaskNode(
+            csv_job_id=csv_job_id,
+            csv_job_item_id=csv_job_item_id,
+            step_name=step_name,
+            task_key=task_key,
+            profile_key=profile_key,
+            source_profile_key=source_profile_key,
+            branch_role=branch_role,
+            dependency_keys_json=_dumps(dependency_keys),
+            dependency_task_ids_json=_dumps(dependency_task_ids),
+            max_attempts=max(1, int(max_attempts)),
+            status=status,
+        )
+        self.db.add(node)
+        self.db.commit()
+        self.db.refresh(node)
+        return self._release_instance(node)
+
+    def list_csv_tasks(self, csv_job_id: str) -> list[CsvTaskNode]:
+        return list(
+            self.db.execute(
+                select(CsvTaskNode)
+                .where(CsvTaskNode.csv_job_id == csv_job_id)
+                .order_by(CsvTaskNode.created_at.asc())
+            ).scalars()
+        )
+
+    def get_csv_task(self, task_id: str) -> CsvTaskNode | None:
+        return self.db.execute(select(CsvTaskNode).where(CsvTaskNode.id == task_id)).scalar_one_or_none()
+
+    def update_csv_task(self, task: CsvTaskNode, **updates: Any) -> CsvTaskNode:
+        for key, value in updates.items():
+            setattr(task, key, value)
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return self._release_instance(task)
+
+    def add_csv_task_attempt(
+        self,
+        *,
+        csv_task_node_id: str,
+        attempt_number: int,
+        status: str,
+        request_json: dict[str, Any],
+        response_json: dict[str, Any],
+        error_detail: str = "",
+        finished_at: datetime | None = None,
+    ) -> CsvTaskAttempt:
+        record = CsvTaskAttempt(
+            csv_task_node_id=csv_task_node_id,
+            attempt_number=attempt_number,
+            status=status,
+            request_json=_dumps(request_json),
+            response_json=_dumps(response_json),
+            error_detail=error_detail,
+            finished_at=finished_at,
+        )
+        self.db.add(record)
+        self.db.commit()
+        self.db.refresh(record)
+        return self._release_instance(record)
+
+    def list_csv_task_attempts(self, csv_task_node_id: str) -> list[CsvTaskAttempt]:
+        return list(
+            self.db.execute(
+                select(CsvTaskAttempt)
+                .where(CsvTaskAttempt.csv_task_node_id == csv_task_node_id)
+                .order_by(CsvTaskAttempt.created_at.asc())
+            ).scalars()
+        )
+
+    def claim_next_ready_csv_task(self) -> CsvTaskNode | None:
+        queued = list(
+            self.db.execute(
+                select(CsvTaskNode)
+                .join(CsvJob, CsvJob.id == CsvTaskNode.csv_job_id)
+                .where(CsvTaskNode.status == "queued")
+                .where(CsvJob.status.in_(["queued", "running", "retry_queued", "imported"]))
+                .order_by(CsvTaskNode.created_at.asc())
+            ).scalars()
+        )
+        for task in queued:
+            dependency_ids = [str(value) for value in _loads_list(task.dependency_task_ids_json) if str(value)]
+            if dependency_ids:
+                statuses = {
+                    row.id: row.status
+                    for row in self.db.execute(
+                        select(CsvTaskNode.id, CsvTaskNode.status).where(CsvTaskNode.id.in_(dependency_ids))
+                    )
+                }
+                if any(statuses.get(dep_id) != "completed" for dep_id in dependency_ids):
+                    continue
+
+            updated = self.db.execute(
+                update(CsvTaskNode)
+                .where(CsvTaskNode.id == task.id)
+                .where(CsvTaskNode.status == "queued")
+                .values(status="running", started_at=datetime.utcnow())
+            )
+            if updated.rowcount == 0:
+                self.db.rollback()
+                continue
+            self.db.commit()
+            claimed = self.get_csv_task(task.id)
+            if claimed is None:
+                continue
+            job = self.get_csv_job(claimed.csv_job_id)
+            if job and job.started_at is None:
+                self.update_csv_job(job, status="running", started_at=datetime.utcnow(), error_detail="")
+            elif job and job.status in {"queued", "imported", "retry_queued"}:
+                self.update_csv_job(job, status="running", error_detail="")
+            return claimed
+        return None
+
+    def retry_failed_csv_tasks(self, csv_job_id: str) -> int:
+        tasks = list(
+            self.db.execute(
+                select(CsvTaskNode)
+                .where(CsvTaskNode.csv_job_id == csv_job_id)
+                .where(CsvTaskNode.status == "failed")
+            ).scalars()
+        )
+        count = 0
+        for task in tasks:
+            task.status = "queued"
+            task.error_summary = ""
+            task.finished_at = None
+            self.db.add(task)
+            count += 1
+        if count:
+            self.db.commit()
+            job = self.get_csv_job(csv_job_id)
+            if job is not None:
+                self.update_csv_job(job, status="retry_queued", error_detail="", finished_at=None)
+        return count
+
+    def cancel_csv_job(self, csv_job_id: str) -> int:
+        tasks = list(
+            self.db.execute(
+                select(CsvTaskNode)
+                .where(CsvTaskNode.csv_job_id == csv_job_id)
+                .where(CsvTaskNode.status.in_(["queued"]))
+            ).scalars()
+        )
+        count = 0
+        for task in tasks:
+            task.status = "canceled"
+            task.error_summary = "Canceled before execution"
+            task.finished_at = datetime.utcnow()
+            self.db.add(task)
+            count += 1
+        if count:
+            self.db.commit()
+        running = self.db.execute(
+            select(func.count()).select_from(CsvTaskNode).where(CsvTaskNode.csv_job_id == csv_job_id).where(CsvTaskNode.status == "running")
+        ).scalar_one()
+        job = self.get_csv_job(csv_job_id)
+        if job is not None:
+            next_status = "cancel_requested" if running else "canceled"
+            finished_at = None if running else datetime.utcnow()
+            self.update_csv_job(job, status=next_status, finished_at=finished_at, error_detail="Canceled by user")
+        return count
+
+    def finalize_csv_job_status(self, csv_job_id: str) -> CsvJob | None:
+        job = self.get_csv_job(csv_job_id)
+        if job is None:
+            return None
+        tasks = self.list_csv_tasks(csv_job_id)
+        if not tasks:
+            return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow())
+        statuses = [task.status for task in tasks]
+        if any(status == "running" for status in statuses):
+            return self.update_csv_job(job, status="running")
+        if any(status == "queued" for status in statuses):
+            next_status = "cancel_requested" if job.status == "cancel_requested" else "queued"
+            return self.update_csv_job(job, status=next_status)
+        if job.status == "cancel_requested" and any(status == "canceled" for status in statuses):
+            return self.update_csv_job(job, status="canceled", finished_at=datetime.utcnow(), error_detail="Canceled by user")
+        if all(status == "canceled" for status in statuses):
+            return self.update_csv_job(job, status="canceled", finished_at=datetime.utcnow())
+        if any(status == "failed" for status in statuses):
+            finished_at = None if any(status in {"queued", "running"} for status in statuses) else datetime.utcnow()
+            return self.update_csv_job(job, status="failed", finished_at=finished_at, error_detail="One or more CSV DAG tasks failed")
+        return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
+
+    def csv_job_overview(self, csv_job_id: str) -> dict[str, Any] | None:
+        job = self.get_csv_job(csv_job_id)
+        if job is None:
+            return None
+        items = self.list_csv_job_items(csv_job_id)
+        tasks = self.list_csv_tasks(csv_job_id)
+        step_counts: dict[str, dict[str, int]] = {}
+        issues_by_step: dict[str, list[dict[str, Any]]] = {}
+        for task in tasks:
+            bucket = step_counts.setdefault(task.step_name, {})
+            bucket[task.status] = bucket.get(task.status, 0) + 1
+            if task.status == "failed":
+                issues_by_step.setdefault(task.step_name, []).append(
+                    {
+                        "task_id": task.id,
+                        "task_key": task.task_key,
+                        "profile_key": task.profile_key,
+                        "error": task.error_summary,
+                    }
+                )
+        total_rows = len(items)
+        started_at = job.started_at
+        duration_seconds = 0.0
+        if started_at:
+            duration_end = job.finished_at or datetime.utcnow()
+            duration_seconds = max(0.0, (duration_end - started_at).total_seconds())
+        return {
+            "job": job,
+            "items": items,
+            "tasks": tasks,
+            "step_counts": step_counts,
+            "issues_by_step": issues_by_step,
+            "total_row_count": total_rows,
+            "duration_seconds": duration_seconds,
+        }
+
     def create_export(self, filter_json: dict[str, Any]) -> Export:
         record = Export(filter_json=_dumps(filter_json), status="pending")
         self.db.add(record)
@@ -780,6 +1126,7 @@ class Repository:
             stmt = stmt.where(Run.quality_score >= float(min_score))
         if max_score is not None:
             stmt = stmt.where(Run.quality_score <= float(max_score))
+        stmt = stmt.where(Run.execution_mode == "legacy")
 
         stmt = stmt.order_by(Run.created_at.asc())
         return list(self.db.execute(stmt).all())
@@ -806,4 +1153,24 @@ class Repository:
         return run
 
     def count_runs(self) -> int:
-        return self.db.execute(select(func.count()).select_from(Run)).scalar_one()
+        return self.db.execute(select(func.count()).select_from(Run).where(Run.execution_mode == "legacy")).scalar_one()
+
+    def create_shadow_run(
+        self,
+        *,
+        entry_id: str,
+        quality_threshold: int,
+        max_optimization_attempts: int,
+    ) -> Run:
+        run = Run(
+            entry_id=entry_id,
+            execution_mode="csv_dag_shadow",
+            status="queued",
+            current_stage="queued",
+            quality_threshold=max(MIN_QUALITY_THRESHOLD, int(quality_threshold)),
+            max_optimization_attempts=max_optimization_attempts,
+        )
+        self.db.add(run)
+        self.db.commit()
+        self.db.refresh(run)
+        return self._release_instance(run)

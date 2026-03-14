@@ -25,7 +25,14 @@ from app.services.prompt_templates import (
 )
 from app.services.replicate_client import ReplicateClient
 from app.services.repository import Repository
-from app.services.storage import image_dimensions, normalize_saved_image, sha256_bytes, write_image, write_metadata
+from app.services.storage import (
+    image_dimensions,
+    materialize_path,
+    normalize_saved_image,
+    persist_run_image,
+    sha256_bytes,
+    write_metadata,
+)
 from app.services.utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -215,17 +222,18 @@ class PipelineRunner:
         image_bytes: bytes,
         origin_url: str,
         model_name: str,
+        output_mime_type: str | None = None,
     ) -> Asset:
-        output_mime_type = getattr(self.repo.get_runtime_config(), "image_format", "image/jpeg")
-        normalized_bytes, mime_type, suffix = normalize_saved_image(image_bytes, output_mime_type)
-        path = write_image(run_id, Path(sanitize_filename(filename)).with_suffix(suffix).name, normalized_bytes)
-        width, height = image_dimensions(path)
+        resolved_output_mime = output_mime_type or getattr(self.repo.get_runtime_config(), "image_format", "image/jpeg")
+        normalized_bytes, mime_type, suffix = normalize_saved_image(image_bytes, resolved_output_mime)
+        stored = persist_run_image(run_id, Path(sanitize_filename(filename)).with_suffix(suffix).name, normalized_bytes, mime_type=mime_type)
+        width, height = image_dimensions(stored.local_path)
         return self.repo.add_asset(
             run_id=run_id,
             stage_name=stage_name,
             attempt=attempt,
-            file_name=path.name,
-            abs_path=path.as_posix(),
+            file_name=stored.local_path.name,
+            abs_path=stored.persisted_path,
             mime_type=mime_type,
             sha256=sha256_bytes(normalized_bytes),
             width=width,
@@ -233,6 +241,43 @@ class PipelineRunner:
             origin_url=origin_url,
             model_name=model_name,
         )
+
+    def _configure_generation_clients(
+        self,
+        *,
+        max_api_retries: int | None = None,
+        variant_worker_limit: int | None = None,
+        nano_banana_safety_level: str | None = None,
+    ) -> dict[str, Any]:
+        runtime_config = self.repo.get_runtime_config()
+        resolved_retries = int(max_api_retries if max_api_retries is not None else runtime_config.max_api_retries)
+        resolved_workers = max(
+            1,
+            min(
+                int(
+                    variant_worker_limit
+                    if variant_worker_limit is not None
+                    else getattr(runtime_config, "max_variant_workers", 2)
+                ),
+                8,
+            ),
+        )
+        resolved_safety = str(
+            nano_banana_safety_level
+            if nano_banana_safety_level is not None
+            else getattr(runtime_config, "nano_banana_safety_level", "default")
+        )
+
+        self.openai.settings.max_api_retries = resolved_retries
+        self.replicate.settings.max_api_retries = resolved_retries
+        self.google_images.configure_workers(resolved_workers)
+        self.google_images.settings.nano_banana_safety_level = resolved_safety
+        return {
+            "runtime_config": runtime_config,
+            "max_api_retries": resolved_retries,
+            "variant_worker_limit": resolved_workers,
+            "nano_banana_safety_level": resolved_safety,
+        }
 
     def _set_failed_technical(self, run: Run, stage_name: str, detail: str) -> None:
         self.repo.update_run(
@@ -242,6 +287,12 @@ class PipelineRunner:
             error_detail=detail,
             technical_retry_count=run.technical_retry_count + 1,
         )
+
+    @staticmethod
+    def _local_asset_path(asset_or_path: Asset | str) -> Path:
+        if isinstance(asset_or_path, Asset):
+            return materialize_path(asset_or_path.abs_path, cache_namespace="assets")
+        return materialize_path(str(asset_or_path), cache_namespace="assets")
 
     def _get_latest_run(self, run_id: str) -> Run | None:
         return self.repo.get_run(run_id)
@@ -404,12 +455,8 @@ class PipelineRunner:
             self._set_failed_technical(run, "stage1_prompt", "Entry missing")
             return run
 
-        config = self.repo.get_runtime_config()
-        variant_worker_limit = max(1, min(int(getattr(config, "max_variant_workers", 2)), 8))
-        self.openai.settings.max_api_retries = config.max_api_retries
-        self.replicate.settings.max_api_retries = config.max_api_retries
-        self.google_images.configure_workers(variant_worker_limit)
-        self.google_images.settings.nano_banana_safety_level = getattr(config, "nano_banana_safety_level", "default")
+        configured = self._configure_generation_clients()
+        config = configured["runtime_config"]
         assistant_id = ""
         if config.prompt_engineer_mode == "assistant":
             assistant_id = self.openai.resolve_assistant_id(config.openai_assistant_id, config.openai_assistant_name)
@@ -472,6 +519,78 @@ class PipelineRunner:
                 status="error",
                 request_json=request_json if isinstance(request_json, dict) else {},
                 response_json=response_json if isinstance(response_json, dict) else {},
+                error_detail=str(exc),
+            )
+            return self.repo.get_run(run.id) or run
+        finally:
+            self.google_images.close()
+
+        return self.repo.get_run(run.id) or run
+
+    def process_base_run(self, run_id: str) -> Run:
+        run = self.repo.get_run(run_id)
+        if run is None:
+            raise RuntimeError(f"Run not found: {run_id}")
+
+        entry = self.repo.get_entry(run.entry_id)
+        if entry is None:
+            self._set_failed_technical(run, "stage1_prompt", "Entry missing")
+            return run
+
+        configured = self._configure_generation_clients()
+        config = configured["runtime_config"]
+        assistant_id = ""
+        if config.prompt_engineer_mode == "assistant":
+            assistant_id = self.openai.resolve_assistant_id(config.openai_assistant_id, config.openai_assistant_name)
+
+        run = self.repo.update_run(run, status="running", current_stage="stage1_prompt", retry_from_stage="")
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage1_prompt",
+            attempt=0,
+            event_type="run_started",
+            status="running",
+            message="Base-only DAG run processing started",
+            payload={
+                "entry_id": entry.id,
+                "word": entry.word,
+                "part_of_sentence": entry.part_of_sentence,
+                "category": entry.category,
+                "execution_mode": "csv_dag_shadow",
+            },
+        )
+
+        try:
+            self._raise_if_stop_requested(run, "stage1_prompt")
+            run = self._run_stage1(run, entry, assistant_id, config.stage_retry_limit)
+            self._raise_if_stop_requested(run, "stage1_prompt")
+            run = self._run_stage2(run, entry, config.stage_retry_limit)
+            self._raise_if_stop_requested(run, "stage2_draft")
+            run = self._run_optimization_loop(run, entry, assistant_id, config.stage_retry_limit, run_variants=False)
+        except RunCanceledError as exc:
+            stage_name = str(getattr(exc, "stage_name", "") or run.current_stage or "stage1_prompt")
+            return self._set_canceled(run, stage_name, str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self._set_failed_technical(run, run.current_stage, str(exc))
+            self._record_event(
+                run_id=run.id,
+                stage_name=run.current_stage,
+                attempt=max(1, run.optimization_attempt),
+                event_type="stage_failed",
+                status="error",
+                message=str(exc),
+                payload={
+                    "request_json": getattr(exc, "request_json", {}) if isinstance(getattr(exc, "request_json", {}), dict) else {},
+                    "response_json": getattr(exc, "response_json", {}) if isinstance(getattr(exc, "response_json", {}), dict) else {},
+                },
+            )
+            self._record_stage(
+                run_id=run.id,
+                stage_name=run.current_stage,
+                attempt=max(1, run.optimization_attempt),
+                status="error",
+                request_json=getattr(exc, "request_json", {}) if isinstance(getattr(exc, "request_json", {}), dict) else {},
+                response_json=getattr(exc, "response_json", {}) if isinstance(getattr(exc, "response_json", {}), dict) else {},
                 error_detail=str(exc),
             )
             return self.repo.get_run(run.id) or run
@@ -691,7 +810,15 @@ class PipelineRunner:
         self._execute_with_stage_retry(retry_limit, _exec)
         return self.repo.get_run(run.id) or run
 
-    def _run_optimization_loop(self, run: Run, entry: Entry, assistant_id: str, retry_limit: int) -> Run:
+    def _run_optimization_loop(
+        self,
+        run: Run,
+        entry: Entry,
+        assistant_id: str,
+        retry_limit: int,
+        *,
+        run_variants: bool = True,
+    ) -> Run:
         total_attempt_budget = run.max_optimization_attempts + 1
         current_attempt = max(run.optimization_attempt, 0) + 1
         previous_score_explanation = ""
@@ -753,35 +880,150 @@ class PipelineRunner:
                 winner_score=best_score,
             ),
         )
-        self._raise_if_stop_requested(run, "stage4_variant_generate")
-        self._execute_with_stage_retry(
-            retry_limit,
-            lambda: self._run_person_variants(
-                run=run,
-                entry=entry,
-                winner_attempt=best_attempt,
-            ),
-        )
-
-        if best_score >= run.quality_threshold:
-            status = "completed_pass"
-            error_detail = ""
-        else:
-            status = "completed_fail_threshold"
-            error_detail = (
-                f"Best score {best_score} below threshold {run.quality_threshold} "
-                f"(winner attempt {best_attempt}; explanation: {str(best_rubric.get('explanation', ''))})"
+        if run_variants:
+            self._raise_if_stop_requested(run, "stage4_variant_generate")
+            self._execute_with_stage_retry(
+                retry_limit,
+                lambda: self._run_person_variants(
+                    run=run,
+                    entry=entry,
+                    winner_attempt=best_attempt,
+                ),
             )
+
+        if run_variants:
+            if best_score >= run.quality_threshold:
+                status = "completed_pass"
+                error_detail = ""
+            else:
+                status = "completed_fail_threshold"
+                error_detail = (
+                    f"Best score {best_score} below threshold {run.quality_threshold} "
+                    f"(winner attempt {best_attempt}; explanation: {str(best_rubric.get('explanation', ''))})"
+                )
+            current_stage = "completed"
+        else:
+            status = "completed_base_assets"
+            error_detail = ""
+            current_stage = "completed_base_assets"
 
         run = self.repo.update_run(
             run,
             status=status,
-            current_stage="completed",
+            current_stage=current_stage,
             quality_score=best_score,
             optimization_attempt=best_attempt,
             error_detail=error_detail,
         )
         return run
+
+    def _poll_prediction_result(self, prediction_id: str) -> tuple[dict[str, Any], list[str]]:
+        status_transitions: list[str] = []
+        prediction_result = self.google_images.get_prediction(prediction_id)
+        last_status = str(prediction_result.get("status") or "").lower() or "processing"
+        while last_status not in {"succeeded", "failed", "canceled"}:
+            sleep(1.0)
+            prediction_result = self.google_images.get_prediction(prediction_id)
+            current_status = str(prediction_result.get("status") or "").lower()
+            if current_status and current_status != last_status:
+                status_transitions.append(current_status)
+            last_status = current_status or last_status
+        return prediction_result, status_transitions
+
+    def create_profile_variant_pair(
+        self,
+        *,
+        owner_run_id: str,
+        entry: Entry,
+        winner_attempt: int,
+        profile: dict[str, str],
+        source_profile: dict[str, str] | None,
+        source_asset: Asset | str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        image_format: str | None = None,
+        nano_banana_safety_level: str | None = None,
+    ) -> dict[str, Any]:
+        self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
+        local_source = self._local_asset_path(source_asset)
+        submitted = self._submit_profile_variant_prediction(
+            local_source,
+            entry.word,
+            owner_run_id,
+            profile,
+            False,
+            source_profile=source_profile,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        created = self._json_dict(submitted.get("created"))
+        prediction_id = str(created.get("id") or "")
+        if not prediction_id:
+            self._raise_with_context(
+                "variant prediction submission returned no prediction id",
+                request_json=self._json_dict(submitted.get("request_summary")),
+                response_json=created,
+            )
+        prediction_result, status_transitions = self._poll_prediction_result(prediction_id)
+        payload = self._materialize_profile_variant_payload(
+            prediction_result,
+            profile=profile,
+            profile_description=str(submitted.get("profile_description") or profile_prompt_fragment(profile)),
+            white_background=False,
+        )
+        regular_asset = self._save_asset(
+            run_id=owner_run_id,
+            stage_name="stage4_variant_generate",
+            attempt=winner_attempt,
+            filename=self._variant_filename("stage4_variant_generate", entry, profile, winner_attempt),
+            image_bytes=payload["image_bytes"],
+            origin_url=payload["origin_url"],
+            model_name=payload["model_name"],
+            output_mime_type=image_format,
+        )
+
+        self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
+        white_bg_result = self.google_images.nano_banana_white_bg(
+            self._local_asset_path(regular_asset),
+            entry.word,
+            run_id=owner_run_id,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        if white_bg_result.get("status") != "succeeded":
+            self._raise_with_context(
+                f"white background variant failed: {white_bg_result.get('status')}",
+                request_json=self._json_dict(white_bg_result.get("request_json")),
+                response_json=self._json_dict(white_bg_result.get("response_json")) or white_bg_result,
+            )
+        white_bg_url = self.replicate.extract_output_url(white_bg_result)
+        if not white_bg_url:
+            self._raise_with_context(
+                "white background variant returned no output URL",
+                request_json=self._json_dict(white_bg_result.get("request_json")),
+                response_json=self._json_dict(white_bg_result.get("response_json")) or white_bg_result,
+            )
+        white_bg_bytes = self._download_generated_image(white_bg_url)
+        white_bg_asset = self._save_asset(
+            run_id=owner_run_id,
+            stage_name="stage5_variant_white_bg",
+            attempt=winner_attempt,
+            filename=self._variant_filename("stage5_variant_white_bg", entry, profile, winner_attempt),
+            image_bytes=white_bg_bytes,
+            origin_url=white_bg_url,
+            model_name=str(white_bg_result.get("model") or "gemini-3.1-flash-image-preview"),
+            output_mime_type=image_format,
+        )
+
+        return {
+            "regular_asset": regular_asset,
+            "white_bg_asset": white_bg_asset,
+            "prediction_id": prediction_id,
+            "status_transitions": status_transitions,
+            "request_json": self._json_dict(submitted.get("request_summary")),
+            "response_json": self._json_dict(prediction_result.get("response_json")),
+            "white_bg_response_json": self._json_dict(white_bg_result.get("response_json")),
+        }
 
     def _run_stage3_attempt(
         self,
@@ -795,7 +1037,7 @@ class PipelineRunner:
         critique_source_asset = self._latest_asset(run.id, "stage3_upgraded") or self._latest_asset(run.id, "stage2_draft")
         if critique_source_asset is None:
             raise RuntimeError("No source asset available for stage 3")
-        critique_path = Path(critique_source_asset.abs_path)
+        critique_path = self._local_asset_path(critique_source_asset)
         runtime_config = self.repo.get_runtime_config()
         critique_model = runtime_config.stage3_critique_model
         stage1_prompt = self._latest_prompt(run.id, "stage1_prompt")
@@ -1382,7 +1624,7 @@ class PipelineRunner:
             profile_description = profile_prompt_fragment(profile)
             try:
                 submitted = self._submit_profile_variant_prediction(
-                    Path(str(source_asset["abs_path"])),
+                    self._local_asset_path(str(source_asset["abs_path"])),
                     entry.word,
                     run.id,
                     profile,
@@ -2042,7 +2284,7 @@ class PipelineRunner:
         start = perf_counter()
         try:
             result = self.google_images.nano_banana_white_bg(
-                Path(upgraded_asset.abs_path),
+                self._local_asset_path(upgraded_asset),
                 entry.word,
                 run_id=run.id,
                 aspect_ratio=runtime_config.image_aspect_ratio,
@@ -2178,7 +2420,7 @@ class PipelineRunner:
         stage3_response = json.loads(stage3_result.response_json) if stage3_result and stage3_result.response_json else {}
         decision = stage3_response.get("decision", {}) if isinstance(stage3_response, dict) else {}
         rubric, raw = self.openai.score_image(
-            Path(final_asset.abs_path),
+            self._local_asset_path(final_asset),
             word=entry.word,
             part_of_sentence=entry.part_of_sentence,
             category=entry.category,
@@ -2226,7 +2468,7 @@ class PipelineRunner:
             },
         )
 
-        run_dir_file = Path(final_asset.abs_path).parent / f"metadata_attempt_{attempt}.json"
+        run_dir_file = self._local_asset_path(final_asset).parent / f"metadata_attempt_{attempt}.json"
         metadata: dict[str, Any] = {}
         if run_dir_file.exists():
             metadata = json.loads(run_dir_file.read_text(encoding="utf-8"))

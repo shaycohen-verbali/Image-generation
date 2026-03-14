@@ -32,6 +32,7 @@ SAFE_VARIANT_WORKERS = 12
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_entry_columns()
+    _ensure_run_columns()
     _ensure_runtime_config_columns()
     settings = get_settings()
     with SessionLocal() as db:
@@ -171,6 +172,16 @@ def _ensure_entry_columns() -> None:
             conn.execute(text("ALTER TABLE entries ADD COLUMN person_age_options_json TEXT NOT NULL DEFAULT '[\"kid\"]'"))
         if "person_skin_color_options_json" not in existing:
             conn.execute(text("ALTER TABLE entries ADD COLUMN person_skin_color_options_json TEXT NOT NULL DEFAULT '[\"white\"]'"))
+
+
+def _ensure_run_columns() -> None:
+    if not str(engine.url).startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(runs)")).fetchall()
+        existing = {row[1] for row in rows}
+        if "execution_mode" not in existing:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import Asset
 from app.services.person_profiles import entry_age_options, entry_gender_options, entry_skin_color_options
 from app.services.repository import Repository
-from app.services.storage import exports_root
+from app.services.storage import exports_root, materialize_path, persist_export_artifact
 from app.services.utils import sanitize_filename
 
 
@@ -39,12 +39,16 @@ class ExportService:
             self._write_zip(with_bg_zip_path, runs, stage_name="stage3_upgraded")
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
+            stored_csv = persist_export_artifact(record.id, "export.csv", csv_path.read_bytes(), content_type="text/csv")
+            stored_white = persist_export_artifact(record.id, "images_white_bg.zip", white_bg_zip_path.read_bytes(), content_type="application/zip")
+            stored_manifest = persist_export_artifact(record.id, "manifest.json", manifest_path.read_bytes(), content_type="application/json")
+
             self.repo.update_export(
                 record,
                 status="completed",
-                csv_path=csv_path.as_posix(),
-                zip_path=white_bg_zip_path.as_posix(),
-                manifest_path=manifest_path.as_posix(),
+                csv_path=stored_csv.persisted_path,
+                zip_path=stored_white.persisted_path,
+                manifest_path=stored_manifest.persisted_path,
             )
         except Exception as exc:  # noqa: BLE001
             self.repo.update_export(record, status="failed", error_detail=str(exc))
@@ -180,7 +184,7 @@ class ExportService:
                     selected_assets = [selected] if selected is not None else []
 
                 for selected in selected_assets:
-                    asset_path = Path(selected.abs_path)
+                    asset_path = materialize_path(selected.abs_path, cache_namespace="exports")
                     if asset_path.exists():
                         archive.write(asset_path, arcname=self._unique_export_name(base_slug, run.id, selected))
 

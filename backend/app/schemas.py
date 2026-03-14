@@ -10,6 +10,7 @@ ImageAspectRatio = Literal["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "2
 ImageResolution = Literal["1K", "2K", "4K"]
 ImageFormat = Literal["image/png", "image/jpeg", "image/webp"]
 NanoBananaSafetyLevel = Literal["default", "off", "block_none", "block_only_high", "block_medium_and_above", "block_low_and_above"]
+ExecutionMode = Literal["legacy", "csv_dag"]
 
 
 class EntryCreate(BaseModel):
@@ -257,6 +258,102 @@ class ExportOut(BaseModel):
     error_detail: str
     created_at: datetime
     updated_at: datetime
+
+
+class CsvJobImportResponse(BaseModel):
+    job_id: str
+    batch_id: str
+    status: str
+    imported_count: int
+    skipped_count: int
+    execution_mode: ExecutionMode
+    rows: list[EntryImportRowResult] = Field(default_factory=list)
+
+
+class CsvJobOut(BaseModel):
+    id: str
+    batch_id: str
+    execution_mode: ExecutionMode
+    source_file_name: str = ""
+    status: str
+    error_detail: str = ""
+    total_row_count: int = 0
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_seconds: float = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class CsvJobTaskOut(BaseModel):
+    id: str
+    csv_job_item_id: str
+    step_name: str
+    task_key: str
+    profile_key: str = ""
+    source_profile_key: str = ""
+    branch_role: str = ""
+    status: str
+    attempt_count: int
+    max_attempts: int
+    error_summary: str = ""
+    regular_asset_id: str | None = None
+    white_bg_asset_id: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CsvJobItemOut(BaseModel):
+    id: str
+    entry_id: str
+    row_index: int
+    word: str
+    part_of_sentence: str
+    category: str
+    status: str
+    error_detail: str = ""
+    shadow_run_id: str | None = None
+    base_regular_asset_id: str | None = None
+    base_white_bg_asset_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CsvJobOverviewOut(BaseModel):
+    job: CsvJobOut
+    step_counts: dict[str, dict[str, int]] = Field(default_factory=dict)
+    issues_by_step: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    items: list[CsvJobItemOut] = Field(default_factory=list)
+    tasks: list[CsvJobTaskOut] = Field(default_factory=list)
+    export_ready: bool = False
+    export_id: str | None = None
+
+
+class CsvJobStartResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class CsvJobRetryResponse(BaseModel):
+    job_id: str
+    requeued_task_count: int
+    status: str
+
+
+class CsvJobCancelResponse(BaseModel):
+    job_id: str
+    status: str
+    canceled_task_count: int
+
+
+class CsvJobExportResponse(BaseModel):
+    job_id: str
+    batch_id: str
+    file_name: str
+    zip_path: str
+    download_url: str
 
 
 class RuntimeConfigOut(BaseModel):

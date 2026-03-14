@@ -18,6 +18,12 @@ class Settings(BaseSettings):
         default=Path("/Users/anna.cohen/Documents/Image generation/runtime_data"),
         alias="RUNTIME_DATA_ROOT",
     )
+    storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
+    supabase_url: str = Field(default="", alias="SUPABASE_URL")
+    supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
+    supabase_image_bucket: str = Field(default="generated-images", alias="SUPABASE_IMAGE_BUCKET")
+    supabase_export_bucket: str = Field(default="exports", alias="SUPABASE_EXPORT_BUCKET")
+    supabase_csv_bucket: str = Field(default="csv-imports", alias="SUPABASE_CSV_BUCKET")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_assistant_id: str = Field(default="", alias="OPENAI_ASSISTANT_ID")

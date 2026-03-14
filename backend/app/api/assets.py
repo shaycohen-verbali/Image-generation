@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -9,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.schemas import AssetOut
 from app.services.repository import Repository
+from app.services.storage import materialize_path
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
 
@@ -44,7 +43,7 @@ def get_asset_content(asset_id: str, db: Session = Depends(db_dependency)) -> Fi
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    path = Path(asset.abs_path)
+    path = materialize_path(asset.abs_path, cache_namespace="assets")
     if not path.exists():
         raise HTTPException(status_code=404, detail="Asset file missing")
 

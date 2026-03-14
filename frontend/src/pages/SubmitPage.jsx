@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react'
-import { applyEntryProfileOptions, createEntry, createRuns, getConfig, importCsv, updateConfig } from '../lib/api'
+import {
+  applyEntryProfileOptions,
+  createEntry,
+  createRuns,
+  getConfig,
+  importCsv,
+  importCsvJob,
+  startCsvJob,
+  updateConfig,
+} from '../lib/api'
 
 export default function SubmitPage() {
   const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
@@ -35,6 +44,7 @@ export default function SubmitPage() {
   const [lastEntryId, setLastEntryId] = useState('')
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
+  const [csvExecutionMode, setCsvExecutionMode] = useState('legacy')
   const [runWorkerCount, setRunWorkerCount] = useState(1)
   const [variantWorkerCount, setVariantWorkerCount] = useState(2)
   const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
@@ -150,13 +160,24 @@ export default function SubmitPage() {
     if (!file) return
     setMessage('Uploading CSV...')
     try {
-      const result = await importCsv(file)
-      setUploadResult(result)
-      setMessage(
-        result.batch_id
-          ? `Imported ${result.imported_count} rows into job ${result.batch_id}`
-          : `Imported ${result.imported_count} rows`
-      )
+      if (csvExecutionMode === 'csv_dag') {
+        const result = await importCsvJob(file, {
+          execution_mode: 'csv_dag',
+          person_gender_options: form.person_gender_options,
+          person_age_options: form.person_age_options,
+          person_skin_color_options: form.person_skin_color_options,
+        })
+        setUploadResult({ ...result, mode: 'csv_dag' })
+        setMessage(`Imported ${result.imported_count} rows into DAG job ${result.batch_id}`)
+      } else {
+        const result = await importCsv(file)
+        setUploadResult({ ...result, mode: 'legacy' })
+        setMessage(
+          result.batch_id
+            ? `Imported ${result.imported_count} rows into job ${result.batch_id}`
+            : `Imported ${result.imported_count} rows`
+        )
+      }
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -171,13 +192,24 @@ export default function SubmitPage() {
       }
       const blob = await response.blob()
       const file = new File([blob], SAMPLE_CSV_NAME, { type: 'text/csv' })
-      const result = await importCsv(file)
-      setUploadResult(result)
-      setMessage(
-        result.batch_id
-          ? `Imported sample CSV into job ${result.batch_id}`
-          : 'Imported sample CSV'
-      )
+      if (csvExecutionMode === 'csv_dag') {
+        const result = await importCsvJob(file, {
+          execution_mode: 'csv_dag',
+          person_gender_options: form.person_gender_options,
+          person_age_options: form.person_age_options,
+          person_skin_color_options: form.person_skin_color_options,
+        })
+        setUploadResult({ ...result, mode: 'csv_dag' })
+        setMessage(`Imported sample CSV into DAG job ${result.batch_id}`)
+      } else {
+        const result = await importCsv(file)
+        setUploadResult({ ...result, mode: 'legacy' })
+        setMessage(
+          result.batch_id
+            ? `Imported sample CSV into job ${result.batch_id}`
+            : 'Imported sample CSV'
+        )
+      }
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -185,6 +217,17 @@ export default function SubmitPage() {
 
   const onQueueImported = async () => {
     if (!uploadResult) return
+    if (uploadResult.mode === 'csv_dag') {
+      setMessage('Starting CSV DAG job...')
+      try {
+        const result = await startCsvJob(uploadResult.job_id)
+        setUploadResult((current) => (current ? { ...current, status: result.status } : current))
+        setMessage(`Started CSV DAG job ${result.job_id}`)
+      } catch (error) {
+        setMessage(`Error: ${error.message}`)
+      }
+      return
+    }
     const entryIds = uploadResult.rows.filter((r) => r.entry_id).map((r) => r.entry_id)
     if (!entryIds.length) {
       setMessage('No valid rows to queue')
@@ -493,8 +536,15 @@ export default function SubmitPage() {
 
         <article className="card">
           <h2>Bulk CSV Import</h2>
-          <p>Import rows here, then queue them with the same shared Person Variants and Image Output settings shown above.</p>
+          <p>Import rows here, then either queue legacy runs or start the new dependency-based CSV DAG job using the same shared settings from above.</p>
           <div className="form-grid">
+            <label>
+              CSV execution mode
+              <select value={csvExecutionMode} onChange={(e) => setCsvExecutionMode(e.target.value)}>
+                <option value="legacy">Legacy fallback runs</option>
+                <option value="csv_dag">Parallel CSV DAG</option>
+              </select>
+            </label>
             <label>
               CSV file
               <input type="file" accept=".csv" onChange={onCsvUpload} />
@@ -504,11 +554,15 @@ export default function SubmitPage() {
             <button type="button" onClick={onUseSampleCsv}>Use Sample CSV</button>
             <a href={SAMPLE_CSV_URL} download={SAMPLE_CSV_NAME}>Download sample CSV</a>
           </div>
-          <button onClick={onQueueImported} disabled={!uploadResult}>Queue Runs For Imported Rows</button>
+          <button onClick={onQueueImported} disabled={!uploadResult}>
+            {uploadResult?.mode === 'csv_dag' ? 'Start CSV DAG Job' : 'Queue Runs For Imported Rows'}
+          </button>
           {uploadResult && (
             <div>
               <p>Imported: {uploadResult.imported_count}, Skipped: {uploadResult.skipped_count}</p>
-              {uploadResult.batch_id ? <p>Job id: {uploadResult.batch_id}</p> : null}
+              {uploadResult.batch_id ? <p>Batch id: {uploadResult.batch_id}</p> : null}
+              {uploadResult.job_id ? <p>CSV DAG job: {uploadResult.job_id}</p> : null}
+              {uploadResult.status ? <p>Status: {uploadResult.status}</p> : null}
             </div>
           )}
         </article>

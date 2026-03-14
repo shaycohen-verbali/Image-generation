@@ -1,5 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { buildAssetContentUrl, clearTerminalRuns, deleteRun, getConfig, getRun, listRuns, retryRun, stopRun, updateConfig } from '../lib/api'
+import {
+  buildApiUrl,
+  buildAssetContentUrl,
+  cancelCsvJob,
+  clearTerminalRuns,
+  deleteRun,
+  exportCsvJob,
+  getConfig,
+  getCsvJobOverview,
+  getRun,
+  listCsvJobs,
+  listRuns,
+  retryCsvJobFailures,
+  retryRun,
+  stopRun,
+  updateConfig,
+} from '../lib/api'
 import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 import DeferredAssetImage from '../components/DeferredAssetImage'
@@ -22,6 +38,11 @@ function isWaitingRunStatus(status) {
 function canStopRun(status) {
   const value = String(status || '').toLowerCase()
   return ['queued', 'retry_queued', 'running', 'cancel_requested'].includes(value)
+}
+
+function isTerminalCsvJobStatus(status) {
+  const value = String(status || '').toLowerCase()
+  return ['completed', 'failed', 'canceled'].includes(value)
 }
 
 function shouldPollRuns(runs) {
@@ -128,6 +149,9 @@ export default function RunsPage() {
   const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
   const [imageResolution, setImageResolution] = useState('1K')
   const [selectedDetailTab, setSelectedDetailTab] = useState('overview')
+  const [csvJobs, setCsvJobs] = useState([])
+  const [selectedCsvJobId, setSelectedCsvJobId] = useState('')
+  const [csvJobOverview, setCsvJobOverview] = useState(null)
   const [pageVisible, setPageVisible] = useState(() => {
     if (typeof document === 'undefined') return true
     return document.visibilityState !== 'hidden'
@@ -191,6 +215,11 @@ export default function RunsPage() {
     if (!latest) return asset
     return (asset.attempt || 0) >= (latest.attempt || 0) ? asset : latest
   }, null)
+
+  const csvJobPollKey = useMemo(
+    () => csvJobs.map((job) => `${job.id}:${job.status}:${job.updated_at || ''}`).join('|'),
+    [csvJobs]
+  )
 
   async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
     if (!runId) return
@@ -256,6 +285,35 @@ export default function RunsPage() {
     }
   }
 
+  async function refreshCsvJobs({ isPolling = false } = {}) {
+    try {
+      const data = await listCsvJobs()
+      setCsvJobs(data)
+      if (!selectedCsvJobId && data.length > 0) {
+        setSelectedCsvJobId(data[0].id)
+      } else if (selectedCsvJobId && !data.some((job) => job.id === selectedCsvJobId)) {
+        setSelectedCsvJobId(data[0]?.id || '')
+        setCsvJobOverview(null)
+      }
+    } catch (error) {
+      if (!isPolling) {
+        setMessage(`Error loading CSV jobs: ${error.message}`)
+      }
+    }
+  }
+
+  async function loadCsvJobDetail(jobId, { isPolling = false } = {}) {
+    if (!jobId) return
+    try {
+      const data = await getCsvJobOverview(jobId)
+      setCsvJobOverview(data)
+    } catch (error) {
+      if (!isPolling) {
+        setMessage(`Error loading CSV job detail: ${error.message}`)
+      }
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     const loadConfig = async () => {
@@ -306,6 +364,7 @@ export default function RunsPage() {
 
   useEffect(() => {
     refreshRuns()
+    refreshCsvJobs()
     const timer = setInterval(() => {
       if (!pageVisible) return
       if (!shouldPollRuns(runsRef.current)) return
@@ -313,6 +372,16 @@ export default function RunsPage() {
     }, RUNS_POLL_MS)
     return () => clearInterval(timer)
   }, [query, pageVisible])
+
+  useEffect(() => {
+    refreshCsvJobs()
+    const timer = setInterval(() => {
+      if (!pageVisible) return
+      if (!csvJobs.some((job) => !isTerminalCsvJobStatus(job.status))) return
+      refreshCsvJobs({ isPolling: true })
+    }, RUNS_POLL_MS)
+    return () => clearInterval(timer)
+  }, [pageVisible, csvJobPollKey])
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -338,6 +407,21 @@ export default function RunsPage() {
     }, pollMs)
     return () => clearInterval(timer)
   }, [selectedRunId, selectedDetailTab, pageVisible, detail?.run?.status])
+
+  useEffect(() => {
+    if (!selectedCsvJobId) {
+      setCsvJobOverview(null)
+      return undefined
+    }
+    loadCsvJobDetail(selectedCsvJobId)
+    const timer = setInterval(() => {
+      if (!pageVisible) return
+      if (!selectedCsvJobId) return
+      if (isTerminalCsvJobStatus(csvJobOverview?.job?.status)) return
+      loadCsvJobDetail(selectedCsvJobId, { isPolling: true })
+    }, DETAIL_POLL_WAITING_MS)
+    return () => clearInterval(timer)
+  }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status])
 
   useEffect(() => {
     if (!pageVisible) return undefined
@@ -400,6 +484,38 @@ export default function RunsPage() {
       setStoredRunId('')
       setDetail(null)
       refreshRuns()
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const onCancelCsvJob = async (jobId) => {
+    try {
+      const result = await cancelCsvJob(jobId)
+      setMessage(`CSV job ${jobId} status: ${result.status}`)
+      refreshCsvJobs()
+      loadCsvJobDetail(jobId)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const onRetryCsvJob = async (jobId) => {
+    try {
+      const result = await retryCsvJobFailures(jobId)
+      setMessage(`Requeued ${result.requeued_task_count} failed CSV tasks`)
+      refreshCsvJobs()
+      loadCsvJobDetail(jobId)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const onExportCsvJob = async (jobId) => {
+    try {
+      const result = await exportCsvJob(jobId)
+      window.open(buildApiUrl(result.download_url), '_blank', 'noopener,noreferrer')
+      setMessage(`Prepared export for CSV job ${jobId}`)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -548,10 +664,105 @@ export default function RunsPage() {
           <p>{message}</p>
         </article>
 
-        <article ref={detailRef} className="card run-detail-floor-card">
+        <article className="card runs-floor-card">
           <div className="runs-floor-head">
             <div>
               <p className="detail-eyebrow">Second Floor</p>
+              <h2>CSV Jobs</h2>
+              <p className="runs-floor-copy">Parallel CSV DAG jobs live here, separately from legacy runs.</p>
+            </div>
+            <div className="runs-floor-summary">
+              <span>{csvJobs.length} total</span>
+              <button type="button" onClick={() => refreshCsvJobs()} className="button-secondary">Refresh</button>
+            </div>
+          </div>
+
+          <div className="table-wrap runs-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Batch</th>
+                  <th>Status</th>
+                  <th>Rows</th>
+                  <th>Duration</th>
+                  <th>Started</th>
+                  <th>Retry</th>
+                  <th>Cancel</th>
+                  <th>Export</th>
+                </tr>
+              </thead>
+              <tbody>
+                {csvJobs.map((job) => (
+                  <tr
+                    key={job.id}
+                    className={job.id === selectedCsvJobId ? 'selected-row' : 'clickable-row'}
+                    onClick={() => setSelectedCsvJobId(job.id)}
+                  >
+                    <td>{job.batch_id}</td>
+                    <td>{job.status}</td>
+                    <td>{job.total_row_count}</td>
+                    <td>{job.duration_seconds ? `${Math.round(job.duration_seconds)}s` : '-'}</td>
+                    <td>{job.started_at ? new Date(job.started_at).toLocaleString() : '-'}</td>
+                    <td>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onRetryCsvJob(job.id)
+                        }}
+                        disabled={job.status !== 'failed'}
+                      >
+                        Retry
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onCancelCsvJob(job.id)
+                        }}
+                        disabled={isTerminalCsvJobStatus(job.status) || job.status === 'cancel_requested'}
+                      >
+                        {job.status === 'cancel_requested' ? 'Stopping…' : 'Cancel'}
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onExportCsvJob(job.id)
+                        }}
+                        disabled={!isTerminalCsvJobStatus(job.status)}
+                      >
+                        Export
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {csvJobOverview ? (
+            <div className="card" style={{ marginTop: 16 }}>
+              <h3>CSV Job Overview</h3>
+              <p>Job: {csvJobOverview.job.batch_id}</p>
+              <p>Status: {csvJobOverview.job.status}</p>
+              <p>Timer: {csvJobOverview.job.duration_seconds ? `${Math.round(csvJobOverview.job.duration_seconds)}s` : '-'}</p>
+              <p>Rows: {csvJobOverview.job.total_row_count}</p>
+              <h4>Per-step counts</h4>
+              <pre>{JSON.stringify(csvJobOverview.step_counts, null, 2)}</pre>
+              <h4>Issues by step</h4>
+              <pre>{JSON.stringify(csvJobOverview.issues_by_step, null, 2)}</pre>
+            </div>
+          ) : (
+            <p style={{ marginTop: 16 }}>Select a CSV job to see its overview.</p>
+          )}
+        </article>
+
+        <article ref={detailRef} className="card run-detail-floor-card">
+          <div className="runs-floor-head">
+            <div>
+              <p className="detail-eyebrow">Third Floor</p>
               <h2>Run Detail</h2>
               <p className="runs-floor-copy">The selected run gets the full page width so the story, images, and process are easier to read.</p>
             </div>

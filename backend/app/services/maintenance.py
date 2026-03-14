@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import Asset
+from app.services.storage import materialize_path
 
 
 def sqlite_file_path(database_url: str) -> Path:
@@ -36,7 +37,10 @@ def storage_integrity_report(db: Session) -> dict[str, int]:
     assets = list(db.execute(select(Asset)).scalars())
     missing = 0
     for asset in assets:
-        if not Path(asset.abs_path).exists():
+        try:
+            if not materialize_path(asset.abs_path, cache_namespace="integrity").exists():
+                missing += 1
+        except Exception:  # noqa: BLE001
             missing += 1
     return {
         "total_assets": len(assets),

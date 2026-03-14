@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.assets import router as assets_router
 from app.api.config import router as config_router
+from app.api.csv_jobs import router as csv_jobs_router
 from app.api.entries import router as entries_router
 from app.api.exports import router as exports_router
 from app.api.health import router as health_router
@@ -32,6 +33,7 @@ app.include_router(runs_router)
 app.include_router(assets_router)
 app.include_router(exports_router)
 app.include_router(config_router)
+app.include_router(csv_jobs_router)
 
 
 @app.on_event("startup")
