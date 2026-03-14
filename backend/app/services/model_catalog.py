@@ -46,6 +46,12 @@ SUPPORTED_IMAGE_RESOLUTIONS = {
     "4K",
 }
 
+SUPPORTED_IMAGE_FORMATS = {
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+}
+
 GOOGLE_IMAGE_MODEL_BY_SELECTION = {
     "nano-banana": "gemini-2.5-flash-image",
     "nano-banana-2": "gemini-3.1-flash-image-preview",
@@ -88,6 +94,13 @@ def normalize_image_resolution(value: str) -> str:
     normalized = str(value or "").strip().upper()
     if normalized not in SUPPORTED_IMAGE_RESOLUTIONS:
         return "1K"
+    return normalized
+
+
+def normalize_image_format(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in SUPPORTED_IMAGE_FORMATS:
+        return "image/png"
     return normalized
 
 
