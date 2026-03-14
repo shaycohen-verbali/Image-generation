@@ -48,6 +48,9 @@ def _sanitize_payload(value):
     if isinstance(value, dict):
         sanitized = {}
         for key, item in value.items():
+            if key == "thoughtSignature" and isinstance(item, str):
+                sanitized[key] = f"<omitted thoughtSignature; chars={len(item)}>"
+                continue
             if key in {"inlineData", "inline_data"} and isinstance(item, dict):
                 data = str(item.get("data") or "").strip()
                 sanitized[key] = {
@@ -68,6 +71,27 @@ def _sanitize_payload(value):
     if isinstance(value, str):
         return _truncate_text(value)
     return value
+
+
+def _compact_event_payload_for_log(event_type: str, status: str, payload: dict) -> dict:
+    compact = dict(payload)
+    is_failure = status in {"error", "failed", "canceled"} or event_type in {
+        "stage_failed",
+        "variant_submit_failed",
+        "variant_prediction_finished",
+        "variant_materialization_failed",
+    }
+    if not is_failure:
+        compact.pop("request_json", None)
+        compact.pop("response_json", None)
+        compact.pop("provider_response", None)
+        compact.pop("planned_profiles", None)
+        compact.pop("branch_plan", None)
+    if event_type in {"stage_started", "stage_completed"}:
+        source_asset = compact.get("source_asset")
+        if isinstance(source_asset, str) and "/" in source_asset:
+            compact["source_asset"] = source_asset.rsplit("/", 1)[-1]
+    return compact
 
 
 def _run_out(run, entry, *, cost_summary: dict | None = None) -> RunOut:
@@ -196,7 +220,11 @@ def _compact_event_line(event) -> str:
 
 
 def _detailed_event_lines(event) -> list[str]:
-    payload = _sanitize_payload(_json_dict(event.payload_json))
+    payload = _compact_event_payload_for_log(
+        event.event_type,
+        event.status,
+        _sanitize_payload(_json_dict(event.payload_json)),
+    )
     lines = [
         (
             f"{event.created_at.isoformat()} stage={event.stage_name or '-'} attempt={event.attempt} "
@@ -370,7 +398,7 @@ def get_run(run_id: str, include_debug: bool = Query(default=False), db: Session
         ],
         cost_summary=cost_summary,
         execution_log=_truncate_text(execution_log, max_len=20000),
-        detailed_execution_log=_truncate_text(detailed_execution_log, max_len=40000),
+        detailed_execution_log=_truncate_text(detailed_execution_log, max_len=20000),
     )
 
 

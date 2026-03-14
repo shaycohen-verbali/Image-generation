@@ -4,6 +4,11 @@ import { applyEntryProfileOptions, createEntry, createRuns, getConfig, importCsv
 export default function SubmitPage() {
   const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
   const IMAGE_RESOLUTION_OPTIONS = ['1K', '2K', '4K']
+  const IMAGE_FORMAT_OPTIONS = [
+    { value: 'image/png', label: 'PNG (.png)' },
+    { value: 'image/jpeg', label: 'JPEG (.jpg)' },
+    { value: 'image/webp', label: 'WEBP (.webp)' },
+  ]
   const SAMPLE_CSV_URL = `${import.meta.env.BASE_URL || '/'}test_word_list.csv`
   const SAMPLE_CSV_NAME = 'test_word_list.csv'
   const defaultGender = 'male'
@@ -31,6 +36,7 @@ export default function SubmitPage() {
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
   const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
   const [imageResolution, setImageResolution] = useState('1K')
+  const [imageFormat, setImageFormat] = useState('image/png')
 
   const toggleOption = (field, option, { locked = false } = {}) => {
     if (locked) return
@@ -85,6 +91,9 @@ export default function SubmitPage() {
         }
         if (mounted && config?.image_resolution) {
           setImageResolution(config.image_resolution)
+        }
+        if (mounted && config?.image_format) {
+          setImageFormat(config.image_format)
         }
       } catch (_error) {
         // Keep default UI value when config endpoint is unavailable.
@@ -234,6 +243,7 @@ export default function SubmitPage() {
       const updated = await updateConfig(updates)
       if (updated.image_aspect_ratio) setImageAspectRatio(updated.image_aspect_ratio)
       if (updated.image_resolution) setImageResolution(updated.image_resolution)
+      if (updated.image_format) setImageFormat(updated.image_format)
       setMessage(successMessage)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
@@ -243,7 +253,107 @@ export default function SubmitPage() {
   return (
     <section className="card-grid">
       <article className="card">
+        <h2>Shared Person Variants</h2>
+        <p>These settings apply to both workflows on this page. A Single Concept run and a Bulk CSV job will both use the same person-variant selection.</p>
+        <div className="form-grid option-group-card">
+          <div>
+            <strong>Applies To Single Concept And Bulk CSV</strong>
+            <p className="config-help-text">
+              The base run always uses `male`, `kid (5-9)`, and `White`. Any extra checked options create additional final-image variants and white-background variants only when the concept requires a person.
+            </p>
+          </div>
+          <fieldset className="checkbox-group">
+            <legend>Gender</legend>
+            <label className="checkbox-option checkbox-option-locked">
+              <input type="checkbox" checked readOnly disabled />
+              <span>Male (default base run)</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={form.person_gender_options.includes('female')}
+                onChange={() => toggleOption('person_gender_options', 'female')}
+              />
+              <span>Female</span>
+            </label>
+          </fieldset>
+          <fieldset className="checkbox-group">
+            <legend>Age</legend>
+            <label className="checkbox-option checkbox-option-locked">
+              <input type="checkbox" checked readOnly disabled />
+              <span>Kid (5-9) (default base run)</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={form.person_age_options.includes('toddler')}
+                onChange={() => toggleOption('person_age_options', 'toddler')}
+              />
+              <span>Toddler (2-4)</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={form.person_age_options.includes('tween')}
+                onChange={() => toggleOption('person_age_options', 'tween')}
+              />
+              <span>Tween (10-14)</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={form.person_age_options.includes('teenager')}
+                onChange={() => toggleOption('person_age_options', 'teenager')}
+              />
+              <span>Teenager (15-18)</span>
+            </label>
+          </fieldset>
+          <fieldset className="checkbox-group">
+            <legend>Skin color</legend>
+            <label className="checkbox-option checkbox-option-locked">
+              <input type="checkbox" checked readOnly disabled />
+              <span>White (default base run)</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={form.person_skin_color_options.includes('black')}
+                onChange={() => toggleOption('person_skin_color_options', 'black')}
+              />
+              <span>Black</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={form.person_skin_color_options.includes('asian')}
+                onChange={() => toggleOption('person_skin_color_options', 'asian')}
+              />
+              <span>Asian</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={form.person_skin_color_options.includes('brown')}
+                onChange={() => toggleOption('person_skin_color_options', 'brown')}
+              />
+              <span>Brown (Indian origin)</span>
+            </label>
+          </fieldset>
+          <p className="config-help-text">
+            Selected combinations: {selectedCombinationCount} total person profile{selectedCombinationCount === 1 ? '' : 's'}.
+            {selectedCombinationCount > generatedProfileCap
+              ? ` The generator will use a capped review set of ${generatedProfileCount} profiles to avoid creating too many images.`
+              : ''}
+            {extraVariantCount > 0
+              ? ` This means ${extraVariantCount} additional final-image variant${extraVariantCount === 1 ? '' : 's'} plus ${extraVariantCount} additional white-background variant${extraVariantCount === 1 ? '' : 's'}.`
+              : ' No extra person variants will be created beyond the base run.'}
+          </p>
+        </div>
+      </article>
+
+      <article className="card">
         <h2>Single Concept</h2>
+        <p>Enter one concept here. This run will use the shared Person Variants and Image Output settings from above.</p>
         <form className="form-grid" onSubmit={onSubmit}>
           <label>
             Word
@@ -261,100 +371,6 @@ export default function SubmitPage() {
             Context
             <input value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} />
           </label>
-          <div className="form-grid option-group-card">
-            <div>
-              <strong>Person Variants</strong>
-              <p className="config-help-text">
-                The base run always uses `male`, `kid (5-9)`, and `White`. Any extra checked options create additional final-image variants and white-background variants only when the concept requires a person.
-              </p>
-            </div>
-            <fieldset className="checkbox-group">
-              <legend>Gender</legend>
-              <label className="checkbox-option checkbox-option-locked">
-                <input type="checkbox" checked readOnly disabled />
-                <span>Male (default base run)</span>
-              </label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={form.person_gender_options.includes('female')}
-                  onChange={() => toggleOption('person_gender_options', 'female')}
-                />
-                <span>Female</span>
-              </label>
-            </fieldset>
-            <fieldset className="checkbox-group">
-              <legend>Age</legend>
-              <label className="checkbox-option checkbox-option-locked">
-                <input type="checkbox" checked readOnly disabled />
-                <span>Kid (5-9) (default base run)</span>
-              </label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={form.person_age_options.includes('toddler')}
-                  onChange={() => toggleOption('person_age_options', 'toddler')}
-                />
-                <span>Toddler (2-4)</span>
-              </label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={form.person_age_options.includes('tween')}
-                  onChange={() => toggleOption('person_age_options', 'tween')}
-                />
-                <span>Tween (10-14)</span>
-              </label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={form.person_age_options.includes('teenager')}
-                  onChange={() => toggleOption('person_age_options', 'teenager')}
-                />
-                <span>Teenager (15-18)</span>
-              </label>
-            </fieldset>
-            <fieldset className="checkbox-group">
-              <legend>Skin color</legend>
-              <label className="checkbox-option checkbox-option-locked">
-                <input type="checkbox" checked readOnly disabled />
-                <span>White (default base run)</span>
-              </label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={form.person_skin_color_options.includes('black')}
-                  onChange={() => toggleOption('person_skin_color_options', 'black')}
-                />
-                <span>Black</span>
-              </label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={form.person_skin_color_options.includes('asian')}
-                  onChange={() => toggleOption('person_skin_color_options', 'asian')}
-                />
-                <span>Asian</span>
-              </label>
-              <label className="checkbox-option">
-                <input
-                  type="checkbox"
-                  checked={form.person_skin_color_options.includes('brown')}
-                  onChange={() => toggleOption('person_skin_color_options', 'brown')}
-                />
-                <span>Brown (Indian origin)</span>
-              </label>
-            </fieldset>
-            <p className="config-help-text">
-              Selected combinations: {selectedCombinationCount} total person profile{selectedCombinationCount === 1 ? '' : 's'}.
-              {selectedCombinationCount > generatedProfileCap
-                ? ` The generator will use a capped review set of ${generatedProfileCount} profiles to avoid creating too many images.`
-                : ''}
-              {extraVariantCount > 0
-                ? ` This means ${extraVariantCount} additional final-image variant${extraVariantCount === 1 ? '' : 's'} plus ${extraVariantCount} additional white-background variant${extraVariantCount === 1 ? '' : 's'}.`
-                : ' No extra person variants will be created beyond the base run.'}
-            </p>
-          </div>
           <label>
             Batch
             <input value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} />
@@ -366,6 +382,7 @@ export default function SubmitPage() {
 
       <article className="card">
         <h2>Bulk CSV Import</h2>
+        <p>Import rows here, then queue them with the same shared Person Variants and Image Output settings shown above.</p>
         <input type="file" accept=".csv" onChange={onCsvUpload} />
         <div className="inline-fields">
           <button type="button" onClick={onUseSampleCsv}>Use Sample CSV</button>
@@ -526,7 +543,7 @@ export default function SubmitPage() {
 
       <article className="card">
         <h2>Image Output</h2>
-        <p>Set the output size before you run a word or queue a CSV job. These saved values apply to new image generation runs.</p>
+        <p>These saved output settings are shared too. Single Concept runs and Bulk CSV jobs will both use the same aspect ratio, resolution, and output format.</p>
         <div className="form-grid">
           <label>
             Output aspect ratio
@@ -566,8 +583,27 @@ export default function SubmitPage() {
               ))}
             </select>
           </label>
+          <label>
+            Output image format
+            <select
+              value={imageFormat}
+              onChange={(e) => {
+                const value = e.target.value
+                setImageFormat(value)
+                setMessage('Saving output image format...')
+                saveImageOutputConfig(
+                  { image_format: value },
+                  `Saved output image format: ${value}`
+                )
+              }}
+            >
+              {IMAGE_FORMAT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <p className="config-help-text">
-            Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. These options follow the documented API settings used by the image-generation pipeline.
+            Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. Format defaults to `PNG`. The output format choices are limited to the image MIME types we support end-to-end in the pipeline: `PNG`, `JPEG`, and `WEBP`.
           </p>
         </div>
       </article>

@@ -266,7 +266,9 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
         model = _first_text(response_json.get("model"), "gemini-3.1-flash-image-preview")
         provider = "google" if model.startswith("gemini-") else "replicate"
         variants = response_json.get("variants")
-        variant_count = len(variants) if isinstance(variants, list) else 0
+        variant_count = int(response_json.get("variant_count") or 0)
+        if variant_count <= 0:
+            variant_count = len(variants) if isinstance(variants, list) else 0
         if variant_count <= 0:
             return []
         estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0) * variant_count
@@ -326,7 +328,9 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         total += sum(float(entry["estimated_cost_usd"]) for entry in entries)
         if stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}:
             variants = response_json.get("variants")
-            variant_count = len(variants) if isinstance(variants, list) else 0
+            variant_count = int(response_json.get("variant_count") or 0)
+            if variant_count <= 0:
+                variant_count = len(variants) if isinstance(variants, list) else 0
             counted_variant_units[(stage_name, attempt)] += variant_count
 
     asset_list = list(assets or [])

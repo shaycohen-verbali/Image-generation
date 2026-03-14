@@ -95,7 +95,7 @@ class Repository:
         config.quality_gate_model = normalize_vision_model(config.quality_gate_model)
         config.image_aspect_ratio = normalize_image_aspect_ratio(getattr(config, "image_aspect_ratio", "1:1"))
         config.image_resolution = normalize_image_resolution(getattr(config, "image_resolution", "1K"))
-        config.image_format = normalize_image_format(getattr(config, "image_format", "image/jpeg"))
+        config.image_format = normalize_image_format(getattr(config, "image_format", "image/png"))
         config.openai_model_vision = config.stage3_critique_model
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
         config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))
@@ -438,16 +438,33 @@ class Repository:
         if current_status in {"completed_pass", "completed_fail_threshold", "failed_technical", "canceled"}:
             return run
         if current_status in {"queued", "retry_queued"}:
-            run.status = "canceled"
-            run.current_stage = "canceled"
-            run.retry_from_stage = ""
-            run.error_detail = "Stopped by user"
-        else:
+            updated = self.db.execute(
+                update(Run)
+                .where(Run.id == run.id)
+                .where(Run.status.in_(["queued", "retry_queued"]))
+                .values(
+                    status="canceled",
+                    current_stage="canceled",
+                    retry_from_stage="",
+                    error_detail="Stopped by user",
+                )
+            )
+            if updated.rowcount:
+                self.db.commit()
+                refreshed = self.get_run(run.id)
+                return self._release_instance(refreshed) if refreshed is not None else run
+            self.db.rollback()
+            run = self.get_run(run.id) or run
+            current_status = str(run.status or "").strip().lower()
+            if current_status in {"completed_pass", "completed_fail_threshold", "failed_technical", "canceled"}:
+                return self._release_instance(run)
+
+        if current_status != "cancel_requested":
             run.status = "cancel_requested"
             run.error_detail = "Stop requested by user"
-        self.db.add(run)
-        self.db.commit()
-        self.db.refresh(run)
+            self.db.add(run)
+            self.db.commit()
+            self.db.refresh(run)
         return self._release_instance(run)
 
     def update_run(self, run: Run, **updates: Any) -> Run:

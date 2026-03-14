@@ -130,6 +130,49 @@ class PipelineRunner:
     def _json_dict(value: Any) -> dict[str, Any]:
         return value if isinstance(value, dict) else {}
 
+    @staticmethod
+    def _truncate_text(value: str, *, max_len: int = 240) -> str:
+        text = str(value or "")
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}... [truncated {len(text) - max_len} chars]"
+
+    def _compact_google_generation_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        response_json = self._json_dict(result.get("response_json"))
+        candidates = response_json.get("candidates")
+        finish_reasons: list[str] = []
+        if isinstance(candidates, list):
+            for candidate in candidates:
+                if isinstance(candidate, dict) and candidate.get("finishReason"):
+                    finish_reasons.append(str(candidate.get("finishReason")))
+
+        compact_response: dict[str, Any] = {}
+        if response_json.get("responseId"):
+            compact_response["responseId"] = response_json.get("responseId")
+        if response_json.get("modelVersion"):
+            compact_response["modelVersion"] = response_json.get("modelVersion")
+        if finish_reasons:
+            compact_response["finishReasons"] = finish_reasons
+        usage = response_json.get("usageMetadata")
+        if isinstance(usage, dict) and usage:
+            compact_response["usageMetadata"] = usage
+
+        outputs = result.get("output")
+        output_count = len(outputs) if isinstance(outputs, list) else 0
+
+        compact: dict[str, Any] = {
+            "status": str(result.get("status") or ""),
+            "id": str(result.get("id") or ""),
+            "provider": str(result.get("provider") or "google"),
+            "model": str(result.get("model") or ""),
+            "mime_type": str(result.get("mime_type") or ""),
+            "output_count": output_count,
+            "text_output": self._truncate_text(str(result.get("text_output") or "")),
+        }
+        if compact_response:
+            compact["response_json"] = compact_response
+        return compact
+
     def _download_generated_image(self, url: str) -> bytes:
         if str(url or "").startswith("google-inline://"):
             return self.google_images.download_image(url)
@@ -173,7 +216,7 @@ class PipelineRunner:
         origin_url: str,
         model_name: str,
     ) -> Asset:
-        output_mime_type = getattr(self.repo.get_runtime_config(), "image_format", "image/jpeg")
+        output_mime_type = getattr(self.repo.get_runtime_config(), "image_format", "image/png")
         normalized_bytes, mime_type, suffix = normalize_saved_image(image_bytes, output_mime_type)
         path = write_image(run_id, Path(sanitize_filename(filename)).with_suffix(suffix).name, normalized_bytes)
         width, height = image_dimensions(path)
@@ -291,8 +334,6 @@ class PipelineRunner:
             "asset": {
                 "id": asset.id,
                 "file_name": asset.file_name,
-                "abs_path": asset.abs_path,
-                "origin_url": asset.origin_url,
             },
         }
         if source_profile:
@@ -337,6 +378,7 @@ class PipelineRunner:
                 "model": "gemini-3.1-flash-image-preview",
                 "model_selected": "nano-banana-2",
                 "source_asset": source_asset,
+                "variant_count": len(variants),
                 "progress": {
                     "completed_count": len(variants),
                     "failed_count": len(failures),
@@ -1536,13 +1578,14 @@ class PipelineRunner:
                     "branch_role": branch_role,
                     "source_profile": source_profile or {},
                     "error": error_text,
-                    "request_json": self._json_dict(result.get("request_json")),
-                    "response_json": self._json_dict(result.get("response_json")),
                 }
                 if prediction_id:
                     payload["prediction_id"] = prediction_id
                 if result.get("prediction_result"):
                     payload["provider_response"] = result["prediction_result"]
+                else:
+                    payload["request_json"] = self._json_dict(result.get("request_json"))
+                    payload["response_json"] = self._json_dict(result.get("response_json"))
                 log_variant_event(
                     stage_name=stage_name,
                     event_type=event_type,
@@ -1686,9 +1729,12 @@ class PipelineRunner:
             status="running",
             message="Stage 5 variant final generation started",
             payload={
-                "source_asset": upgraded_asset.abs_path,
-                "planned_profiles": planned_profiles,
-                "branch_plan": branch_plan,
+                "source_asset": upgraded_asset.file_name,
+                "planned_variant_count": len(planned_profiles),
+                "male_age_variant_count": len(branch_plan.get("male_age_variants", [])),
+                "female_seed_count": 1 if branch_plan.get("female_seed") else 0,
+                "female_age_variant_count": len(branch_plan.get("female_age_variants", [])),
+                "appearance_variant_count": len(branch_plan.get("appearance_variants", [])),
                 "image_aspect_ratio": aspect_ratio,
                 "image_resolution": image_size,
                 "sequence": [
@@ -1822,8 +1868,7 @@ class PipelineRunner:
             message="Stage 6 variant white-background generation started",
             payload={
                 "source_asset": "derived_from_matching_stage4_variant_asset",
-                "planned_profiles": planned_profiles,
-                "branch_plan": branch_plan,
+                "planned_variant_count": len(generated_final_profiles),
                 "image_aspect_ratio": aspect_ratio,
                 "image_resolution": image_size,
                 "sequence": ["white_background_for_all_stage5_to_stage8_outputs"],
@@ -2069,8 +2114,9 @@ class PipelineRunner:
                 "image_aspect_ratio": runtime_config.image_aspect_ratio,
                 "image_resolution": runtime_config.image_resolution,
             },
-            response_json={**result, "provider": "google"},
+            response_json=self._compact_google_generation_result(result),
         )
+        saved_stage4_asset = self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt)
         self._record_event(
             run_id=run.id,
             stage_name="stage4_background",
@@ -2080,11 +2126,11 @@ class PipelineRunner:
             message="Stage 4 white background generation completed",
             payload={
                 "source_image_path": upgraded_asset.abs_path,
-                "saved_image_path": self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt).abs_path if self._asset_for_attempt(run.id, "stage4_white_bg", winner_attempt) else "",
+                "saved_image_path": saved_stage4_asset.abs_path if saved_stage4_asset else "",
                 "winner_attempt": winner_attempt,
                 "winner_score": winner_score,
                 "provider_model": "gemini-3.1-flash-image-preview",
-                "response_json": result,
+                "generation_summary": self._compact_google_generation_result(result),
             },
         )
 
