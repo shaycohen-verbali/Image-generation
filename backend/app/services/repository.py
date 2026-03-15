@@ -1078,6 +1078,8 @@ class Repository:
             return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow())
         statuses = [task.status for task in tasks]
         if any(status == "running" for status in statuses):
+            if job.status == "cancel_requested":
+                return self.update_csv_job(job, status="cancel_requested", error_detail=job.error_detail or "Canceled by user")
             return self.update_csv_job(job, status="running")
         if any(status == "queued" for status in statuses):
             queued_tasks = [task for task in tasks if task.status == "queued"]

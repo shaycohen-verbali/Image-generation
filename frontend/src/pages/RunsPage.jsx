@@ -837,7 +837,13 @@ export default function RunsPage() {
               >
                 Refresh
               </button>
-              <button type="button" onClick={onClearTerminalHistory} className="button-secondary">Clear Terminal History</button>
+              <button
+                type="button"
+                onClick={showingCsvWords ? onClearCsvHistory : onClearTerminalHistory}
+                className="button-secondary"
+              >
+                {showingCsvWords ? 'Clear CSV History' : 'Clear Terminal History'}
+              </button>
             </div>
           </div>
 
