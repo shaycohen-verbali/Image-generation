@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000, alias="APP_PORT")
     app_log_level: str = Field(default="INFO", alias="APP_LOG_LEVEL")
 
-    database_url: str = Field(default="sqlite:///./runtime_data/aac_image_generator.db", alias="DATABASE_URL")
+    database_url: str = Field(
+        default="sqlite:///./runtime_data/aac_image_generator.db",
+        validation_alias=AliasChoices("SUPABASE_DATABASE_URL", "DATABASE_URL"),
+    )
     runtime_data_root: Path = Field(
         default=Path("/Users/anna.cohen/Documents/Image generation/runtime_data"),
         alias="RUNTIME_DATA_ROOT",
