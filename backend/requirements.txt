@@ -8,3 +8,4 @@ python-multipart==0.0.19
 pillow==11.0.0
 pytest==8.3.4
 httpx==0.28.1
+psycopg2-binary==2.9.10
