@@ -437,7 +437,7 @@ class Repository:
         stmt = select(Run)
         if batch_id:
             stmt = stmt.join(Entry, Entry.id == Run.entry_id).where(Entry.batch == str(batch_id).strip())
-        terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical", "canceled"}
+        terminal_statuses = {"completed_pass", "completed_fail_threshold", "failed_technical", "canceled", "cancel_requested"}
         stmt = stmt.where(Run.status.in_(terminal_statuses))
         runs = list(self.db.execute(stmt).scalars())
         deleted_ids: list[str] = []
@@ -1157,6 +1157,9 @@ class Repository:
         self.db.commit()
         self.db.refresh(record)
         return record
+
+    def list_exports(self) -> list[Export]:
+        return list(self.db.execute(select(Export).order_by(desc(Export.updated_at), desc(Export.created_at))).scalars())
 
     def update_export(self, export: Export, **updates: Any) -> Export:
         for key, value in updates.items():

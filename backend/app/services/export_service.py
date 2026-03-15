@@ -33,15 +33,25 @@ class ExportService:
             white_bg_zip_path = export_dir / "images_white_bg.zip"
             with_bg_zip_path = export_dir / "images_with_bg_last_attempt.zip"
             manifest_path = export_dir / "manifest.json"
+            package_zip_path = export_dir / "export_package.zip"
 
             self._write_csv(csv_path, runs)
             self._write_zip(white_bg_zip_path, runs, stage_name="stage4_white_bg")
             self._write_zip(with_bg_zip_path, runs, stage_name="stage3_upgraded")
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._write_package_zip(
+                package_zip_path,
+                csv_path=csv_path,
+                white_bg_zip_path=white_bg_zip_path,
+                with_bg_zip_path=with_bg_zip_path,
+                manifest_path=manifest_path,
+            )
 
             stored_csv = persist_export_artifact(record.id, "export.csv", csv_path.read_bytes(), content_type="text/csv")
             stored_white = persist_export_artifact(record.id, "images_white_bg.zip", white_bg_zip_path.read_bytes(), content_type="application/zip")
+            persist_export_artifact(record.id, "images_with_bg_last_attempt.zip", with_bg_zip_path.read_bytes(), content_type="application/zip")
             stored_manifest = persist_export_artifact(record.id, "manifest.json", manifest_path.read_bytes(), content_type="application/json")
+            persist_export_artifact(record.id, "export_package.zip", package_zip_path.read_bytes(), content_type="application/zip")
 
             self.repo.update_export(
                 record,
@@ -54,6 +64,21 @@ class ExportService:
             self.repo.update_export(record, status="failed", error_detail=str(exc))
 
         return self.repo.get_export(record.id)
+
+    @staticmethod
+    def _write_package_zip(
+        path: Path,
+        *,
+        csv_path: Path,
+        white_bg_zip_path: Path,
+        with_bg_zip_path: Path,
+        manifest_path: Path,
+    ) -> None:
+        with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(csv_path, arcname="export.csv")
+            archive.write(white_bg_zip_path, arcname="images_white_bg.zip")
+            archive.write(with_bg_zip_path, arcname="images_with_bg_last_attempt.zip")
+            archive.write(manifest_path, arcname="manifest.json")
 
     def _write_csv(self, path: Path, runs_data: list[tuple]) -> None:
         headers = [

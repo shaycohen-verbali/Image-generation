@@ -11,7 +11,7 @@ from app.api.deps import db_dependency
 from app.schemas import ExportCreateRequest, ExportOut
 from app.services.export_service import ExportService
 from app.services.repository import Repository
-from app.services.storage import exports_root, is_remote_path, materialize_path
+from app.services.storage import export_artifact_uri, exports_root, is_remote_path, materialize_path
 
 router = APIRouter(prefix="/api/v1/exports", tags=["exports"])
 
@@ -31,8 +31,12 @@ def _resolve_export_file(record, *, preferred_path: str, fallback_name: str) -> 
         return local.as_posix() if local.exists() else ""
     candidate = Path(preferred_path).resolve() if preferred_path else (export_dir / fallback_name).resolve()
     if not candidate.is_relative_to(export_dir):
-        return ""
+        candidate = export_dir / fallback_name
     if not candidate.exists():
+        remote_fallback = export_artifact_uri(record.id, fallback_name)
+        if is_remote_path(remote_fallback):
+            local = materialize_path(remote_fallback, cache_namespace="exports")
+            return local.as_posix() if local.exists() else ""
         return ""
     return candidate.as_posix()
 
@@ -45,6 +49,11 @@ def _to_export_out(record) -> ExportOut:
         preferred_path="",
         fallback_name="images_with_bg_last_attempt.zip",
     )
+    package_zip_path = _resolve_export_file(
+        record,
+        preferred_path="",
+        fallback_name="export_package.zip",
+    )
     manifest_path = _resolve_export_file(record, preferred_path=record.manifest_path, fallback_name="manifest.json")
 
     return ExportOut(
@@ -54,15 +63,23 @@ def _to_export_out(record) -> ExportOut:
         csv_path=csv_path,
         zip_path=white_bg_zip_path,
         with_bg_zip_path=with_bg_zip_path,
+        package_zip_path=package_zip_path,
         manifest_path=manifest_path,
         csv_download_url=f"/api/v1/exports/{record.id}/download/csv",
         white_bg_zip_download_url=f"/api/v1/exports/{record.id}/download/white-bg-zip",
         with_bg_zip_download_url=f"/api/v1/exports/{record.id}/download/with-bg-zip",
+        package_zip_download_url=f"/api/v1/exports/{record.id}/download/package-zip",
         manifest_download_url=f"/api/v1/exports/{record.id}/download/manifest",
         error_detail=record.error_detail,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
+
+
+@router.get("", response_model=list[ExportOut])
+def list_exports(db: Session = Depends(db_dependency)) -> list[ExportOut]:
+    repo = Repository(db)
+    return [_to_export_out(record) for record in repo.list_exports()]
 
 
 @router.post("", response_model=ExportOut)
@@ -94,6 +111,7 @@ def download_export_artifact(artifact: str, export_id: str, db: Session = Depend
         "csv": ("export.csv", record.csv_path),
         "white-bg-zip": ("images_white_bg.zip", record.zip_path),
         "with-bg-zip": ("images_with_bg_last_attempt.zip", ""),
+        "package-zip": ("export_package.zip", ""),
         "manifest": ("manifest.json", record.manifest_path),
     }
     if artifact not in artifact_map:

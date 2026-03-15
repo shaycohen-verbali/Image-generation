@@ -164,6 +164,21 @@ body {
   font-size: 0.84rem;
 }
 
+.csv-status-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(15, 127, 125, 0.08);
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.csv-status-chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 .csv-section-block {
   display: grid;
   gap: 10px;

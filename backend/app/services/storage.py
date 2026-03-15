@@ -167,6 +167,14 @@ def persist_export_artifact(export_id: str, filename: str, payload: bytes, *, co
     )
 
 
+def export_artifact_uri(export_id: str, filename: str) -> str:
+    normalized_id = sanitize_filename(export_id)
+    normalized_name = sanitize_filename(filename)
+    if storage_backend() == "supabase":
+        return f"{SUPABASE_URI_PREFIX}{settings.supabase_export_bucket}/exports/{normalized_id}/{normalized_name}"
+    return (exports_root() / normalized_id / normalized_name).as_posix()
+
+
 def persist_csv_source(job_id: str, filename: str, payload: bytes) -> StoredObject:
     local_dir = exports_root() / sanitize_filename(job_id)
     local_dir.mkdir(parents=True, exist_ok=True)
