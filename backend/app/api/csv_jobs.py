@@ -11,6 +11,7 @@ from app.schemas import (
     CsvJobCancelResponse,
     CsvJobExportResponse,
     CsvJobImportResponse,
+    CsvJobInventorySyncResponse,
     CsvJobOut,
     CsvJobOverviewOut,
     CsvJobRetryResponse,
@@ -128,6 +129,16 @@ def export_csv_job(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobE
         **result,
         download_url=f"/api/v1/csv-jobs/{job_id}/export/download",
     )
+
+
+@router.post("/{job_id}/sync-inventory", response_model=CsvJobInventorySyncResponse)
+def sync_csv_job_inventory(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobInventorySyncResponse:
+    service = CsvDagService(db)
+    try:
+        result = service.sync_inventory(job_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return CsvJobInventorySyncResponse(**result)
 
 
 @router.get("/{job_id}/export/download")

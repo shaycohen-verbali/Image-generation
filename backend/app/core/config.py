@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         default="sqlite:///./runtime_data/aac_image_generator.db",
         alias="SUPABASE_DATABASE_URL",
     )
+    inventory_database_url: str = Field(default="", alias="INVENTORY_DATABASE_URL")
     runtime_data_root: Path = Field(
         default=Path("/Users/anna.cohen/Documents/Image generation/runtime_data"),
         alias="RUNTIME_DATA_ROOT",

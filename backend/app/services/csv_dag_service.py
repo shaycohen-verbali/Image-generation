@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry, Run
 from app.schemas import ExecutionMode
 from app.services.csv_service import parse_entries_csv, validate_entry_row
+from app.services.inventory_sync import InventorySyncService
 from app.services.person_profiles import DEFAULT_AGE, DEFAULT_GENDER, DEFAULT_SKIN_COLOR, profile_key
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
@@ -272,6 +273,18 @@ class CsvDagService:
             raise RuntimeError(f"CSV job not found: {job_id}")
         return job, canceled
 
+    def sync_inventory(self, job_id: str) -> dict[str, Any]:
+        job = self.repo.get_csv_job(job_id)
+        if job is None:
+            raise RuntimeError(f"CSV job not found: {job_id}")
+        service = InventorySyncService(self.db)
+        synced = service.sync_csv_job(job_id)
+        return {
+            "job_id": job.id,
+            "synced_row_count": synced,
+            "inventory_enabled": service.enabled(),
+        }
+
     def _ensure_shadow_run(self, item: CsvJobItem, job: CsvJob) -> Run:
         if item.shadow_run_id:
             existing = self.repo.get_run(item.shadow_run_id)
@@ -443,7 +456,9 @@ class CsvDagService:
             runner.google_images.close()
 
         self._update_item_status(item)
-        self.repo.finalize_csv_job_status(job.id)
+        finalized_job = self.repo.finalize_csv_job_status(job.id)
+        if finalized_job is not None and finalized_job.status in {"completed", "failed", "canceled"}:
+            InventorySyncService(self.db).sync_csv_job(job.id)
         return self.repo.get_csv_task(task.id) or finished_task
 
     def _serialize_job(self, job: CsvJob, overview: dict[str, Any]) -> dict[str, Any]:
@@ -532,6 +547,7 @@ class CsvDagService:
         }
 
     def export_job(self, job_id: str) -> dict[str, Any]:
+        InventorySyncService(self.db).sync_csv_job(job_id)
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             raise RuntimeError(f"CSV job not found: {job_id}")

@@ -1,6 +1,7 @@
 from sqlalchemy import select, text
 
 from app.core.config import get_settings
+from app.db.inventory_session import init_inventory_db
 from app.db.session import SessionLocal, engine
 from app.models import Base, RuntimeConfig
 from app.services.model_catalog import (
@@ -31,6 +32,7 @@ SAFE_VARIANT_WORKERS = 12
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    init_inventory_db()
     _ensure_entry_columns()
     _ensure_run_columns()
     _ensure_runtime_config_columns()

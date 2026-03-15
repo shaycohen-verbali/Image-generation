@@ -348,6 +348,12 @@ class CsvJobCancelResponse(BaseModel):
     canceled_task_count: int
 
 
+class CsvJobInventorySyncResponse(BaseModel):
+    job_id: str
+    synced_row_count: int
+    inventory_enabled: bool
+
+
 class CsvJobExportResponse(BaseModel):
     job_id: str
     batch_id: str
