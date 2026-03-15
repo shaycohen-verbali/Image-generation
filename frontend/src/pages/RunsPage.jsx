@@ -109,6 +109,15 @@ function formatLocalDateTime(value) {
   }).format(date)
 }
 
+function elapsedSeconds(startedAt, finishedAt, nowMs) {
+  if (!startedAt) return 0
+  const start = new Date(startedAt).getTime()
+  if (Number.isNaN(start)) return 0
+  const end = finishedAt ? new Date(finishedAt).getTime() : nowMs
+  if (Number.isNaN(end)) return 0
+  return Math.max(0, Math.round((end - start) / 1000))
+}
+
 function csvTaskProgressSummary(tasks, itemId) {
   const relevant = (Array.isArray(tasks) ? tasks : [])
     .filter((task) => task.csv_job_item_id === itemId)
@@ -334,6 +343,7 @@ export default function RunsPage() {
   const [csvJobOverview, setCsvJobOverview] = useState(null)
   const [selectedCsvItemId, setSelectedCsvItemId] = useState('')
   const [selectedCsvStatusFilter, setSelectedCsvStatusFilter] = useState('')
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const [pageVisible, setPageVisible] = useState(() => {
     if (typeof document === 'undefined') return true
     return document.visibilityState !== 'hidden'
@@ -365,6 +375,12 @@ export default function RunsPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
+  useEffect(() => {
+    if (!pageVisible) return undefined
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [pageVisible])
+
   const query = useMemo(() => {
     const next = {}
     if (filters.status) next.status = filters.status
@@ -382,6 +398,7 @@ export default function RunsPage() {
       return true
     })
   }, [runs, filters.word, filters.part_of_sentence, filters.category])
+  const showingCsvWords = Boolean(selectedCsvJobId && csvJobOverview)
 
   const sortedAssets = detail?.assets
     ? [...detail.assets].sort((left, right) => {
@@ -417,10 +434,7 @@ export default function RunsPage() {
     () => csvJobTasks.filter((task) => task.csv_job_item_id === selectedCsvItem?.id),
     [csvJobTasks, selectedCsvItem?.id]
   )
-  const selectedCsvItemProgress = useMemo(
-    () => (selectedCsvItem ? csvTaskProgressSummary(csvJobTasks, selectedCsvItem.id) : null),
-    [csvJobTasks, selectedCsvItem]
-  )
+  const selectedCsvItemProgress = selectedCsvItem || null
   const selectedCsvItemImages = useMemo(
     () => csvItemImages(selectedCsvItem, selectedCsvItemTasks),
     [selectedCsvItem, selectedCsvItemTasks]
@@ -591,6 +605,11 @@ export default function RunsPage() {
     }, RUNS_POLL_MS)
     return () => clearInterval(timer)
   }, [pageVisible, csvJobPollKey])
+
+  useEffect(() => {
+    if (!selectedCsvJobId || !pageVisible) return
+    loadCsvJobDetail(selectedCsvJobId, { isPolling: true })
+  }, [selectedCsvJobId, csvJobPollKey, pageVisible])
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -794,230 +813,176 @@ export default function RunsPage() {
           <div className="runs-floor-head">
             <div>
               <p className="detail-eyebrow">First Floor</p>
-              <h2>Runs</h2>
-              <p className="runs-floor-copy">Choose a run here, then inspect it in full width below.</p>
+              <h2>{showingCsvWords ? 'CSV Job Words' : 'Runs'}</h2>
+              <p className="runs-floor-copy">
+                {showingCsvWords
+                  ? 'The selected CSV job controls this table. Click a word here to inspect its details below.'
+                  : 'Choose a legacy run here, then inspect it in full width below.'}
+              </p>
             </div>
             <div className="runs-floor-summary">
-              <span>{filteredRuns.length} shown</span>
-              <span>{runs.length} total</span>
-              <button type="button" onClick={() => refreshRuns()} className="button-secondary">Refresh</button>
+              <span>{showingCsvWords ? filteredCsvJobItems.length : filteredRuns.length} shown</span>
+              <span>{showingCsvWords ? csvJobItems.length : runs.length} total</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (showingCsvWords && selectedCsvJobId) {
+                    refreshCsvJobs()
+                    loadCsvJobDetail(selectedCsvJobId)
+                  } else {
+                    refreshRuns()
+                  }
+                }}
+                className="button-secondary"
+              >
+                Refresh
+              </button>
               <button type="button" onClick={onClearTerminalHistory} className="button-secondary">Clear Terminal History</button>
             </div>
           </div>
 
-          <div className="inline-fields">
-            <label>
-              Status
-              <input value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} />
-            </label>
-            <label>
-              Word
-              <input value={filters.word} onChange={(e) => setFilters({ ...filters, word: e.target.value })} />
-            </label>
-            <label>
-              POS
-              <input
-                value={filters.part_of_sentence}
-                onChange={(e) => setFilters({ ...filters, part_of_sentence: e.target.value })}
-              />
-            </label>
-            <label>
-              Category
-              <input value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} />
-            </label>
-          </div>
+          {!showingCsvWords ? (
+            <div className="inline-fields">
+              <label>
+                Status
+                <input value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} />
+              </label>
+              <label>
+                Word
+                <input value={filters.word} onChange={(e) => setFilters({ ...filters, word: e.target.value })} />
+              </label>
+              <label>
+                POS
+                <input
+                  value={filters.part_of_sentence}
+                  onChange={(e) => setFilters({ ...filters, part_of_sentence: e.target.value })}
+                />
+              </label>
+              <label>
+                Category
+                <input value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })} />
+              </label>
+            </div>
+          ) : (
+            <p className="config-help-text">
+              {selectedCsvStatusFilter
+                ? `Filtered to ${csvPrettyStatus(selectedCsvStatusFilter)} words from ${csvJobOverview?.job?.batch_id || selectedCsvJobId}.`
+                : `Showing all words from ${csvJobOverview?.job?.batch_id || selectedCsvJobId}.`}
+            </p>
+          )}
 
           <div className="table-wrap runs-table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>Word</th>
-                  <th>POS</th>
-                  <th>Category</th>
-                  <th>Status</th>
-                  <th>Score</th>
-                  <th>Attempt</th>
-                  <th>Est. cost</th>
-                  <th>Est. avg / image</th>
-                  <th>Stop</th>
-                  <th>Retry</th>
-                  <th>Delete</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRuns.map((run) => (
-                  <tr
-                    key={run.id}
-                    className={run.id === selectedRunId ? 'selected-row' : 'clickable-row'}
-                    onClick={() => selectRun(run.id, { scrollToDetail: true })}
-                  >
-                    <td>{run.word || '-'}</td>
-                    <td>{run.part_of_sentence || '-'}</td>
-                    <td>{run.category || '-'}</td>
-                    <td>{run.status}</td>
-                    <td>{run.quality_score ?? '-'}</td>
-                    <td>{run.optimization_attempt}</td>
-                    <td>{typeof run.estimated_total_cost_usd === 'number' ? `$${Number(run.estimated_total_cost_usd).toFixed(4)}` : '-'}</td>
-                    <td>{run.estimated_cost_per_image_usd != null ? `$${Number(run.estimated_cost_per_image_usd).toFixed(4)}` : '-'}</td>
-                    <td>
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onStop(run.id)
+              {showingCsvWords ? (
+                <>
+                  <thead>
+                    <tr>
+                      <th>Word</th>
+                      <th>POS</th>
+                      <th>Category</th>
+                      <th>Status</th>
+                      <th>Progress</th>
+                      <th>Current step</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCsvJobItems.map((item) => (
+                      <tr
+                        key={item.id}
+                        className={item.id === selectedCsvItem?.id ? 'selected-row' : 'clickable-row'}
+                        onClick={() => {
+                          setSelectedCsvItemId(item.id)
+                          scrollToDetail()
                         }}
-                        disabled={!canStopRun(run.status)}
                       >
-                        {String(run.status || '').toLowerCase() === 'cancel_requested' ? 'Stopping…' : 'Stop'}
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onRetry(run.id)
-                        }}
-                        disabled={!run.status.startsWith('failed')}
+                        <td>{item.word || '-'}</td>
+                        <td>{item.part_of_sentence || '-'}</td>
+                        <td>{item.category || '-'}</td>
+                        <td>
+                          <div className="status-stack">
+                            <strong>{csvPrettyStatus(item.main_status)}</strong>
+                            <span>{item.sub_status || '-'}</span>
+                          </div>
+                        </td>
+                        <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
+                        <td>{item.current_step || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </>
+              ) : (
+                <>
+                  <thead>
+                    <tr>
+                      <th>Word</th>
+                      <th>POS</th>
+                      <th>Category</th>
+                      <th>Status</th>
+                      <th>Score</th>
+                      <th>Attempt</th>
+                      <th>Est. cost</th>
+                      <th>Est. avg / image</th>
+                      <th>Stop</th>
+                      <th>Retry</th>
+                      <th>Delete</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRuns.map((run) => (
+                      <tr
+                        key={run.id}
+                        className={run.id === selectedRunId ? 'selected-row' : 'clickable-row'}
+                        onClick={() => selectRun(run.id, { scrollToDetail: true })}
                       >
-                        Retry
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onDeleteRun(run.id)
-                        }}
-                        disabled={!canDeleteRunStatus(run.status)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+                        <td>{run.word || '-'}</td>
+                        <td>{run.part_of_sentence || '-'}</td>
+                        <td>{run.category || '-'}</td>
+                        <td>{run.status}</td>
+                        <td>{run.quality_score ?? '-'}</td>
+                        <td>{run.optimization_attempt}</td>
+                        <td>{typeof run.estimated_total_cost_usd === 'number' ? `$${Number(run.estimated_total_cost_usd).toFixed(4)}` : '-'}</td>
+                        <td>{run.estimated_cost_per_image_usd != null ? `$${Number(run.estimated_cost_per_image_usd).toFixed(4)}` : '-'}</td>
+                        <td>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onStop(run.id)
+                            }}
+                            disabled={!canStopRun(run.status)}
+                          >
+                            {String(run.status || '').toLowerCase() === 'cancel_requested' ? 'Stopping…' : 'Stop'}
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onRetry(run.id)
+                            }}
+                            disabled={!run.status.startsWith('failed')}
+                          >
+                            Retry
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onDeleteRun(run.id)
+                            }}
+                            disabled={!canDeleteRunStatus(run.status)}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </>
+              )}
             </table>
           </div>
           <p>{message}</p>
-
-          <div className="csv-section-block" style={{ marginTop: 16 }}>
-            <div className="csv-section-head">
-              <h3>Selected CSV Job Words</h3>
-              <p>
-                {selectedCsvJobId
-                  ? `Words for ${csvJobOverview?.job?.batch_id || selectedCsvJobId}${selectedCsvStatusFilter ? ` · ${csvPrettyStatus(selectedCsvStatusFilter)}` : ''}`
-                  : 'Select a CSV job below to inspect its words here.'}
-              </p>
-            </div>
-
-            {selectedCsvJobId ? (
-              <>
-                <div className="table-wrap runs-table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Word</th>
-                        <th>POS</th>
-                        <th>Category</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCsvJobItems.map((item) => (
-                        <tr
-                          key={item.id}
-                          className={item.id === selectedCsvItem?.id ? 'selected-row' : 'clickable-row'}
-                          onClick={() => setSelectedCsvItemId(item.id)}
-                        >
-                          <td>{item.word || '-'}</td>
-                          <td>{item.part_of_sentence || '-'}</td>
-                          <td>{item.category || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedCsvItem ? (
-                  <div className="csv-word-detail">
-                    <div className="csv-word-detail-head">
-                      <div>
-                        <h4>{selectedCsvItem.word || 'Selected word'}</h4>
-                        <p>
-                          Row {selectedCsvItem.row_index} · {selectedCsvItem.part_of_sentence || 'POS n/a'} · {selectedCsvItem.category || 'Category n/a'}
-                        </p>
-                      </div>
-                      <div className="status-stack">
-                        <strong>{selectedCsvItemProgress ? csvPrettyStatus(selectedCsvItemProgress.mainStatus) : '-'}</strong>
-                        <span>{selectedCsvItemProgress?.subStatus || '-'}</span>
-                      </div>
-                    </div>
-                    <div className="csv-word-meta-grid">
-                      <div>
-                        <strong>Progress</strong>
-                        <p>{selectedCsvItemProgress ? `${selectedCsvItemProgress.completed}/${selectedCsvItemProgress.total} steps finished` : '-'}</p>
-                      </div>
-                      <div>
-                        <strong>Current step</strong>
-                        <p>{selectedCsvItemProgress?.currentStep || '-'}</p>
-                      </div>
-                      <div>
-                        <strong>Why it may be waiting</strong>
-                        <p>{selectedCsvItem.blocking_reason || selectedCsvItem.sub_status || '-'}</p>
-                      </div>
-                      <div>
-                        <strong>Shadow run</strong>
-                        <p>{selectedCsvItem.shadow_run_id || '-'}</p>
-                      </div>
-                      <div>
-                        <strong>Error</strong>
-                        <p>{selectedCsvItem.error_detail || '-'}</p>
-                      </div>
-                    </div>
-                    <div className="csv-word-image-grid">
-                      {selectedCsvItemImages.length ? (
-                        selectedCsvItemImages.map((image) => (
-                          <article key={`${selectedCsvItem.id}:${image.id}:${image.label}`} className="csv-word-image-card">
-                            <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
-                            <div className="csv-word-image-meta">
-                              <strong>{image.label}</strong>
-                              <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
-                                Open image
-                              </a>
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <p>No images have been created for this word yet.</p>
-                      )}
-                    </div>
-                    <div className="table-wrap runs-table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Step</th>
-                            <th>Profile</th>
-                            <th>Status</th>
-                            <th>Waiting on</th>
-                            <th>Error</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedCsvTaskDiagnostics.map((task) => (
-                            <tr key={task.id}>
-                              <td>{task.stepLabel}</td>
-                              <td>{task.profileLabel || '-'}</td>
-                              <td>{csvPrettyStatus(task.status)}</td>
-                              <td>{task.waitingOnLabel || '-'}</td>
-                              <td>{task.error_summary || '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            ) : null}
-          </div>
         </article>
 
         <article className="card runs-floor-card">
@@ -1037,7 +1002,7 @@ export default function RunsPage() {
           <div className="csv-section-block">
             <div className="csv-section-head">
               <h3>CSV Job History</h3>
-              <p>Most recently updated jobs are shown first.</p>
+              <p>Most recently created jobs are shown first.</p>
             </div>
 
             <div className="table-wrap runs-table-wrap">
@@ -1060,6 +1025,7 @@ export default function RunsPage() {
                       key={job.id}
                       className={job.id === selectedCsvJobId ? 'selected-row' : 'clickable-row'}
                       onClick={() => {
+                        setCsvJobOverview(null)
                         setSelectedCsvJobId(job.id)
                         setSelectedCsvItemId('')
                         setSelectedCsvStatusFilter('')
@@ -1073,7 +1039,7 @@ export default function RunsPage() {
                         </div>
                       </td>
                       <td>{job.total_row_count}</td>
-                      <td>{job.duration_seconds ? `${Math.round(job.duration_seconds)}s` : '-'}</td>
+                      <td>{job.started_at ? `${elapsedSeconds(job.started_at, job.finished_at, nowMs)}s` : '-'}</td>
                       <td>{formatLocalDateTime(job.started_at)}</td>
                       <td>
                         <button
@@ -1130,7 +1096,11 @@ export default function RunsPage() {
                 </div>
                 <div>
                   <strong>Timer</strong>
-                  <p>{csvJobOverview.job.duration_seconds ? `${Math.round(csvJobOverview.job.duration_seconds)}s` : '-'}</p>
+                  <p>
+                    {csvJobOverview.job.started_at
+                      ? `${elapsedSeconds(csvJobOverview.job.started_at, csvJobOverview.job.finished_at, nowMs)}s`
+                      : '-'}
+                  </p>
                 </div>
                 <div>
                   <strong>Rows</strong>
@@ -1152,7 +1122,10 @@ export default function RunsPage() {
                     key={statusKey}
                     type="button"
                     className={selectedCsvStatusFilter === statusKey ? 'csv-status-chip active' : 'csv-status-chip'}
-                    onClick={() => setSelectedCsvStatusFilter((current) => (current === statusKey ? '' : statusKey))}
+                    onClick={() => {
+                      setSelectedCsvStatusFilter((current) => (current === statusKey ? '' : statusKey))
+                      scrollToDetail()
+                    }}
                   >
                     {csvPrettyStatus(statusKey)} {count}
                   </button>
@@ -1171,12 +1144,98 @@ export default function RunsPage() {
           <div className="runs-floor-head">
             <div>
               <p className="detail-eyebrow">Third Floor</p>
-              <h2>Run Detail</h2>
-              <p className="runs-floor-copy">The selected run gets the full page width so the story, images, and process are easier to read.</p>
+              <h2>{showingCsvWords ? 'CSV Word Detail' : 'Run Detail'}</h2>
+              <p className="runs-floor-copy">
+                {showingCsvWords
+                  ? 'The selected word shows its current CSV DAG state, images, and dependency blockers here.'
+                  : 'The selected run gets the full page width so the story, images, and process are easier to read.'}
+              </p>
             </div>
           </div>
 
-          {!detail ? (
+          {showingCsvWords ? (
+            selectedCsvItem ? (
+              <div className="csv-word-detail">
+                <div className="csv-word-detail-head">
+                  <div>
+                    <h4>{selectedCsvItem.word || 'Selected word'}</h4>
+                    <p>
+                      Row {selectedCsvItem.row_index} · {selectedCsvItem.part_of_sentence || 'POS n/a'} · {selectedCsvItem.category || 'Category n/a'}
+                    </p>
+                  </div>
+                  <div className="status-stack">
+                    <strong>{selectedCsvItemProgress ? csvPrettyStatus(selectedCsvItemProgress.main_status) : '-'}</strong>
+                    <span>{selectedCsvItemProgress?.sub_status || '-'}</span>
+                  </div>
+                </div>
+                <div className="csv-word-meta-grid">
+                  <div>
+                    <strong>Progress</strong>
+                    <p>{selectedCsvItemProgress ? `${selectedCsvItemProgress.progress?.completed || 0}/${selectedCsvItemProgress.progress?.total || 0} steps finished` : '-'}</p>
+                  </div>
+                  <div>
+                    <strong>Current step</strong>
+                    <p>{selectedCsvItem.current_step || '-'}</p>
+                  </div>
+                  <div>
+                    <strong>Why it may be waiting</strong>
+                    <p>{selectedCsvItem.blocking_reason || selectedCsvItem.sub_status || '-'}</p>
+                  </div>
+                  <div>
+                    <strong>Shadow run</strong>
+                    <p>{selectedCsvItem.shadow_run_id || '-'}</p>
+                  </div>
+                  <div>
+                    <strong>Error</strong>
+                    <p>{selectedCsvItem.error_detail || '-'}</p>
+                  </div>
+                </div>
+                <div className="csv-word-image-grid">
+                  {selectedCsvItemImages.length ? (
+                    selectedCsvItemImages.map((image) => (
+                      <article key={`${selectedCsvItem.id}:${image.id}:${image.label}`} className="csv-word-image-card">
+                        <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
+                        <div className="csv-word-image-meta">
+                          <strong>{image.label}</strong>
+                          <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
+                            Open image
+                          </a>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p>No images have been created for this word yet.</p>
+                  )}
+                </div>
+                <div className="table-wrap runs-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Step</th>
+                        <th>Profile</th>
+                        <th>Status</th>
+                        <th>Waiting on</th>
+                        <th>Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedCsvTaskDiagnostics.map((task) => (
+                        <tr key={task.id}>
+                          <td>{task.stepLabel}</td>
+                          <td>{task.profileLabel || '-'}</td>
+                          <td>{csvPrettyStatus(task.status)}</td>
+                          <td>{task.waitingOnLabel || '-'}</td>
+                          <td>{task.error_summary || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p>Select a word row to see CSV DAG details.</p>
+            )
+          ) : !detail ? (
             <p>Select a run row to see details.</p>
           ) : algoDiagramEnabled ? (
             <PageErrorBoundary resetKey={`${detail?.run?.id || ''}:${detail?.run?.updated_at || ''}`}>

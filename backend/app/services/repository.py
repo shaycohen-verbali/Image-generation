@@ -802,7 +802,7 @@ class Repository:
         return self.db.execute(select(CsvJob).where(CsvJob.batch_id == batch_id)).scalar_one_or_none()
 
     def list_csv_jobs(self) -> list[CsvJob]:
-        return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.updated_at), desc(CsvJob.created_at))).scalars())
+        return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.created_at))).scalars())
 
     def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
         for key, value in updates.items():
