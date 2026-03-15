@@ -1037,7 +1037,7 @@ class Repository:
     def delete_csv_jobs(self, *, terminal_only: bool = True) -> int:
         stmt = select(CsvJob)
         if terminal_only:
-            stmt = stmt.where(CsvJob.status.in_(["completed", "failed", "canceled"]))
+            stmt = stmt.where(CsvJob.status.in_(["completed", "failed", "canceled", "cancel_requested"]))
         jobs = list(self.db.execute(stmt).scalars())
         count = 0
         for job in jobs:
