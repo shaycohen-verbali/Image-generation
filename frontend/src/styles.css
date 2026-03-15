@@ -135,6 +135,35 @@ body {
   margin-bottom: 4px;
 }
 
+.csv-job-overview-card {
+  display: grid;
+  gap: 12px;
+}
+
+.csv-job-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 10px;
+}
+
+.csv-job-stat-grid p {
+  margin: 4px 0 0;
+}
+
+.csv-job-live-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.csv-job-live-strip span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(15, 127, 125, 0.08);
+  font-size: 0.84rem;
+}
+
 .runs-layout {
   display: grid;
   gap: 12px;

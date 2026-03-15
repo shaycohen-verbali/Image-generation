@@ -45,6 +45,18 @@ function isTerminalCsvJobStatus(status) {
   return ['completed', 'failed', 'canceled'].includes(value)
 }
 
+function csvItemTaskSummary(tasks, itemId) {
+  const relevant = (Array.isArray(tasks) ? tasks : []).filter((task) => task.csv_job_item_id === itemId)
+  const counts = { queued: 0, running: 0, completed: 0, failed: 0, canceled: 0 }
+  relevant.forEach((task) => {
+    const key = String(task.status || '').toLowerCase()
+    if (Object.prototype.hasOwnProperty.call(counts, key)) {
+      counts[key] += 1
+    }
+  })
+  return counts
+}
+
 function shouldPollRuns(runs) {
   return (Array.isArray(runs) ? runs : []).some((run) => !isTerminalRunStatus(run?.status))
 }
@@ -220,6 +232,18 @@ export default function RunsPage() {
     () => csvJobs.map((job) => `${job.id}:${job.status}:${job.updated_at || ''}`).join('|'),
     [csvJobs]
   )
+  const csvJobItems = Array.isArray(csvJobOverview?.items) ? csvJobOverview.items : []
+  const csvJobTasks = Array.isArray(csvJobOverview?.tasks) ? csvJobOverview.tasks : []
+  const csvJobLiveCounts = useMemo(() => {
+    const counts = { queued: 0, running: 0, completed: 0, failed: 0, canceled: 0 }
+    csvJobItems.forEach((item) => {
+      const key = String(item.status || '').toLowerCase()
+      if (Object.prototype.hasOwnProperty.call(counts, key)) {
+        counts[key] += 1
+      }
+    })
+    return counts
+  }, [csvJobItems])
 
   async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
     if (!runId) return
@@ -743,12 +767,73 @@ export default function RunsPage() {
           </div>
 
           {csvJobOverview ? (
-            <div className="card" style={{ marginTop: 16 }}>
+            <div className="card csv-job-overview-card" style={{ marginTop: 16 }}>
               <h3>CSV Job Overview</h3>
-              <p>Job: {csvJobOverview.job.batch_id}</p>
-              <p>Status: {csvJobOverview.job.status}</p>
-              <p>Timer: {csvJobOverview.job.duration_seconds ? `${Math.round(csvJobOverview.job.duration_seconds)}s` : '-'}</p>
-              <p>Rows: {csvJobOverview.job.total_row_count}</p>
+              <div className="csv-job-stat-grid">
+                <div>
+                  <strong>Job</strong>
+                  <p>{csvJobOverview.job.batch_id}</p>
+                </div>
+                <div>
+                  <strong>Status</strong>
+                  <p>{csvJobOverview.job.status}</p>
+                </div>
+                <div>
+                  <strong>Timer</strong>
+                  <p>{csvJobOverview.job.duration_seconds ? `${Math.round(csvJobOverview.job.duration_seconds)}s` : '-'}</p>
+                </div>
+                <div>
+                  <strong>Rows</strong>
+                  <p>{csvJobOverview.job.total_row_count}</p>
+                </div>
+              </div>
+              <div className="csv-job-live-strip">
+                <span>Queued {csvJobLiveCounts.queued}</span>
+                <span>Running {csvJobLiveCounts.running}</span>
+                <span>Completed {csvJobLiveCounts.completed}</span>
+                <span>Failed {csvJobLiveCounts.failed}</span>
+                <span>Canceled {csvJobLiveCounts.canceled}</span>
+              </div>
+              <h4>Words Live</h4>
+              <div className="table-wrap runs-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Word</th>
+                      <th>POS</th>
+                      <th>Category</th>
+                      <th>Status</th>
+                      <th>Shadow Run</th>
+                      <th>Tasks</th>
+                      <th>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvJobItems.map((item) => {
+                      const taskCounts = csvItemTaskSummary(csvJobTasks, item.id)
+                      return (
+                        <tr key={item.id}>
+                          <td>{item.row_index}</td>
+                          <td>{item.word || '-'}</td>
+                          <td>{item.part_of_sentence || '-'}</td>
+                          <td>{item.category || '-'}</td>
+                          <td>{item.status}</td>
+                          <td>{item.shadow_run_id || '-'}</td>
+                          <td>
+                            {taskCounts.completed} done
+                            {taskCounts.running ? `, ${taskCounts.running} running` : ''}
+                            {taskCounts.queued ? `, ${taskCounts.queued} queued` : ''}
+                            {taskCounts.failed ? `, ${taskCounts.failed} failed` : ''}
+                            {taskCounts.canceled ? `, ${taskCounts.canceled} canceled` : ''}
+                          </td>
+                          <td>{item.error_detail || '-'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
               <h4>Per-step counts</h4>
               <pre>{JSON.stringify(csvJobOverview.step_counts, null, 2)}</pre>
               <h4>Issues by step</h4>
