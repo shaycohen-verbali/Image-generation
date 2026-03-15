@@ -100,6 +100,11 @@ export async function cancelCsvJob(jobId) {
   return parseResponse(response)
 }
 
+export async function clearTerminalCsvJobs() {
+  const response = await fetch(`${API_BASE}/csv-jobs`, { method: 'DELETE' })
+  return parseResponse(response)
+}
+
 export async function exportCsvJob(jobId) {
   const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/export`, { method: 'POST' })
   return parseResponse(response)

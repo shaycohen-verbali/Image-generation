@@ -802,7 +802,7 @@ class Repository:
         return self.db.execute(select(CsvJob).where(CsvJob.batch_id == batch_id)).scalar_one_or_none()
 
     def list_csv_jobs(self) -> list[CsvJob]:
-        return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.created_at))).scalars())
+        return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.updated_at), desc(CsvJob.created_at))).scalars())
 
     def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
         for key, value in updates.items():
@@ -1034,6 +1034,41 @@ class Repository:
             self.update_csv_job(job, status=next_status, finished_at=finished_at, error_detail="Canceled by user")
         return count
 
+    def delete_csv_jobs(self, *, terminal_only: bool = True) -> int:
+        stmt = select(CsvJob)
+        if terminal_only:
+            stmt = stmt.where(CsvJob.status.in_(["completed", "failed", "canceled"]))
+        jobs = list(self.db.execute(stmt).scalars())
+        count = 0
+        for job in jobs:
+            self.db.delete(job)
+            count += 1
+        if count:
+            self.db.commit()
+        return count
+
+    def _queued_csv_task_is_blocked(self, task: CsvTaskNode) -> tuple[bool, str]:
+        dependency_ids = [str(value) for value in _loads_list(task.dependency_task_ids_json) if str(value)]
+        if not dependency_ids:
+            return False, ""
+        dependencies = list(
+            self.db.execute(
+                select(CsvTaskNode.id, CsvTaskNode.status, CsvTaskNode.step_name, CsvTaskNode.profile_key)
+                .where(CsvTaskNode.id.in_(dependency_ids))
+            )
+        )
+        if not dependencies:
+            return True, "Missing dependency tasks"
+        failed = [row for row in dependencies if row.status == "failed"]
+        canceled = [row for row in dependencies if row.status == "canceled"]
+        if failed:
+            first = failed[0]
+            return True, f"Blocked by failed dependency {first.step_name} {first.profile_key}".strip()
+        if canceled:
+            first = canceled[0]
+            return True, f"Blocked by canceled dependency {first.step_name} {first.profile_key}".strip()
+        return False, ""
+
     def finalize_csv_job_status(self, csv_job_id: str) -> CsvJob | None:
         job = self.get_csv_job(csv_job_id)
         if job is None:
@@ -1045,6 +1080,25 @@ class Repository:
         if any(status == "running" for status in statuses):
             return self.update_csv_job(job, status="running")
         if any(status == "queued" for status in statuses):
+            queued_tasks = [task for task in tasks if task.status == "queued"]
+            blocked_results = [self._queued_csv_task_is_blocked(task) for task in queued_tasks]
+            if queued_tasks and all(blocked for blocked, _reason in blocked_results):
+                blocked_reasons = [reason for blocked, reason in blocked_results if blocked and reason]
+                if any("canceled dependency" in reason.lower() for reason in blocked_reasons) and not any(
+                    "failed dependency" in reason.lower() for reason in blocked_reasons
+                ):
+                    return self.update_csv_job(
+                        job,
+                        status="canceled",
+                        finished_at=datetime.utcnow(),
+                        error_detail=blocked_reasons[0] if blocked_reasons else "Canceled by dependency chain",
+                    )
+                return self.update_csv_job(
+                    job,
+                    status="failed",
+                    finished_at=datetime.utcnow(),
+                    error_detail=blocked_reasons[0] if blocked_reasons else "Queued tasks are blocked by failed dependencies",
+                )
             if job.status == "cancel_requested":
                 next_status = "cancel_requested"
             elif job.started_at is not None or any(status in {"completed", "failed", "canceled"} for status in statuses):

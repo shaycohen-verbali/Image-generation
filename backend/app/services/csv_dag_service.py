@@ -240,15 +240,22 @@ class CsvDagService:
         jobs = self.repo.list_csv_jobs()
         output: list[dict[str, Any]] = []
         for job in jobs:
+            finalized = self.repo.finalize_csv_job_status(job.id) or job
+            job = finalized
             overview = self.repo.csv_job_overview(job.id) or {}
             output.append(self._serialize_job(job, overview))
         return output
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
+        self.repo.finalize_csv_job_status(job_id)
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             return None
         return self._serialize_job(overview["job"], overview)
+
+    def clear_terminal_jobs(self) -> dict[str, Any]:
+        deleted = self.repo.delete_csv_jobs(terminal_only=True)
+        return {"deleted_job_count": deleted}
 
     def start_job(self, job_id: str) -> CsvJob:
         job = self.repo.get_csv_job(job_id)
@@ -314,6 +321,7 @@ class CsvDagService:
 
     def _item_progress_payload(self, item: CsvJobItem, tasks: list[CsvTaskNode]) -> dict[str, Any]:
         relevant = [task for task in tasks if task.csv_job_item_id == item.id]
+        task_by_id = {task.id: task for task in relevant}
         counts = {"pending": 0, "queued": 0, "running": 0, "completed": 0, "failed": 0, "canceled": 0}
         for task in relevant:
             status = str(task.status or "").lower()
@@ -324,6 +332,28 @@ class CsvDagService:
         waiting_task = next((task for task in relevant if task.status in {"queued", "pending"}), None)
         failed_task = next((task for task in relevant if task.status == "failed"), None)
         all_canceled = total > 0 and all(task.status == "canceled" for task in relevant)
+        blocking_reason = ""
+        waiting_on_steps: list[str] = []
+
+        if waiting_task is not None:
+            try:
+                dependency_ids = [str(value) for value in json.loads(waiting_task.dependency_task_ids_json or "[]") if str(value)]
+            except json.JSONDecodeError:
+                dependency_ids = []
+            dependency_tasks = [task_by_id.get(task_id) for task_id in dependency_ids if task_by_id.get(task_id) is not None]
+            waiting_on_steps = [
+                self._step_label(dep.step_name)
+                for dep in dependency_tasks
+                if dep.status in {"queued", "pending", "running"}
+            ]
+            blocked_by_failed = next((dep for dep in dependency_tasks if dep.status == "failed"), None)
+            blocked_by_canceled = next((dep for dep in dependency_tasks if dep.status == "canceled"), None)
+            if blocked_by_failed is not None:
+                blocking_reason = f"Blocked by failed {self._step_label(blocked_by_failed.step_name)}"
+            elif blocked_by_canceled is not None:
+                blocking_reason = f"Blocked by canceled {self._step_label(blocked_by_canceled.step_name)}"
+            elif waiting_on_steps:
+                blocking_reason = f"Waiting on {', '.join(waiting_on_steps[:2])}"
 
         main_status = "pending"
         sub_status = "Waiting to be picked up"
@@ -344,16 +374,20 @@ class CsvDagService:
         elif counts["completed"] > 0 or item.shadow_run_id:
             main_status = "running"
             sub_status = (
-                f"Waiting for {self._step_label(waiting_task.step_name)}"
+                blocking_reason or f"Waiting for {self._step_label(waiting_task.step_name)}"
                 if waiting_task is not None
                 else "Preparing next step"
             )
             current_step = self._step_label(waiting_task.step_name) if waiting_task is not None else ""
+        elif waiting_task is not None and blocking_reason:
+            sub_status = blocking_reason
 
         return {
             "main_status": main_status,
             "sub_status": sub_status,
             "current_step": current_step,
+            "blocking_reason": blocking_reason,
+            "waiting_on_steps": waiting_on_steps,
             "progress": {
                 "completed": counts["completed"],
                 "total": total,
@@ -556,6 +590,7 @@ class CsvDagService:
         return export_dir / self.export_zip_name(job.batch_id)
 
     def job_overview(self, job_id: str) -> dict[str, Any] | None:
+        self.repo.finalize_csv_job_status(job_id)
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             return None
@@ -583,6 +618,8 @@ class CsvDagService:
                     "main_status": item_progress["main_status"],
                     "sub_status": item_progress["sub_status"],
                     "current_step": item_progress["current_step"],
+                    "blocking_reason": item_progress["blocking_reason"],
+                    "waiting_on_steps": item_progress["waiting_on_steps"],
                     "progress": item_progress["progress"],
                     "created_at": item.created_at,
                     "updated_at": item.updated_at,
@@ -603,6 +640,7 @@ class CsvDagService:
                 "error_summary": task.error_summary,
                 "regular_asset_id": task.regular_asset_id,
                 "white_bg_asset_id": task.white_bg_asset_id,
+                "dependency_task_ids": [str(value) for value in json.loads(task.dependency_task_ids_json or "[]") if str(value)],
                 "started_at": task.started_at,
                 "finished_at": task.finished_at,
                 "created_at": task.created_at,

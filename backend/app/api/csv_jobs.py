@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.schemas import (
     CsvJobCancelResponse,
+    CsvJobClearResponse,
     CsvJobExportResponse,
     CsvJobImportResponse,
     CsvJobInventorySyncResponse,
@@ -68,6 +69,13 @@ def import_csv_job(
 def list_csv_jobs(db: Session = Depends(db_dependency)) -> list[CsvJobOut]:
     service = CsvDagService(db)
     return [CsvJobOut(**row) for row in service.list_jobs()]
+
+
+@router.delete("", response_model=CsvJobClearResponse)
+def clear_csv_jobs(db: Session = Depends(db_dependency)) -> CsvJobClearResponse:
+    service = CsvDagService(db)
+    result = service.clear_terminal_jobs()
+    return CsvJobClearResponse(**result)
 
 
 @router.get("/{job_id}", response_model=CsvJobOut)

@@ -3,6 +3,7 @@ import {
   buildApiUrl,
   buildAssetContentUrl,
   cancelCsvJob,
+  clearTerminalCsvJobs,
   clearTerminalRuns,
   deleteRun,
   exportCsvJob,
@@ -88,6 +89,19 @@ function csvPrettyStatus(status) {
 function csvProfileSummary(profileKey) {
   const [gender, age, skinColor] = String(profileKey || '').split(':')
   return [age, gender, skinColor].filter(Boolean).join(' ')
+}
+
+function formatLocalDateTime(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
 }
 
 function csvTaskProgressSummary(tasks, itemId) {
@@ -182,6 +196,28 @@ function csvItemImages(item, tasks) {
     }
   })
   return images
+}
+
+function csvTaskDiagnostics(tasks, selectedId) {
+  const relevant = (Array.isArray(tasks) ? tasks : []).filter((task) => task.csv_job_item_id === selectedId)
+  const taskById = new Map(relevant.map((task) => [task.id, task]))
+  return relevant.map((task) => {
+    const waitingOn = (Array.isArray(task.dependency_task_ids) ? task.dependency_task_ids : [])
+      .map((id) => taskById.get(id))
+      .filter(Boolean)
+    const blocking = waitingOn.find((dep) => ['failed', 'canceled'].includes(String(dep.status || '').toLowerCase()))
+    return {
+      ...task,
+      stepLabel: csvStepLabel(task.step_name),
+      profileLabel: csvProfileSummary(task.profile_key),
+      waitingOnLabel:
+        blocking
+          ? `${csvStepLabel(blocking.step_name)} ${csvPrettyStatus(blocking.status)}`
+          : waitingOn.length
+            ? waitingOn.map((dep) => csvStepLabel(dep.step_name)).join(', ')
+            : '',
+    }
+  })
 }
 
 function shouldPollRuns(runs) {
@@ -378,6 +414,10 @@ export default function RunsPage() {
   const selectedCsvItemImages = useMemo(
     () => csvItemImages(selectedCsvItem, selectedCsvItemTasks),
     [selectedCsvItem, selectedCsvItemTasks]
+  )
+  const selectedCsvTaskDiagnostics = useMemo(
+    () => csvTaskDiagnostics(csvJobTasks, selectedCsvItem?.id),
+    [csvJobTasks, selectedCsvItem?.id]
   )
 
   async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
@@ -691,6 +731,21 @@ export default function RunsPage() {
     }
   }
 
+  const onClearCsvHistory = async () => {
+    try {
+      const result = await clearTerminalCsvJobs()
+      setMessage(`Cleared ${result.deleted_job_count} terminal CSV jobs`)
+      refreshCsvJobs()
+      if (selectedCsvJobId && isTerminalCsvJobStatus(csvJobOverview?.job?.status)) {
+        setSelectedCsvJobId('')
+        setSelectedCsvItemId('')
+        setCsvJobOverview(null)
+      }
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
   const onSavePromptEngineerConfig = async () => {
     try {
       const updated = await updateConfig({
@@ -838,86 +893,94 @@ export default function RunsPage() {
           <div className="runs-floor-head">
             <div>
               <p className="detail-eyebrow">Second Floor</p>
-              <h2>CSV Jobs</h2>
-              <p className="runs-floor-copy">Parallel CSV DAG jobs live here, separately from legacy runs.</p>
+              <h2>CSV Stats</h2>
+              <p className="runs-floor-copy">CSV DAG history and the selected job summary live here, separately from legacy runs.</p>
             </div>
             <div className="runs-floor-summary">
               <span>{csvJobs.length} total</span>
               <button type="button" onClick={() => refreshCsvJobs()} className="button-secondary">Refresh</button>
+              <button type="button" onClick={onClearCsvHistory} className="button-secondary">Clear CSV History</button>
             </div>
           </div>
 
-          <div className="table-wrap runs-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Batch</th>
-                  <th>Status</th>
-                  <th>Rows</th>
-                  <th>Duration</th>
-                  <th>Started</th>
-                  <th>Retry</th>
-                  <th>Cancel</th>
-                  <th>Export</th>
-                </tr>
-              </thead>
-              <tbody>
-                {csvJobs.map((job) => (
-                  <tr
-                    key={job.id}
-                    className={job.id === selectedCsvJobId ? 'selected-row' : 'clickable-row'}
-                    onClick={() => {
-                      setSelectedCsvJobId(job.id)
-                      setSelectedCsvItemId('')
-                    }}
-                  >
-                    <td>{job.batch_id}</td>
-                    <td>
-                      <div className="status-stack">
-                        <strong>{csvPrettyStatus(csvJobMainStatus(job.status).main)}</strong>
-                        <span>{csvJobMainStatus(job.status).sub}</span>
-                      </div>
-                    </td>
-                    <td>{job.total_row_count}</td>
-                    <td>{job.duration_seconds ? `${Math.round(job.duration_seconds)}s` : '-'}</td>
-                    <td>{job.started_at ? new Date(job.started_at).toLocaleString() : '-'}</td>
-                    <td>
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onRetryCsvJob(job.id)
-                        }}
-                        disabled={job.status !== 'failed'}
-                      >
-                        Retry
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onCancelCsvJob(job.id)
-                        }}
-                        disabled={isTerminalCsvJobStatus(job.status) || job.status === 'cancel_requested'}
-                      >
-                        {job.status === 'cancel_requested' ? 'Stopping…' : 'Cancel'}
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onExportCsvJob(job.id)
-                        }}
-                        disabled={!isTerminalCsvJobStatus(job.status)}
-                      >
-                        Export
-                      </button>
-                    </td>
+          <div className="csv-section-block">
+            <div className="csv-section-head">
+              <h3>CSV Job History</h3>
+              <p>Most recently updated jobs are shown first.</p>
+            </div>
+
+            <div className="table-wrap runs-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Batch</th>
+                    <th>Status</th>
+                    <th>Rows</th>
+                    <th>Duration</th>
+                    <th>Started</th>
+                    <th>Retry</th>
+                    <th>Cancel</th>
+                    <th>Export</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {csvJobs.map((job) => (
+                    <tr
+                      key={job.id}
+                      className={job.id === selectedCsvJobId ? 'selected-row' : 'clickable-row'}
+                      onClick={() => {
+                        setSelectedCsvJobId(job.id)
+                        setSelectedCsvItemId('')
+                      }}
+                    >
+                      <td>{job.batch_id}</td>
+                      <td>
+                        <div className="status-stack">
+                          <strong>{csvPrettyStatus(csvJobMainStatus(job.status).main)}</strong>
+                          <span>{csvJobMainStatus(job.status).sub}</span>
+                        </div>
+                      </td>
+                      <td>{job.total_row_count}</td>
+                      <td>{job.duration_seconds ? `${Math.round(job.duration_seconds)}s` : '-'}</td>
+                      <td>{formatLocalDateTime(job.started_at)}</td>
+                      <td>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onRetryCsvJob(job.id)
+                          }}
+                          disabled={job.status !== 'failed'}
+                        >
+                          Retry
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onCancelCsvJob(job.id)
+                          }}
+                          disabled={isTerminalCsvJobStatus(job.status) || job.status === 'cancel_requested'}
+                        >
+                          {job.status === 'cancel_requested' ? 'Stopping…' : 'Cancel'}
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onExportCsvJob(job.id)
+                          }}
+                          disabled={!isTerminalCsvJobStatus(job.status)}
+                        >
+                          Export
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {csvJobOverview ? (
@@ -1015,6 +1078,10 @@ export default function RunsPage() {
                       <p>{selectedCsvItemProgress?.currentStep || '-'}</p>
                     </div>
                     <div>
+                      <strong>Why it may be waiting</strong>
+                      <p>{selectedCsvItem.blocking_reason || selectedCsvItem.sub_status || '-'}</p>
+                    </div>
+                    <div>
                       <strong>Shadow run</strong>
                       <p>{selectedCsvItem.shadow_run_id || '-'}</p>
                     </div>
@@ -1039,6 +1106,30 @@ export default function RunsPage() {
                     ) : (
                       <p>No images have been created for this word yet.</p>
                     )}
+                  </div>
+                  <div className="table-wrap runs-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Step</th>
+                          <th>Profile</th>
+                          <th>Status</th>
+                          <th>Waiting on</th>
+                          <th>Error</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedCsvTaskDiagnostics.map((task) => (
+                          <tr key={task.id}>
+                            <td>{task.stepLabel}</td>
+                            <td>{task.profileLabel || '-'}</td>
+                            <td>{csvPrettyStatus(task.status)}</td>
+                            <td>{task.waitingOnLabel || '-'}</td>
+                            <td>{task.error_summary || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               ) : null}

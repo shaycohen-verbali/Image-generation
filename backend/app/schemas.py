@@ -299,6 +299,7 @@ class CsvJobTaskOut(BaseModel):
     error_summary: str = ""
     regular_asset_id: str | None = None
     white_bg_asset_id: str | None = None
+    dependency_task_ids: list[str] = Field(default_factory=list)
     started_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime
@@ -329,6 +330,8 @@ class CsvJobItemOut(BaseModel):
     main_status: str = "pending"
     sub_status: str = ""
     current_step: str = ""
+    blocking_reason: str = ""
+    waiting_on_steps: list[str] = Field(default_factory=list)
     progress: CsvJobItemProgressOut = Field(default_factory=CsvJobItemProgressOut)
     created_at: datetime
     updated_at: datetime
@@ -360,6 +363,10 @@ class CsvJobCancelResponse(BaseModel):
     job_id: str
     status: str
     canceled_task_count: int
+
+
+class CsvJobClearResponse(BaseModel):
+    deleted_job_count: int
 
 
 class CsvJobInventorySyncResponse(BaseModel):
