@@ -164,6 +164,83 @@ body {
   font-size: 0.84rem;
 }
 
+.status-stack {
+  display: grid;
+  gap: 2px;
+}
+
+.status-stack strong {
+  font-size: 0.95rem;
+}
+
+.status-stack span,
+.csv-job-stat-grid small {
+  color: #5c6a73;
+  font-size: 0.78rem;
+}
+
+.csv-word-detail {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.csv-word-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: start;
+}
+
+.csv-word-detail-head h4 {
+  margin: 0 0 4px;
+}
+
+.csv-word-detail-head p {
+  margin: 0;
+  color: #5c6a73;
+}
+
+.csv-word-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 10px;
+}
+
+.csv-word-meta-grid p {
+  margin: 4px 0 0;
+}
+
+.csv-word-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 12px;
+}
+
+.csv-word-image-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255, 250, 240, 0.8);
+  display: grid;
+  gap: 8px;
+}
+
+.csv-word-image-card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #f0f0f0;
+}
+
+.csv-word-image-meta {
+  display: grid;
+  gap: 4px;
+}
+
 .runs-layout {
   display: grid;
   gap: 12px;

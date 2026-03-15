@@ -60,6 +60,7 @@ class PipelineRunner:
         self.openai = openai_client or OpenAIClient()
         self.replicate = replicate_client or ReplicateClient()
         self.google_images = google_image_client or GoogleImageClient()
+        self._asset_storage_prefix: str | None = None
 
     def _record_stage(
         self,
@@ -226,7 +227,13 @@ class PipelineRunner:
     ) -> Asset:
         resolved_output_mime = output_mime_type or getattr(self.repo.get_runtime_config(), "image_format", "image/jpeg")
         normalized_bytes, mime_type, suffix = normalize_saved_image(image_bytes, resolved_output_mime)
-        stored = persist_run_image(run_id, Path(sanitize_filename(filename)).with_suffix(suffix).name, normalized_bytes, mime_type=mime_type)
+        stored = persist_run_image(
+            run_id,
+            Path(sanitize_filename(filename)).with_suffix(suffix).name,
+            normalized_bytes,
+            mime_type=mime_type,
+            storage_prefix=self._asset_storage_prefix,
+        )
         width, height = image_dimensions(stored.local_path)
         return self.repo.add_asset(
             run_id=run_id,
@@ -527,7 +534,7 @@ class PipelineRunner:
 
         return self.repo.get_run(run.id) or run
 
-    def process_base_run(self, run_id: str) -> Run:
+    def process_base_run(self, run_id: str, *, storage_prefix: str | None = None) -> Run:
         run = self.repo.get_run(run_id)
         if run is None:
             raise RuntimeError(f"Run not found: {run_id}")
@@ -560,6 +567,8 @@ class PipelineRunner:
             },
         )
 
+        previous_storage_prefix = self._asset_storage_prefix
+        self._asset_storage_prefix = storage_prefix
         try:
             self._raise_if_stop_requested(run, "stage1_prompt")
             run = self._run_stage1(run, entry, assistant_id, config.stage_retry_limit)
@@ -595,6 +604,7 @@ class PipelineRunner:
             )
             return self.repo.get_run(run.id) or run
         finally:
+            self._asset_storage_prefix = previous_storage_prefix
             self.google_images.close()
 
         return self.repo.get_run(run.id) or run
@@ -943,87 +953,93 @@ class PipelineRunner:
         image_size: str | None = None,
         image_format: str | None = None,
         nano_banana_safety_level: str | None = None,
+        storage_prefix: str | None = None,
     ) -> dict[str, Any]:
-        self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
-        local_source = self._local_asset_path(source_asset)
-        submitted = self._submit_profile_variant_prediction(
-            local_source,
-            entry.word,
-            owner_run_id,
-            profile,
-            False,
-            source_profile=source_profile,
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-        )
-        created = self._json_dict(submitted.get("created"))
-        prediction_id = str(created.get("id") or "")
-        if not prediction_id:
-            self._raise_with_context(
-                "variant prediction submission returned no prediction id",
-                request_json=self._json_dict(submitted.get("request_summary")),
-                response_json=created,
+        previous_storage_prefix = self._asset_storage_prefix
+        self._asset_storage_prefix = storage_prefix
+        try:
+            self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
+            local_source = self._local_asset_path(source_asset)
+            submitted = self._submit_profile_variant_prediction(
+                local_source,
+                entry.word,
+                owner_run_id,
+                profile,
+                False,
+                source_profile=source_profile,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
             )
-        prediction_result, status_transitions = self._poll_prediction_result(prediction_id)
-        payload = self._materialize_profile_variant_payload(
-            prediction_result,
-            profile=profile,
-            profile_description=str(submitted.get("profile_description") or profile_prompt_fragment(profile)),
-            white_background=False,
-        )
-        regular_asset = self._save_asset(
-            run_id=owner_run_id,
-            stage_name="stage4_variant_generate",
-            attempt=winner_attempt,
-            filename=self._variant_filename("stage4_variant_generate", entry, profile, winner_attempt),
-            image_bytes=payload["image_bytes"],
-            origin_url=payload["origin_url"],
-            model_name=payload["model_name"],
-            output_mime_type=image_format,
-        )
+            created = self._json_dict(submitted.get("created"))
+            prediction_id = str(created.get("id") or "")
+            if not prediction_id:
+                self._raise_with_context(
+                    "variant prediction submission returned no prediction id",
+                    request_json=self._json_dict(submitted.get("request_summary")),
+                    response_json=created,
+                )
+            prediction_result, status_transitions = self._poll_prediction_result(prediction_id)
+            payload = self._materialize_profile_variant_payload(
+                prediction_result,
+                profile=profile,
+                profile_description=str(submitted.get("profile_description") or profile_prompt_fragment(profile)),
+                white_background=False,
+            )
+            regular_asset = self._save_asset(
+                run_id=owner_run_id,
+                stage_name="stage4_variant_generate",
+                attempt=winner_attempt,
+                filename=self._variant_filename("stage4_variant_generate", entry, profile, winner_attempt),
+                image_bytes=payload["image_bytes"],
+                origin_url=payload["origin_url"],
+                model_name=payload["model_name"],
+                output_mime_type=image_format,
+            )
 
-        self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
-        white_bg_result = self.google_images.nano_banana_white_bg(
-            self._local_asset_path(regular_asset),
-            entry.word,
-            run_id=owner_run_id,
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-        )
-        if white_bg_result.get("status") != "succeeded":
-            self._raise_with_context(
-                f"white background variant failed: {white_bg_result.get('status')}",
-                request_json=self._json_dict(white_bg_result.get("request_json")),
-                response_json=self._json_dict(white_bg_result.get("response_json")) or white_bg_result,
+            self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
+            white_bg_result = self.google_images.nano_banana_white_bg(
+                self._local_asset_path(regular_asset),
+                entry.word,
+                run_id=owner_run_id,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
             )
-        white_bg_url = self.replicate.extract_output_url(white_bg_result)
-        if not white_bg_url:
-            self._raise_with_context(
-                "white background variant returned no output URL",
-                request_json=self._json_dict(white_bg_result.get("request_json")),
-                response_json=self._json_dict(white_bg_result.get("response_json")) or white_bg_result,
+            if white_bg_result.get("status") != "succeeded":
+                self._raise_with_context(
+                    f"white background variant failed: {white_bg_result.get('status')}",
+                    request_json=self._json_dict(white_bg_result.get("request_json")),
+                    response_json=self._json_dict(white_bg_result.get("response_json")) or white_bg_result,
+                )
+            white_bg_url = self.replicate.extract_output_url(white_bg_result)
+            if not white_bg_url:
+                self._raise_with_context(
+                    "white background variant returned no output URL",
+                    request_json=self._json_dict(white_bg_result.get("request_json")),
+                    response_json=self._json_dict(white_bg_result.get("response_json")) or white_bg_result,
+                )
+            white_bg_bytes = self._download_generated_image(white_bg_url)
+            white_bg_asset = self._save_asset(
+                run_id=owner_run_id,
+                stage_name="stage5_variant_white_bg",
+                attempt=winner_attempt,
+                filename=self._variant_filename("stage5_variant_white_bg", entry, profile, winner_attempt),
+                image_bytes=white_bg_bytes,
+                origin_url=white_bg_url,
+                model_name=str(white_bg_result.get("model") or "gemini-3.1-flash-image-preview"),
+                output_mime_type=image_format,
             )
-        white_bg_bytes = self._download_generated_image(white_bg_url)
-        white_bg_asset = self._save_asset(
-            run_id=owner_run_id,
-            stage_name="stage5_variant_white_bg",
-            attempt=winner_attempt,
-            filename=self._variant_filename("stage5_variant_white_bg", entry, profile, winner_attempt),
-            image_bytes=white_bg_bytes,
-            origin_url=white_bg_url,
-            model_name=str(white_bg_result.get("model") or "gemini-3.1-flash-image-preview"),
-            output_mime_type=image_format,
-        )
 
-        return {
-            "regular_asset": regular_asset,
-            "white_bg_asset": white_bg_asset,
-            "prediction_id": prediction_id,
-            "status_transitions": status_transitions,
-            "request_json": self._json_dict(submitted.get("request_summary")),
-            "response_json": self._json_dict(prediction_result.get("response_json")),
-            "white_bg_response_json": self._json_dict(white_bg_result.get("response_json")),
-        }
+            return {
+                "regular_asset": regular_asset,
+                "white_bg_asset": white_bg_asset,
+                "prediction_id": prediction_id,
+                "status_transitions": status_transitions,
+                "request_json": self._json_dict(submitted.get("request_summary")),
+                "response_json": self._json_dict(prediction_result.get("response_json")),
+                "white_bg_response_json": self._json_dict(white_bg_result.get("response_json")),
+            }
+        finally:
+            self._asset_storage_prefix = previous_storage_prefix
 
     def _run_stage3_attempt(
         self,

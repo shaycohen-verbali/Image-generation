@@ -299,6 +299,71 @@ class CsvDagService:
         self.repo.update_csv_job_item(item, shadow_run_id=shadow.id)
         return shadow
 
+    @staticmethod
+    def _storage_prefix(job: CsvJob, item: CsvJobItem) -> str:
+        return f"csv-jobs/{sanitize_filename(job.id)}/{sanitize_filename(item.id)}"
+
+    @staticmethod
+    def _step_label(step_name: str) -> str:
+        return {
+            "step1_base": "Base images",
+            "step2_male_age": "Male age variant",
+            "step3_female_white": "Female white variant",
+            "step4_race_variant": "Race variant",
+        }.get(str(step_name or ""), str(step_name or "Unknown step"))
+
+    def _item_progress_payload(self, item: CsvJobItem, tasks: list[CsvTaskNode]) -> dict[str, Any]:
+        relevant = [task for task in tasks if task.csv_job_item_id == item.id]
+        counts = {"pending": 0, "queued": 0, "running": 0, "completed": 0, "failed": 0, "canceled": 0}
+        for task in relevant:
+            status = str(task.status or "").lower()
+            if status in counts:
+                counts[status] += 1
+        total = len(relevant)
+        running_task = next((task for task in relevant if task.status == "running"), None)
+        waiting_task = next((task for task in relevant if task.status in {"queued", "pending"}), None)
+        failed_task = next((task for task in relevant if task.status == "failed"), None)
+        all_canceled = total > 0 and all(task.status == "canceled" for task in relevant)
+
+        main_status = "pending"
+        sub_status = "Waiting to be picked up"
+        current_step = self._step_label(waiting_task.step_name) if waiting_task is not None else ""
+
+        if failed_task is not None or all_canceled:
+            main_status = "failure"
+            sub_status = "Canceled" if all_canceled else str(failed_task.error_summary or f"{self._step_label(failed_task.step_name)} failed")
+            current_step = self._step_label(failed_task.step_name) if failed_task is not None else current_step
+        elif total > 0 and counts["completed"] == total:
+            main_status = "completed"
+            sub_status = "All requested images are ready"
+            current_step = ""
+        elif running_task is not None:
+            main_status = "running"
+            sub_status = f"Creating {self._step_label(running_task.step_name)}"
+            current_step = self._step_label(running_task.step_name)
+        elif counts["completed"] > 0 or item.shadow_run_id:
+            main_status = "running"
+            sub_status = (
+                f"Waiting for {self._step_label(waiting_task.step_name)}"
+                if waiting_task is not None
+                else "Preparing next step"
+            )
+            current_step = self._step_label(waiting_task.step_name) if waiting_task is not None else ""
+
+        return {
+            "main_status": main_status,
+            "sub_status": sub_status,
+            "current_step": current_step,
+            "progress": {
+                "completed": counts["completed"],
+                "total": total,
+                "running": counts["running"],
+                "waiting": counts["queued"] + counts["pending"],
+                "failed": counts["failed"],
+                "canceled": counts["canceled"],
+            },
+        }
+
     def _update_item_status(self, item: CsvJobItem) -> CsvJobItem:
         tasks = [task for task in self.repo.list_csv_tasks(item.csv_job_id) if task.csv_job_item_id == item.id]
         statuses = [task.status for task in tasks]
@@ -310,7 +375,7 @@ class CsvDagService:
             first_failure = next((task for task in tasks if task.status == "failed"), None)
             return self.repo.update_csv_job_item(item, status="failed", error_detail=first_failure.error_summary if first_failure else "Task failed")
         if any(status == "queued" for status in statuses):
-            next_status = "canceled" if all(status == "canceled" for status in statuses) else "queued"
+            next_status = "running" if item.shadow_run_id or any(status in {"completed", "canceled"} for status in statuses) else "queued"
             return self.repo.update_csv_job_item(item, status=next_status, error_detail="")
         if any(status == "canceled" for status in statuses):
             return self.repo.update_csv_job_item(item, status="canceled", error_detail="Canceled by user")
@@ -348,8 +413,9 @@ class CsvDagService:
 
         try:
             shadow_run = self._ensure_shadow_run(item, job)
+            storage_prefix = self._storage_prefix(job, item)
             if task.step_name == "step1_base":
-                completed_run = runner.process_base_run(shadow_run.id)
+                completed_run = runner.process_base_run(shadow_run.id, storage_prefix=storage_prefix)
                 winner_attempt = max(1, int(completed_run.optimization_attempt or 1))
                 regular_asset = next(
                     (asset for asset in self.repo.run_snapshot(shadow_run.id)[2] if asset.stage_name == "stage3_upgraded" and int(asset.attempt or 0) == winner_attempt),
@@ -411,6 +477,7 @@ class CsvDagService:
                     image_size=str(snapshot.get("image_resolution") or self.repo.get_runtime_config().image_resolution),
                     image_format=str(snapshot.get("image_format") or self.repo.get_runtime_config().image_format),
                     nano_banana_safety_level=str(snapshot.get("nano_banana_safety_level") or getattr(self.repo.get_runtime_config(), "nano_banana_safety_level", "default")),
+                    storage_prefix=storage_prefix,
                 )
                 regular_asset = created["regular_asset"]
                 white_bg_asset = created["white_bg_asset"]
@@ -493,9 +560,13 @@ class CsvDagService:
         if overview is None:
             return None
         job = overview["job"]
+        tasks = overview["tasks"]
         items_payload: list[dict[str, Any]] = []
+        word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0}
         for item in overview["items"]:
             entry = self.repo.get_entry(item.entry_id)
+            item_progress = self._item_progress_payload(item, tasks)
+            word_counts[item_progress["main_status"]] += 1
             items_payload.append(
                 {
                     "id": item.id,
@@ -509,6 +580,10 @@ class CsvDagService:
                     "shadow_run_id": item.shadow_run_id,
                     "base_regular_asset_id": item.base_regular_asset_id,
                     "base_white_bg_asset_id": item.base_white_bg_asset_id,
+                    "main_status": item_progress["main_status"],
+                    "sub_status": item_progress["sub_status"],
+                    "current_step": item_progress["current_step"],
+                    "progress": item_progress["progress"],
                     "created_at": item.created_at,
                     "updated_at": item.updated_at,
                 }
@@ -542,21 +617,42 @@ class CsvDagService:
             "issues_by_step": overview.get("issues_by_step", {}),
             "items": items_payload,
             "tasks": tasks_payload,
+            "word_counts": word_counts,
             "export_ready": job.status in {"completed", "failed", "canceled"},
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }
 
     def export_job(self, job_id: str) -> dict[str, Any]:
-        InventorySyncService(self.db).sync_csv_job(job_id)
+        inventory_service = InventorySyncService(self.db)
+        inventory_service.sync_csv_job(job_id)
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
         job = overview["job"]
         rows = overview["items"]
         tasks = overview["tasks"]
+        serialized_overview = self.job_overview(job_id) or {}
+        serialized_items = list(serialized_overview.get("items") or [])
+        if not serialized_items:
+            serialized_items = []
+            for item in rows:
+                entry = self.repo.get_entry(item.entry_id)
+                serialized_items.append(
+                    {
+                        "row_index": item.row_index,
+                        "word": entry.word if entry else "",
+                        "part_of_sentence": entry.part_of_sentence if entry else "",
+                        "category": entry.category if entry else "",
+                        "status": item.status,
+                        "shadow_run_id": item.shadow_run_id,
+                        "base_regular_asset_id": item.base_regular_asset_id,
+                        "base_white_bg_asset_id": item.base_white_bg_asset_id,
+                    }
+                )
         export_dir = exports_root() / sanitize_filename(job.id)
         export_dir.mkdir(parents=True, exist_ok=True)
         summary_csv = export_dir / "job_summary.csv"
+        inventory_csv = export_dir / "word_inventory.csv"
         manifest_path = export_dir / "manifest.json"
         zip_filename = self.export_zip_name(job.batch_id)
         zip_path = export_dir / zip_filename
@@ -574,26 +670,46 @@ class CsvDagService:
                     "part_of_sentence",
                     "category",
                     "status",
+                    "progress",
+                    "current_step",
+                    "sub_status",
                     "shadow_run_id",
                     "base_regular_asset_id",
                     "base_white_bg_asset_id",
                 ],
             )
             writer.writeheader()
-            for item in rows:
-                entry = self.repo.get_entry(item.entry_id)
+            for item in serialized_items:
+                progress = item.get("progress") or {}
                 writer.writerow(
                     {
-                        "row_index": item.row_index,
-                        "word": entry.word if entry else "",
-                        "part_of_sentence": entry.part_of_sentence if entry else "",
-                        "category": entry.category if entry else "",
-                        "status": item.status,
-                        "shadow_run_id": item.shadow_run_id or "",
-                        "base_regular_asset_id": item.base_regular_asset_id or "",
-                        "base_white_bg_asset_id": item.base_white_bg_asset_id or "",
+                        "row_index": item.get("row_index") or "",
+                        "word": item.get("word") or "",
+                        "part_of_sentence": item.get("part_of_sentence") or "",
+                        "category": item.get("category") or "",
+                        "status": item.get("main_status") or item.get("status") or "",
+                        "progress": f"{progress.get('completed', 0)}/{progress.get('total', 0)}",
+                        "current_step": item.get("current_step") or "",
+                        "sub_status": item.get("sub_status") or "",
+                        "shadow_run_id": item.get("shadow_run_id") or "",
+                        "base_regular_asset_id": item.get("base_regular_asset_id") or "",
+                        "base_white_bg_asset_id": item.get("base_white_bg_asset_id") or "",
                     }
                 )
+
+        inventory_rows = inventory_service.build_export_rows(job_id)
+        inventory_fieldnames = list(inventory_rows[0].keys()) if inventory_rows else [
+            "row_index",
+            "word",
+            "part_of_sentence",
+            "category",
+            "job_status",
+        ]
+        with inventory_csv.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=inventory_fieldnames)
+            writer.writeheader()
+            for row in inventory_rows:
+                writer.writerow(row)
 
         manifest_payload = {
             "job": self._serialize_job(job, overview),
@@ -626,6 +742,7 @@ class CsvDagService:
 
         with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(summary_csv, arcname="job_summary.csv")
+            archive.write(inventory_csv, arcname="word_inventory.csv")
             archive.write(manifest_path, arcname="manifest.json")
             for item in rows:
                 entry = self.repo.get_entry(item.entry_id)
@@ -644,6 +761,7 @@ class CsvDagService:
 
         stored_zip = persist_export_artifact(job.id, zip_filename, zip_path.read_bytes(), content_type="application/zip")
         persist_export_artifact(job.id, "job_summary.csv", summary_csv.read_bytes(), content_type="text/csv")
+        persist_export_artifact(job.id, "word_inventory.csv", inventory_csv.read_bytes(), content_type="text/csv")
         persist_export_artifact(job.id, "manifest.json", manifest_path.read_bytes(), content_type="application/json")
         return {
             "job_id": job.id,

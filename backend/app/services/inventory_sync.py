@@ -100,6 +100,41 @@ class InventorySyncService:
             **slot_values,
         }
 
+    def build_export_rows(self, csv_job_id: str) -> list[dict[str, object]]:
+        overview = self.repo.csv_job_overview(csv_job_id)
+        if overview is None:
+            return []
+        job = overview["job"]
+        items: list[CsvJobItem] = overview["items"]
+        tasks: list[CsvTaskNode] = overview["tasks"]
+        tasks_by_item: dict[str, list[CsvTaskNode]] = {}
+        for task in tasks:
+            tasks_by_item.setdefault(task.csv_job_item_id, []).append(task)
+
+        rows: list[dict[str, object]] = []
+        for item in items:
+            entry = self.repo.get_entry(item.entry_id)
+            if entry is None:
+                continue
+            payload = self._row_payload(job=job, item=item, entry=entry, tasks=tasks_by_item.get(item.id, []))
+            export_row: dict[str, object] = {
+                "row_index": item.row_index,
+                "word": entry.word,
+                "part_of_sentence": entry.part_of_sentence,
+                "category": entry.category,
+                "context": entry.context,
+                "job_status": item.status,
+                "fully_complete": bool(payload.get("fully_complete")),
+                "missing_slots_json": payload.get("missing_slots_json", "[]"),
+                "failure_reasons_json": payload.get("failure_reasons_json", "[]"),
+            }
+            for column in word_inventory.columns:
+                name = str(column.name)
+                if name.endswith("_path"):
+                    export_row[name] = payload.get(name, "")
+            rows.append(export_row)
+        return rows
+
     def sync_csv_job(self, csv_job_id: str) -> int:
         if inventory_engine is None:
             return 0

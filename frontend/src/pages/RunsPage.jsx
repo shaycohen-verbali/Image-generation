@@ -47,7 +47,7 @@ function isTerminalCsvJobStatus(status) {
 
 function csvItemTaskSummary(tasks, itemId) {
   const relevant = (Array.isArray(tasks) ? tasks : []).filter((task) => task.csv_job_item_id === itemId)
-  const counts = { queued: 0, running: 0, completed: 0, failed: 0, canceled: 0 }
+  const counts = { pending: 0, queued: 0, running: 0, completed: 0, failed: 0, canceled: 0 }
   relevant.forEach((task) => {
     const key = String(task.status || '').toLowerCase()
     if (Object.prototype.hasOwnProperty.call(counts, key)) {
@@ -55,6 +55,133 @@ function csvItemTaskSummary(tasks, itemId) {
     }
   })
   return counts
+}
+
+const CSV_STEP_LABELS = {
+  step1_base: 'Base images',
+  step2_male_age: 'Male age variant',
+  step3_female_white: 'Female white variant',
+  step4_race_variant: 'Race variant',
+}
+
+function csvStepLabel(stepName) {
+  return CSV_STEP_LABELS[String(stepName || '').trim()] || String(stepName || 'Unknown step')
+}
+
+function csvJobMainStatus(rawStatus) {
+  const value = String(rawStatus || '').toLowerCase()
+  if (value === 'completed') return { main: 'completed', sub: 'All rows finished' }
+  if (value === 'failed') return { main: 'failure', sub: 'One or more rows failed' }
+  if (value === 'canceled') return { main: 'failure', sub: 'Canceled' }
+  if (value === 'cancel_requested') return { main: 'running', sub: 'Stopping after active work finishes' }
+  if (['queued', 'retry_queued', 'imported'].includes(value)) return { main: 'pending', sub: 'Waiting to be picked up' }
+  return { main: 'running', sub: 'Work is in progress' }
+}
+
+function csvPrettyStatus(status) {
+  const value = String(status || '').trim()
+  if (!value) return '-'
+  if (value === 'failure') return 'Failure'
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function csvProfileSummary(profileKey) {
+  const [gender, age, skinColor] = String(profileKey || '').split(':')
+  return [age, gender, skinColor].filter(Boolean).join(' ')
+}
+
+function csvTaskProgressSummary(tasks, itemId) {
+  const relevant = (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => task.csv_job_item_id === itemId)
+    .sort((left, right) => String(left.created_at || '').localeCompare(String(right.created_at || '')))
+  const counts = csvItemTaskSummary(relevant, itemId)
+  const total = relevant.length
+  const completed = counts.completed
+  const runningTask = relevant.find((task) => String(task.status || '').toLowerCase() === 'running')
+  const waitingTask = relevant.find((task) => ['queued', 'pending'].includes(String(task.status || '').toLowerCase()))
+  const failedTask = relevant.find((task) => String(task.status || '').toLowerCase() === 'failed')
+  const allCanceled = total > 0 && relevant.every((task) => String(task.status || '').toLowerCase() === 'canceled')
+
+  let mainStatus = 'pending'
+  let subStatus = 'Waiting to be picked up'
+  let currentStep = waitingTask ? csvStepLabel(waitingTask.step_name) : ''
+
+  if (failedTask || allCanceled) {
+    mainStatus = 'failure'
+    subStatus = allCanceled ? 'Canceled' : failedTask?.error_summary || `${csvStepLabel(failedTask?.step_name)} failed`
+    currentStep = failedTask ? csvStepLabel(failedTask.step_name) : currentStep
+  } else if (total > 0 && completed === total) {
+    mainStatus = 'completed'
+    subStatus = 'All requested images are ready'
+    currentStep = ''
+  } else if (runningTask) {
+    mainStatus = 'running'
+    subStatus = `Creating ${csvStepLabel(runningTask.step_name)}`
+    currentStep = csvStepLabel(runningTask.step_name)
+  } else if (completed > 0) {
+    mainStatus = 'running'
+    subStatus = waitingTask ? `Waiting for ${csvStepLabel(waitingTask.step_name)}` : 'Preparing next step'
+    currentStep = waitingTask ? csvStepLabel(waitingTask.step_name) : ''
+  }
+
+  return {
+    counts,
+    total,
+    completed,
+    failed: counts.failed,
+    canceled: counts.canceled,
+    waiting: counts.queued + counts.pending,
+    mainStatus,
+    subStatus,
+    currentStep,
+  }
+}
+
+function csvJobWordSummary(items, tasks) {
+  const counts = { pending: 0, running: 0, completed: 0, failure: 0 }
+  ;(Array.isArray(items) ? items : []).forEach((item) => {
+    const state = csvTaskProgressSummary(tasks, item.id)
+    counts[state.mainStatus] += 1
+  })
+  return counts
+}
+
+function csvItemImages(item, tasks) {
+  const images = []
+  const seen = new Set()
+  const addImage = (payload) => {
+    const key = `${payload.id}:${payload.kind}`
+    if (!payload.id || seen.has(key)) return
+    seen.add(key)
+    images.push(payload)
+  }
+  if (item?.base_regular_asset_id) {
+    addImage({ id: item.base_regular_asset_id, label: 'Base regular', kind: 'regular' })
+  }
+  if (item?.base_white_bg_asset_id) {
+    addImage({ id: item.base_white_bg_asset_id, label: 'Base white background', kind: 'white_bg' })
+  }
+  ;(Array.isArray(tasks) ? tasks : []).forEach((task) => {
+    const profile = csvProfileSummary(task.profile_key)
+    const baseLabel = `${profile || csvStepLabel(task.step_name)}`
+    if (task.regular_asset_id) {
+      addImage({
+        id: task.regular_asset_id,
+        label: `${baseLabel} regular`,
+        kind: 'regular',
+        stepLabel: csvStepLabel(task.step_name),
+      })
+    }
+    if (task.white_bg_asset_id) {
+      addImage({
+        id: task.white_bg_asset_id,
+        label: `${baseLabel} white background`,
+        kind: 'white_bg',
+        stepLabel: csvStepLabel(task.step_name),
+      })
+    }
+  })
+  return images
 }
 
 function shouldPollRuns(runs) {
@@ -164,6 +291,7 @@ export default function RunsPage() {
   const [csvJobs, setCsvJobs] = useState([])
   const [selectedCsvJobId, setSelectedCsvJobId] = useState('')
   const [csvJobOverview, setCsvJobOverview] = useState(null)
+  const [selectedCsvItemId, setSelectedCsvItemId] = useState('')
   const [pageVisible, setPageVisible] = useState(() => {
     if (typeof document === 'undefined') return true
     return document.visibilityState !== 'hidden'
@@ -234,16 +362,23 @@ export default function RunsPage() {
   )
   const csvJobItems = Array.isArray(csvJobOverview?.items) ? csvJobOverview.items : []
   const csvJobTasks = Array.isArray(csvJobOverview?.tasks) ? csvJobOverview.tasks : []
-  const csvJobLiveCounts = useMemo(() => {
-    const counts = { queued: 0, running: 0, completed: 0, failed: 0, canceled: 0 }
-    csvJobItems.forEach((item) => {
-      const key = String(item.status || '').toLowerCase()
-      if (Object.prototype.hasOwnProperty.call(counts, key)) {
-        counts[key] += 1
-      }
-    })
-    return counts
-  }, [csvJobItems])
+  const csvJobLiveCounts = useMemo(() => csvJobWordSummary(csvJobItems, csvJobTasks), [csvJobItems, csvJobTasks])
+  const selectedCsvItem = useMemo(
+    () => csvJobItems.find((item) => item.id === selectedCsvItemId) || csvJobItems[0] || null,
+    [csvJobItems, selectedCsvItemId]
+  )
+  const selectedCsvItemTasks = useMemo(
+    () => csvJobTasks.filter((task) => task.csv_job_item_id === selectedCsvItem?.id),
+    [csvJobTasks, selectedCsvItem?.id]
+  )
+  const selectedCsvItemProgress = useMemo(
+    () => (selectedCsvItem ? csvTaskProgressSummary(csvJobTasks, selectedCsvItem.id) : null),
+    [csvJobTasks, selectedCsvItem]
+  )
+  const selectedCsvItemImages = useMemo(
+    () => csvItemImages(selectedCsvItem, selectedCsvItemTasks),
+    [selectedCsvItem, selectedCsvItemTasks]
+  )
 
   async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
     if (!runId) return
@@ -435,6 +570,7 @@ export default function RunsPage() {
   useEffect(() => {
     if (!selectedCsvJobId) {
       setCsvJobOverview(null)
+      setSelectedCsvItemId('')
       return undefined
     }
     loadCsvJobDetail(selectedCsvJobId)
@@ -446,6 +582,16 @@ export default function RunsPage() {
     }, DETAIL_POLL_WAITING_MS)
     return () => clearInterval(timer)
   }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status])
+
+  useEffect(() => {
+    if (!csvJobItems.length) {
+      setSelectedCsvItemId('')
+      return
+    }
+    if (!selectedCsvItemId || !csvJobItems.some((item) => item.id === selectedCsvItemId)) {
+      setSelectedCsvItemId(csvJobItems[0].id)
+    }
+  }, [csvJobItems, selectedCsvItemId])
 
   useEffect(() => {
     if (!pageVisible) return undefined
@@ -720,10 +866,18 @@ export default function RunsPage() {
                   <tr
                     key={job.id}
                     className={job.id === selectedCsvJobId ? 'selected-row' : 'clickable-row'}
-                    onClick={() => setSelectedCsvJobId(job.id)}
+                    onClick={() => {
+                      setSelectedCsvJobId(job.id)
+                      setSelectedCsvItemId('')
+                    }}
                   >
                     <td>{job.batch_id}</td>
-                    <td>{job.status}</td>
+                    <td>
+                      <div className="status-stack">
+                        <strong>{csvPrettyStatus(csvJobMainStatus(job.status).main)}</strong>
+                        <span>{csvJobMainStatus(job.status).sub}</span>
+                      </div>
+                    </td>
                     <td>{job.total_row_count}</td>
                     <td>{job.duration_seconds ? `${Math.round(job.duration_seconds)}s` : '-'}</td>
                     <td>{job.started_at ? new Date(job.started_at).toLocaleString() : '-'}</td>
@@ -776,7 +930,8 @@ export default function RunsPage() {
                 </div>
                 <div>
                   <strong>Status</strong>
-                  <p>{csvJobOverview.job.status}</p>
+                  <p>{csvPrettyStatus(csvJobMainStatus(csvJobOverview.job.status).main)}</p>
+                  <small>{csvJobMainStatus(csvJobOverview.job.status).sub}</small>
                 </div>
                 <div>
                   <strong>Timer</strong>
@@ -788,11 +943,10 @@ export default function RunsPage() {
                 </div>
               </div>
               <div className="csv-job-live-strip">
-                <span>Queued {csvJobLiveCounts.queued}</span>
+                <span>Pending {csvJobLiveCounts.pending}</span>
                 <span>Running {csvJobLiveCounts.running}</span>
                 <span>Completed {csvJobLiveCounts.completed}</span>
-                <span>Failed {csvJobLiveCounts.failed}</span>
-                <span>Canceled {csvJobLiveCounts.canceled}</span>
+                <span>Failure {csvJobLiveCounts.failure}</span>
               </div>
               <h4>Words Live</h4>
               <div className="table-wrap runs-table-wrap">
@@ -804,29 +958,32 @@ export default function RunsPage() {
                       <th>POS</th>
                       <th>Category</th>
                       <th>Status</th>
-                      <th>Shadow Run</th>
-                      <th>Tasks</th>
+                      <th>Progress</th>
+                      <th>Current step</th>
                       <th>Error</th>
                     </tr>
                   </thead>
                   <tbody>
                     {csvJobItems.map((item) => {
-                      const taskCounts = csvItemTaskSummary(csvJobTasks, item.id)
+                      const progress = csvTaskProgressSummary(csvJobTasks, item.id)
                       return (
-                        <tr key={item.id}>
+                        <tr
+                          key={item.id}
+                          className={item.id === selectedCsvItem?.id ? 'selected-row' : 'clickable-row'}
+                          onClick={() => setSelectedCsvItemId(item.id)}
+                        >
                           <td>{item.row_index}</td>
                           <td>{item.word || '-'}</td>
                           <td>{item.part_of_sentence || '-'}</td>
                           <td>{item.category || '-'}</td>
-                          <td>{item.status}</td>
-                          <td>{item.shadow_run_id || '-'}</td>
                           <td>
-                            {taskCounts.completed} done
-                            {taskCounts.running ? `, ${taskCounts.running} running` : ''}
-                            {taskCounts.queued ? `, ${taskCounts.queued} queued` : ''}
-                            {taskCounts.failed ? `, ${taskCounts.failed} failed` : ''}
-                            {taskCounts.canceled ? `, ${taskCounts.canceled} canceled` : ''}
+                            <div className="status-stack">
+                              <strong>{csvPrettyStatus(progress.mainStatus)}</strong>
+                              <span>{progress.subStatus}</span>
+                            </div>
                           </td>
+                          <td>{progress.completed}/{progress.total}</td>
+                          <td>{progress.currentStep || '-'}</td>
                           <td>{item.error_detail || '-'}</td>
                         </tr>
                       )
@@ -834,6 +991,57 @@ export default function RunsPage() {
                   </tbody>
                 </table>
               </div>
+              {selectedCsvItem ? (
+                <div className="csv-word-detail">
+                  <div className="csv-word-detail-head">
+                    <div>
+                      <h4>{selectedCsvItem.word || 'Selected word'}</h4>
+                      <p>
+                        Row {selectedCsvItem.row_index} · {selectedCsvItem.part_of_sentence || 'POS n/a'} · {selectedCsvItem.category || 'Category n/a'}
+                      </p>
+                    </div>
+                    <div className="status-stack">
+                      <strong>{selectedCsvItemProgress ? csvPrettyStatus(selectedCsvItemProgress.mainStatus) : '-'}</strong>
+                      <span>{selectedCsvItemProgress?.subStatus || '-'}</span>
+                    </div>
+                  </div>
+                  <div className="csv-word-meta-grid">
+                    <div>
+                      <strong>Progress</strong>
+                      <p>{selectedCsvItemProgress ? `${selectedCsvItemProgress.completed}/${selectedCsvItemProgress.total} steps finished` : '-'}</p>
+                    </div>
+                    <div>
+                      <strong>Current step</strong>
+                      <p>{selectedCsvItemProgress?.currentStep || '-'}</p>
+                    </div>
+                    <div>
+                      <strong>Shadow run</strong>
+                      <p>{selectedCsvItem.shadow_run_id || '-'}</p>
+                    </div>
+                    <div>
+                      <strong>Error</strong>
+                      <p>{selectedCsvItem.error_detail || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="csv-word-image-grid">
+                    {selectedCsvItemImages.length ? (
+                      selectedCsvItemImages.map((image) => (
+                        <article key={`${selectedCsvItem.id}:${image.id}:${image.label}`} className="csv-word-image-card">
+                          <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
+                          <div className="csv-word-image-meta">
+                            <strong>{image.label}</strong>
+                            <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
+                              Open image
+                            </a>
+                          </div>
+                        </article>
+                      ))
+                    ) : (
+                      <p>No images have been created for this word yet.</p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
               <h4>Per-step counts</h4>
               <pre>{JSON.stringify(csvJobOverview.step_counts, null, 2)}</pre>
               <h4>Issues by step</h4>

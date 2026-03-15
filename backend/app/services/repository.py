@@ -979,6 +979,9 @@ class Repository:
                 self.update_csv_job(job, status="running", started_at=datetime.utcnow(), error_detail="")
             elif job and job.status in {"queued", "imported", "retry_queued"}:
                 self.update_csv_job(job, status="running", error_detail="")
+            item = self.get_csv_job_item(claimed.csv_job_item_id)
+            if item is not None and item.status in {"pending", "queued"}:
+                self.update_csv_job_item(item, status="running", error_detail="")
             return claimed
         return None
 
@@ -1042,7 +1045,12 @@ class Repository:
         if any(status == "running" for status in statuses):
             return self.update_csv_job(job, status="running")
         if any(status == "queued" for status in statuses):
-            next_status = "cancel_requested" if job.status == "cancel_requested" else "queued"
+            if job.status == "cancel_requested":
+                next_status = "cancel_requested"
+            elif job.started_at is not None or any(status in {"completed", "failed", "canceled"} for status in statuses):
+                next_status = "running"
+            else:
+                next_status = "queued"
             return self.update_csv_job(job, status=next_status)
         if job.status == "cancel_requested" and any(status == "canceled" for status in statuses):
             return self.update_csv_job(job, status="canceled", finished_at=datetime.utcnow(), error_detail="Canceled by user")

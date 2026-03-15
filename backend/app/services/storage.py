@@ -126,12 +126,20 @@ def write_image(run_id: str, filename: str, image_bytes: bytes) -> Path:
     return path
 
 
-def persist_run_image(run_id: str, filename: str, image_bytes: bytes, *, mime_type: str) -> StoredObject:
+def persist_run_image(
+    run_id: str,
+    filename: str,
+    image_bytes: bytes,
+    *,
+    mime_type: str,
+    storage_prefix: str | None = None,
+) -> StoredObject:
     local_path = write_image(run_id, filename, image_bytes)
     if storage_backend() != "supabase":
         return StoredObject(local_path=local_path, persisted_path=local_path.as_posix())
 
-    object_key = f"runs/{sanitize_filename(run_id)}/{sanitize_filename(filename)}"
+    normalized_prefix = str(storage_prefix or f"runs/{sanitize_filename(run_id)}").strip().strip("/")
+    object_key = f"{normalized_prefix}/{sanitize_filename(filename)}"
     persisted_path = _upload_to_supabase(settings.supabase_image_bucket, object_key, image_bytes, content_type=mime_type)
     return StoredObject(
         local_path=local_path,

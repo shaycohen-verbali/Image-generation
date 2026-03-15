@@ -305,6 +305,15 @@ class CsvJobTaskOut(BaseModel):
     updated_at: datetime
 
 
+class CsvJobItemProgressOut(BaseModel):
+    completed: int = 0
+    total: int = 0
+    running: int = 0
+    waiting: int = 0
+    failed: int = 0
+    canceled: int = 0
+
+
 class CsvJobItemOut(BaseModel):
     id: str
     entry_id: str
@@ -317,6 +326,10 @@ class CsvJobItemOut(BaseModel):
     shadow_run_id: str | None = None
     base_regular_asset_id: str | None = None
     base_white_bg_asset_id: str | None = None
+    main_status: str = "pending"
+    sub_status: str = ""
+    current_step: str = ""
+    progress: CsvJobItemProgressOut = Field(default_factory=CsvJobItemProgressOut)
     created_at: datetime
     updated_at: datetime
 
@@ -327,6 +340,7 @@ class CsvJobOverviewOut(BaseModel):
     issues_by_step: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     items: list[CsvJobItemOut] = Field(default_factory=list)
     tasks: list[CsvJobTaskOut] = Field(default_factory=list)
+    word_counts: dict[str, int] = Field(default_factory=dict)
     export_ready: bool = False
     export_id: str | None = None
 
