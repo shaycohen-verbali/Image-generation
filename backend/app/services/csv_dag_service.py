@@ -184,9 +184,18 @@ class CsvDagService:
                 and inventory_service.slot_path_for_entry_profile(entry, p, background="white_bg")
             )
 
+        # The base (male, kid, white) is the root of every dependency chain.
+        # Always include it so variants have something to depend on, even when
+        # the user didn't explicitly request that combination.
+        base_profile = {"gender": DEFAULT_GENDER, "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
+        base_pk = profile_key(base_profile)
+        profiles_to_process = list(requested_profiles)
+        if base_pk not in {profile_key(p) for p in requested_profiles}:
+            profiles_to_process.insert(0, base_profile)
+
         # Profiles whose regular image already exists in inventory are immediately available
         available_regular: set[str] = {
-            profile_key(p) for p in requested_profiles if inventory_regular_available(p)
+            profile_key(p) for p in profiles_to_process if inventory_regular_available(p)
         }
 
         def _create_spec(p: dict[str, str], source_p: dict[str, str] | None, dep_task_key: str | None) -> str:
@@ -236,7 +245,7 @@ class CsvDagService:
             return depth
 
         # Process profiles shallowest-dependency-first so intermediates are scheduled before dependents
-        for prof in sorted(requested_profiles, key=_dep_depth):
+        for prof in sorted(profiles_to_process, key=_dep_depth):
             pk = profile_key(prof)
 
             if pk in spec_by_profile_key:
