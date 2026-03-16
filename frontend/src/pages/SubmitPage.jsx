@@ -44,7 +44,7 @@ export default function SubmitPage() {
   const [lastEntryId, setLastEntryId] = useState('')
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
-  const [csvExecutionMode, setCsvExecutionMode] = useState('legacy')
+  const [csvExecutionMode, setCsvExecutionMode] = useState('csv_dag')
   const [runWorkerCount, setRunWorkerCount] = useState(1)
   const [variantWorkerCount, setVariantWorkerCount] = useState(2)
   const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')

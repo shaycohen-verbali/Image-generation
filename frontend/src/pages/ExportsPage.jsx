@@ -26,6 +26,19 @@ function formatLocalDateTime(value) {
   }).format(date)
 }
 
+function exportSourceSummary(item) {
+  const filter = item?.filter_json || {}
+  const runIds = Array.isArray(filter.run_ids) ? filter.run_ids.filter(Boolean) : []
+  const entryIds = Array.isArray(filter.entry_ids) ? filter.entry_ids.filter(Boolean) : []
+  if (runIds.length === 1) return `Run ${runIds[0]}`
+  if (runIds.length > 1) return `${runIds.length} runs`
+  if (entryIds.length === 1) return `Entry ${entryIds[0]}`
+  if (entryIds.length > 1) return `${entryIds.length} entries`
+  const statuses = Array.isArray(filter.status) ? filter.status.filter(Boolean) : []
+  if (statuses.length === 1) return `Status ${statuses[0]}`
+  return 'Legacy export'
+}
+
 export default function ExportsPage() {
   const [sourceMode, setSourceMode] = useState('legacy_run')
   const [statusFilter, setStatusFilter] = useState('')
@@ -48,23 +61,44 @@ export default function ExportsPage() {
   )
 
   const refreshData = async () => {
-    try {
-      const [runsData, csvJobsData, exportsData] = await Promise.all([listRuns(), listCsvJobs(), listExports()])
+    const [runsResult, csvJobsResult, exportsResult] = await Promise.allSettled([listRuns(), listCsvJobs(), listExports()])
+
+    if (runsResult.status === 'fulfilled') {
+      const runsData = runsResult.value
       setRuns(runsData)
-      setCsvJobs(csvJobsData)
-      setExportsList(exportsData)
       if (!selectedRunId && runsData.length) {
         setSelectedRunId(runsData[0].id)
       }
+    } else {
+      setRuns([])
+    }
+
+    if (csvJobsResult.status === 'fulfilled') {
+      const csvJobsData = csvJobsResult.value
+      setCsvJobs(csvJobsData)
       if (!selectedCsvJobId && csvJobsData.length) {
         setSelectedCsvJobId(csvJobsData[0].id)
       }
+    } else {
+      setCsvJobs([])
+    }
+
+    if (exportsResult.status === 'fulfilled') {
+      const exportsData = exportsResult.value
+      setExportsList(exportsData)
       if (!selectedExportId && exportsData.length) {
         setSelectedExportId(exportsData[0].id)
         setExportDetail(exportsData[0])
       }
-    } catch (error) {
-      setMessage(`Error: ${error.message}`)
+    } else {
+      setExportsList([])
+    }
+
+    const failures = [runsResult, csvJobsResult, exportsResult]
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason?.message || 'Failed to fetch')
+    if (failures.length) {
+      setMessage(`Error: ${failures.join(' | ')}`)
     }
   }
 
@@ -146,15 +180,15 @@ export default function ExportsPage() {
           {sourceMode === 'csv_job' ? (
             <label>
               Pick a CSV job
-              <select value={selectedCsvJobId} onChange={(e) => setSelectedCsvJobId(e.target.value)}>
-                <option value="">Select a CSV job</option>
-                {csvJobs.map((job) => (
-                  <option key={job.id} value={job.id}>
-                    {`${job.batch_id} · ${job.status} · ${formatLocalDateTime(job.created_at)}`}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <select value={selectedCsvJobId} onChange={(e) => setSelectedCsvJobId(e.target.value)}>
+                  <option value="">Select a CSV job</option>
+                  {csvJobs.map((job) => (
+                    <option key={job.id} value={job.id}>
+                      {`${job.id} · ${job.batch_id} · ${job.status} · ${formatLocalDateTime(job.created_at)}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
           ) : (
             <>
               <label>
@@ -163,7 +197,7 @@ export default function ExportsPage() {
                   <option value="">All legacy runs</option>
                   {runs.map((run) => (
                     <option key={run.id} value={run.id}>
-                      {`${run.word || 'word'} · ${run.part_of_sentence || 'pos'} · ${run.category || 'category'} · ${formatLocalDateTime(run.created_at)}`}
+                      {`${run.id} · ${run.word || 'word'} · ${run.part_of_sentence || 'pos'} · ${run.category || 'category'} · ${formatLocalDateTime(run.created_at)}`}
                     </option>
                   ))}
                 </select>
@@ -188,14 +222,14 @@ export default function ExportsPage() {
         {sourceMode === 'csv_job' ? (
           selectedCsvJob ? (
             <p className="config-help-text">
-              Selected CSV job: {selectedCsvJob.batch_id} · {selectedCsvJob.status} · {formatLocalDateTime(selectedCsvJob.created_at)}
+              Selected CSV job: {selectedCsvJob.id} · {selectedCsvJob.batch_id} · {selectedCsvJob.status} · {formatLocalDateTime(selectedCsvJob.created_at)}
             </p>
           ) : (
             <p className="config-help-text">Choose a CSV job to download its package zip directly.</p>
           )
         ) : selectedRun ? (
           <p className="config-help-text">
-            Selected run: {selectedRun.word} · {selectedRun.part_of_sentence} · {selectedRun.category || 'no category'} · {formatLocalDateTime(selectedRun.created_at)}
+            Selected run: {selectedRun.id} · {selectedRun.word} · {selectedRun.part_of_sentence} · {selectedRun.category || 'no category'} · {formatLocalDateTime(selectedRun.created_at)}
           </p>
         ) : runs.length === 0 ? (
           <p className="config-help-text">No legacy runs are available right now. Switch to CSV DAG job package if that is the flow you want to export.</p>
@@ -220,7 +254,7 @@ export default function ExportsPage() {
             <option value="">Select an export</option>
             {exportsList.map((item) => (
               <option key={item.id} value={item.id}>
-                {`${item.id} · ${item.status} · ${formatLocalDateTime(item.created_at)}`}
+                {`${item.id} · ${exportSourceSummary(item)} · ${item.status} · ${formatLocalDateTime(item.created_at)}`}
               </option>
             ))}
           </select>
@@ -232,6 +266,7 @@ export default function ExportsPage() {
         {exportDetail ? (
           <>
             <h3>Export {exportDetail.id}</h3>
+            <p>Source: <strong>{exportSourceSummary(exportDetail)}</strong></p>
             <p>Status: <strong>{exportDetail.status}</strong></p>
             <p>Created: {formatLocalDateTime(exportDetail.created_at)}</p>
 
