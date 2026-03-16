@@ -179,6 +179,43 @@ class Repository:
         self.db.refresh(entry)
         return entry
 
+    def create_entry_uncommitted(self, payload: dict[str, Any]) -> Entry:
+        entry_id = deterministic_entry_id(payload["word"], payload["part_of_sentence"], payload["category"])
+        row_hash = source_row_hash(payload)
+        gender_options = normalize_option_set(payload.get("person_gender_options", []), ("male", "female"), DEFAULT_GENDER)
+        age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+        skin_options = normalize_option_set(payload.get("person_skin_color_options", []), ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
+        existing = self.db.get(Entry, entry_id)
+        if existing is None:
+            with self.db.no_autoflush:
+                existing = self.db.execute(select(Entry).where(Entry.id == entry_id)).scalar_one_or_none()
+        if existing:
+            existing.context = payload.get("context", "").strip()
+            existing.boy_or_girl = gender_options[0]
+            existing.person_gender_options_json = dump_option_set(gender_options)
+            existing.person_age_options_json = dump_option_set(age_options)
+            existing.person_skin_color_options_json = dump_option_set(skin_options)
+            existing.batch = str(payload.get("batch", "")).strip()
+            existing.source_row_hash = row_hash
+            self.db.add(existing)
+            return existing
+
+        entry = Entry(
+            id=entry_id,
+            word=payload["word"].strip(),
+            part_of_sentence=payload["part_of_sentence"].strip(),
+            category=payload["category"].strip(),
+            context=payload.get("context", "").strip(),
+            boy_or_girl=gender_options[0],
+            person_gender_options_json=dump_option_set(gender_options),
+            person_age_options_json=dump_option_set(age_options),
+            person_skin_color_options_json=dump_option_set(skin_options),
+            batch=str(payload.get("batch", "")).strip(),
+            source_row_hash=row_hash,
+        )
+        self.db.add(entry)
+        return entry
+
     def update_entries_profile_options(
         self,
         *,
@@ -832,6 +869,25 @@ class Repository:
         self.db.refresh(item)
         return self._release_instance(item)
 
+    def create_csv_job_item_uncommitted(
+        self,
+        *,
+        csv_job_id: str,
+        entry_id: str,
+        row_index: int,
+        source_row: dict[str, Any],
+    ) -> CsvJobItem:
+        item = CsvJobItem(
+            csv_job_id=csv_job_id,
+            entry_id=entry_id,
+            row_index=row_index,
+            source_row_json=_dumps(source_row),
+            status="pending",
+        )
+        self.db.add(item)
+        self.db.flush()
+        return item
+
     def list_csv_job_items(self, csv_job_id: str) -> list[CsvJobItem]:
         return list(
             self.db.execute(
@@ -884,6 +940,37 @@ class Repository:
         self.db.commit()
         self.db.refresh(node)
         return self._release_instance(node)
+
+    def create_csv_task_node_uncommitted(
+        self,
+        *,
+        csv_job_id: str,
+        csv_job_item_id: str,
+        step_name: str,
+        task_key: str,
+        profile_key: str,
+        source_profile_key: str,
+        branch_role: str,
+        dependency_keys: list[str],
+        dependency_task_ids: list[str],
+        max_attempts: int = 2,
+        status: str = "pending",
+    ) -> CsvTaskNode:
+        node = CsvTaskNode(
+            csv_job_id=csv_job_id,
+            csv_job_item_id=csv_job_item_id,
+            step_name=step_name,
+            task_key=task_key,
+            profile_key=profile_key,
+            source_profile_key=source_profile_key,
+            branch_role=branch_role,
+            dependency_keys_json=_dumps(dependency_keys),
+            dependency_task_ids_json=_dumps(dependency_task_ids),
+            max_attempts=max(1, int(max_attempts)),
+            status=status,
+        )
+        self.db.add(node)
+        return node
 
     def list_csv_tasks(self, csv_job_id: str) -> list[CsvTaskNode]:
         return list(

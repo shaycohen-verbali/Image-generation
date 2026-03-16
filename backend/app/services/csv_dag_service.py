@@ -26,6 +26,9 @@ def _generated_batch_id() -> str:
     return f"csv_{stamp}_{uuid4().hex[:6]}"
 
 
+IMPORT_COMMIT_CHUNK_SIZE = 25
+
+
 def _json_default(value):
     if isinstance(value, (datetime, date)):
         return value.isoformat()
@@ -149,11 +152,10 @@ class CsvDagService:
                     }
                     specs.append(spec)
 
-        task_id_by_key: dict[str, str] = {}
         created_specs: list[dict[str, Any]] = []
         for spec in specs:
             dependency_keys = [key for key in spec["dependency_keys"] if key]
-            node = self.repo.create_csv_task_node(
+            node = self.repo.create_csv_task_node_uncommitted(
                 csv_job_id=item.csv_job_id,
                 csv_job_item_id=item.id,
                 step_name=spec["step_name"],
@@ -165,15 +167,16 @@ class CsvDagService:
                 dependency_task_ids=[],
                 status="pending",
             )
-            task_id_by_key[spec["task_key"]] = node.id
-            created_specs.append({**spec, "id": node.id})
+            created_specs.append({**spec, "node": node})
+
+        self.db.flush()
+        task_id_by_key = {spec["task_key"]: spec["node"].id for spec in created_specs}
 
         for spec in created_specs:
             dependency_ids = [task_id_by_key[key] for key in spec["dependency_keys"] if key in task_id_by_key]
             if dependency_ids:
-                task = self.repo.get_csv_task(spec["id"])
-                if task is not None:
-                    self.repo.update_csv_task(task, dependency_task_ids_json=json.dumps(dependency_ids, ensure_ascii=True))
+                spec["node"].dependency_task_ids_json = json.dumps(dependency_ids, ensure_ascii=True)
+                self.db.add(spec["node"])
         return created_specs
 
     def import_csv_job(
@@ -206,29 +209,41 @@ class CsvDagService:
         results: list[dict[str, Any]] = []
         imported_count = 0
         skipped_count = 0
-        for index, row in enumerate(rows, start=1):
-            error = validate_entry_row(row)
-            if error:
-                skipped_count += 1
-                results.append({"row_index": index, "status": "invalid", "error": error})
-                continue
-            payload = {
-                **row,
-                "batch": batch_id,
-                "person_gender_options": person_gender_options,
-                "person_age_options": person_age_options,
-                "person_skin_color_options": person_skin_color_options,
-            }
-            entry = self.repo.create_entry(payload)
-            item = self.repo.create_csv_job_item(
-                csv_job_id=job.id,
-                entry_id=entry.id,
-                row_index=index,
-                source_row=row,
-            )
-            self._build_task_specs(item, entry)
-            imported_count += 1
-            results.append({"row_index": index, "status": "imported", "entry_id": entry.id})
+        pending_rows_in_chunk = 0
+        try:
+            for index, row in enumerate(rows, start=1):
+                error = validate_entry_row(row)
+                if error:
+                    skipped_count += 1
+                    results.append({"row_index": index, "status": "invalid", "error": error})
+                    continue
+                payload = {
+                    **row,
+                    "batch": batch_id,
+                    "person_gender_options": person_gender_options,
+                    "person_age_options": person_age_options,
+                    "person_skin_color_options": person_skin_color_options,
+                }
+                entry = self.repo.create_entry_uncommitted(payload)
+                item = self.repo.create_csv_job_item_uncommitted(
+                    csv_job_id=job.id,
+                    entry_id=entry.id,
+                    row_index=index,
+                    source_row=row,
+                )
+                self._build_task_specs(item, entry)
+                imported_count += 1
+                pending_rows_in_chunk += 1
+                results.append({"row_index": index, "status": "imported", "entry_id": entry.id})
+
+                if pending_rows_in_chunk >= IMPORT_COMMIT_CHUNK_SIZE:
+                    self.db.commit()
+                    pending_rows_in_chunk = 0
+            if pending_rows_in_chunk:
+                self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
 
         if imported_count == 0:
             self.repo.update_csv_job(job, status="failed", error_detail="No valid CSV rows were imported", finished_at=datetime.utcnow())
