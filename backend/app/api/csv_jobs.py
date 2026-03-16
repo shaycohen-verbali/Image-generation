@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -151,13 +150,24 @@ def sync_csv_job_inventory(job_id: str, db: Session = Depends(db_dependency)) ->
     return CsvJobInventorySyncResponse(**result)
 
 
+_SAMPLE_CSV_CONTENT = (
+    "word,part of speech,category\n"
+    "soccer,noun,sport\n"
+    "soccer ball,noun,sport\n"
+    "bucket,noun,\n"
+    "play,verb,music\n"
+    "play,verb,game\n"
+    "hamburger,noun,food\n"
+)
+
+
 @router.get("/sample-csv")
 def download_sample_csv() -> PlainTextResponse:
-    csv_path = Path(__file__).parents[3] / "frontend" / "public" / "test_word_list.csv"
-    if not csv_path.exists():
-        raise HTTPException(status_code=404, detail="Sample CSV not found")
-    content = csv_path.read_text(encoding="utf-8")
-    return PlainTextResponse(content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=test_word_list.csv"})
+    return PlainTextResponse(
+        _SAMPLE_CSV_CONTENT,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=test_word_list.csv"},
+    )
 
 
 @router.get("/{job_id}/export/download")
