@@ -20,7 +20,6 @@ from app.schemas import (
     ExecutionMode,
 )
 from app.services.csv_dag_service import CsvDagService
-from app.services.person_profiles import DEFAULT_AGE, DEFAULT_GENDER, DEFAULT_SKIN_COLOR
 from app.services.storage import materialize_path
 
 router = APIRouter(prefix="/api/v1/csv-jobs", tags=["csv-jobs"])
@@ -43,9 +42,10 @@ def _parse_list_field(value: str | None, default: list[str]) -> list[str]:
 def import_csv_job(
     file: UploadFile = File(...),
     execution_mode: ExecutionMode = Form(default="csv_dag"),
-    person_gender_options: str = Form(default='["male"]'),
-    person_age_options: str = Form(default='["kid"]'),
-    person_skin_color_options: str = Form(default='["white"]'),
+    person_gender_options: str = Form(default="[]"),
+    person_age_options: str = Form(default="[]"),
+    person_skin_color_options: str = Form(default="[]"),
+    override_existing_variants: str = Form(default="false"),
     db: Session = Depends(db_dependency),
 ) -> CsvJobImportResponse:
     if execution_mode != "csv_dag":
@@ -58,9 +58,10 @@ def import_csv_job(
         file_name=file.filename,
         content=file.file.read(),
         execution_mode=execution_mode,
-        person_gender_options=_parse_list_field(person_gender_options, [DEFAULT_GENDER]),
-        person_age_options=_parse_list_field(person_age_options, [DEFAULT_AGE]),
-        person_skin_color_options=_parse_list_field(person_skin_color_options, [DEFAULT_SKIN_COLOR]),
+        person_gender_options=_parse_list_field(person_gender_options, []),
+        person_age_options=_parse_list_field(person_age_options, []),
+        person_skin_color_options=_parse_list_field(person_skin_color_options, []),
+        override_existing_variants=str(override_existing_variants or "").strip().lower() in {"1", "true", "yes", "on"},
     )
     return CsvJobImportResponse(**result)
 

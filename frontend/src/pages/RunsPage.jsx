@@ -120,6 +120,17 @@ function elapsedSeconds(startedAt, finishedAt, nowMs) {
   return Math.max(0, Math.round((end - start) / 1000))
 }
 
+function csvJobElapsedSeconds(job, nowMs) {
+  if (!job) return 0
+  if (job.finished_at) {
+    return elapsedSeconds(job.started_at, job.finished_at, nowMs)
+  }
+  if (isTerminalCsvJobStatus(job.status) && typeof job.duration_seconds === 'number') {
+    return Math.max(0, Math.round(job.duration_seconds))
+  }
+  return elapsedSeconds(job.started_at, job.finished_at, nowMs)
+}
+
 function csvTaskProgressSummary(tasks, itemId) {
   const relevant = (Array.isArray(tasks) ? tasks : [])
     .filter((task) => task.csv_job_item_id === itemId)
@@ -1083,7 +1094,7 @@ export default function RunsPage() {
                         </div>
                       </td>
                       <td>{job.total_row_count}</td>
-                      <td>{job.started_at ? `${elapsedSeconds(job.started_at, job.finished_at, nowMs)}s` : '-'}</td>
+                      <td>{job.started_at ? `${csvJobElapsedSeconds(job, nowMs)}s` : '-'}</td>
                       <td>{formatLocalDateTime(job.started_at)}</td>
                       <td>
                         <button
@@ -1150,12 +1161,12 @@ export default function RunsPage() {
                   <small>{csvJobMainStatus(csvJobOverview.job.status).sub}</small>
                 </div>
                 <div>
-                  <strong>Timer</strong>
-                  <p>
-                    {csvJobOverview.job.started_at
-                      ? `${elapsedSeconds(csvJobOverview.job.started_at, csvJobOverview.job.finished_at, nowMs)}s`
+                    <strong>Timer</strong>
+                    <p>
+                      {csvJobOverview.job.started_at
+                      ? `${csvJobElapsedSeconds(csvJobOverview.job, nowMs)}s`
                       : '-'}
-                  </p>
+                    </p>
                 </div>
                 <div>
                   <strong>Rows</strong>

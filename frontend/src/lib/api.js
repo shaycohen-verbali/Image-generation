@@ -63,9 +63,10 @@ export async function importCsvJob(file, payload = {}) {
   const form = new FormData()
   form.append('file', file)
   form.append('execution_mode', payload.execution_mode || 'csv_dag')
-  form.append('person_gender_options', JSON.stringify(payload.person_gender_options || ['male']))
-  form.append('person_age_options', JSON.stringify(payload.person_age_options || ['kid']))
-  form.append('person_skin_color_options', JSON.stringify(payload.person_skin_color_options || ['white']))
+  form.append('person_gender_options', JSON.stringify(payload.person_gender_options || []))
+  form.append('person_age_options', JSON.stringify(payload.person_age_options || []))
+  form.append('person_skin_color_options', JSON.stringify(payload.person_skin_color_options || []))
+  form.append('override_existing_variants', payload.override_existing_variants ? 'true' : 'false')
   const response = await fetch(`${API_BASE}/csv-jobs/import`, {
     method: 'POST',
     body: form,

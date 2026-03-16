@@ -28,23 +28,21 @@ export default function SubmitPage() {
   ]
   const SAMPLE_CSV_URL = `${import.meta.env.BASE_URL || '/'}test_word_list.csv`
   const SAMPLE_CSV_NAME = 'test_word_list.csv'
-  const defaultGender = 'male'
-  const defaultAge = 'kid'
-  const defaultSkinColor = 'white'
   const [form, setForm] = useState({
     word: '',
     part_of_sentence: '',
     category: '',
     context: '',
-    person_gender_options: [defaultGender],
-    person_age_options: [defaultAge],
-    person_skin_color_options: [defaultSkinColor],
+    person_gender_options: [],
+    person_age_options: [],
+    person_skin_color_options: [],
     batch: '',
   })
   const [lastEntryId, setLastEntryId] = useState('')
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
   const [csvExecutionMode, setCsvExecutionMode] = useState('csv_dag')
+  const [overrideExistingVariants, setOverrideExistingVariants] = useState(false)
   const [runWorkerCount, setRunWorkerCount] = useState(1)
   const [variantWorkerCount, setVariantWorkerCount] = useState(2)
   const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
@@ -78,6 +76,14 @@ export default function SubmitPage() {
   const generatedProfileCap = 16
   const generatedProfileCount = Math.min(selectedCombinationCount, generatedProfileCap)
   const extraVariantCount = Math.max(0, generatedProfileCount - 1)
+
+  const validateCsvDagSelections = () => {
+    if (!form.person_gender_options.length || !form.person_age_options.length || !form.person_skin_color_options.length) {
+      setMessage('For CSV DAG, choose at least one gender, one age, and one skin color')
+      return false
+    }
+    return true
+  }
 
   useEffect(() => {
     let mounted = true
@@ -161,11 +167,13 @@ export default function SubmitPage() {
     setMessage('Uploading CSV...')
     try {
       if (csvExecutionMode === 'csv_dag') {
+        if (!validateCsvDagSelections()) return
         const result = await importCsvJob(file, {
           execution_mode: 'csv_dag',
           person_gender_options: form.person_gender_options,
           person_age_options: form.person_age_options,
           person_skin_color_options: form.person_skin_color_options,
+          override_existing_variants: overrideExistingVariants,
         })
         setUploadResult({ ...result, mode: 'csv_dag' })
         setMessage(`Imported ${result.imported_count} rows into DAG job ${result.batch_id}`)
@@ -193,11 +201,13 @@ export default function SubmitPage() {
       const blob = await response.blob()
       const file = new File([blob], SAMPLE_CSV_NAME, { type: 'text/csv' })
       if (csvExecutionMode === 'csv_dag') {
+        if (!validateCsvDagSelections()) return
         const result = await importCsvJob(file, {
           execution_mode: 'csv_dag',
           person_gender_options: form.person_gender_options,
           person_age_options: form.person_age_options,
           person_skin_color_options: form.person_skin_color_options,
+          override_existing_variants: overrideExistingVariants,
         })
         setUploadResult({ ...result, mode: 'csv_dag' })
         setMessage(`Imported sample CSV into DAG job ${result.batch_id}`)
@@ -315,7 +325,7 @@ export default function SubmitPage() {
           <div className="option-group-card">
             <h3>Person Variants</h3>
             <p className="config-help-text">
-              The base run always uses `male`, `kid (5-9)`, and `White`. Any extra checked options create additional final-image variants and white-background variants only when the concept requires a person.
+              For CSV DAG, there is no default person profile. Choose the exact gender, age, and skin-color combinations you want to create. The generator will reuse inventory images for the same word when possible and only build missing dependency paths.
             </p>
             <div className="form-grid">
               <div>
@@ -323,9 +333,13 @@ export default function SubmitPage() {
               </div>
               <fieldset className="checkbox-group">
                 <legend>Gender</legend>
-                <label className="checkbox-option checkbox-option-locked">
-                  <input type="checkbox" checked readOnly disabled />
-                  <span>Male (default base run)</span>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_gender_options.includes('male')}
+                    onChange={() => toggleOption('person_gender_options', 'male')}
+                  />
+                  <span>Male</span>
                 </label>
                 <label className="checkbox-option">
                   <input
@@ -338,9 +352,13 @@ export default function SubmitPage() {
               </fieldset>
               <fieldset className="checkbox-group">
                 <legend>Age</legend>
-                <label className="checkbox-option checkbox-option-locked">
-                  <input type="checkbox" checked readOnly disabled />
-                  <span>Kid (5-9) (default base run)</span>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_age_options.includes('kid')}
+                    onChange={() => toggleOption('person_age_options', 'kid')}
+                  />
+                  <span>Kid (5-9)</span>
                 </label>
                 <label className="checkbox-option">
                   <input
@@ -369,9 +387,13 @@ export default function SubmitPage() {
               </fieldset>
               <fieldset className="checkbox-group">
                 <legend>Skin color</legend>
-                <label className="checkbox-option checkbox-option-locked">
-                  <input type="checkbox" checked readOnly disabled />
-                  <span>White (default base run)</span>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={form.person_skin_color_options.includes('white')}
+                    onChange={() => toggleOption('person_skin_color_options', 'white')}
+                  />
+                  <span>White</span>
                 </label>
                 <label className="checkbox-option">
                   <input
@@ -398,14 +420,24 @@ export default function SubmitPage() {
                   <span>Brown (Indian origin)</span>
                 </label>
               </fieldset>
+              <label className="checkbox-option">
+                <input
+                  type="checkbox"
+                  checked={overrideExistingVariants}
+                  onChange={(e) => setOverrideExistingVariants(e.target.checked)}
+                />
+                <span>Override existing inventory images for requested variants</span>
+              </label>
               <p className="config-help-text">
-                Selected combinations: {selectedCombinationCount} total person profile{selectedCombinationCount === 1 ? '' : 's'}.
+                Selected combinations: {selectedCombinationCount} requested person profile{selectedCombinationCount === 1 ? '' : 's'}.
                 {selectedCombinationCount > generatedProfileCap
                   ? ` The generator will use a capped review set of ${generatedProfileCount} profiles to avoid creating too many images.`
                   : ''}
-                {extraVariantCount > 0
-                  ? ` This means ${extraVariantCount} additional final-image variant${extraVariantCount === 1 ? '' : 's'} plus ${extraVariantCount} additional white-background variant${extraVariantCount === 1 ? '' : 's'}.`
-                  : ' No extra person variants will be created beyond the base run.'}
+                {selectedCombinationCount === 0
+                  ? ' Choose at least one value in each group before importing a CSV DAG job.'
+                  : extraVariantCount > 0
+                    ? ` Missing dependency images will be generated automatically, and existing inventory images will be reused unless override is enabled.`
+                    : ' Existing inventory images will be reused when available, and only missing requested outputs will be generated.'}
               </p>
             </div>
           </div>

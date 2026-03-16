@@ -4,13 +4,12 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import desc, select, update
 from sqlalchemy.orm import Session
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
 from app.inventory_models import BACKGROUND_VALUES, inventory_slot_column_name, word_inventory
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry
-from app.services.person_profiles import entry_age_options, entry_gender_options, entry_skin_color_options
 from app.services.repository import Repository
 
 
@@ -22,14 +21,47 @@ class InventorySyncService:
     def enabled(self) -> bool:
         return inventory_enabled()
 
-    def _expected_slot_names(self, entry: Entry) -> list[str]:
+    @staticmethod
+    def _requested_options(job: CsvJob) -> tuple[list[str], list[str], list[str]]:
+        snapshot = Repository.json_field_dict(job.config_snapshot_json)
+        genders = [str(value or "").strip().lower() for value in snapshot.get("person_gender_options", []) if str(value or "").strip()]
+        ages = [str(value or "").strip().lower() for value in snapshot.get("person_age_options", []) if str(value or "").strip()]
+        skins = [str(value or "").strip().lower() for value in snapshot.get("person_skin_color_options", []) if str(value or "").strip()]
+        return genders, ages, skins
+
+    def _expected_slot_names(self, job: CsvJob) -> list[str]:
+        genders, ages, skins = self._requested_options(job)
         return [
             inventory_slot_column_name(age, gender, skin_color, background)
-            for age in entry_age_options(entry)
-            for gender in entry_gender_options(entry)
-            for skin_color in entry_skin_color_options(entry)
+            for age in ages
+            for gender in genders
+            for skin_color in skins
             for background in BACKGROUND_VALUES
         ]
+
+    def latest_entry_inventory_row(self, entry: Entry) -> dict[str, object] | None:
+        if inventory_engine is None:
+            return None
+        with inventory_engine.begin() as conn:
+            row = conn.execute(
+                select(word_inventory)
+                .where(word_inventory.c.source_entry_id == entry.id)
+                .order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at))
+                .limit(1)
+            ).mappings().first()
+        return dict(row) if row else None
+
+    def slot_path_for_entry_profile(self, entry: Entry, profile: dict[str, str], *, background: str) -> str:
+        row = self.latest_entry_inventory_row(entry)
+        if not row:
+            return ""
+        slot_name = inventory_slot_column_name(
+            str(profile.get("age") or "").strip().lower(),
+            str(profile.get("gender") or "").strip().lower(),
+            str(profile.get("skin_color") or "").strip().lower(),
+            background,
+        )
+        return str(row.get(slot_name) or "").strip()
 
     def _row_payload(
         self,
@@ -78,7 +110,7 @@ class InventorySyncService:
                     }
                 )
 
-        expected_slots = self._expected_slot_names(entry)
+        expected_slots = self._expected_slot_names(job)
         missing_slots = [slot for slot in expected_slots if not str(slot_values.get(slot) or "").strip()]
         now = datetime.utcnow()
         return {
@@ -156,16 +188,17 @@ class InventorySyncService:
                     continue
                 payload = self._row_payload(job=job, item=item, entry=entry, tasks=tasks_by_item.get(item.id, []))
                 existing = conn.execute(
-                    select(word_inventory.c.id, word_inventory.c.created_at).where(
-                        word_inventory.c.source_csv_job_item_id == item.id
-                    )
+                    select(word_inventory.c.id, word_inventory.c.created_at)
+                    .where(word_inventory.c.source_entry_id == entry.id)
+                    .order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at))
+                    .limit(1)
                 ).first()
                 if existing:
                     payload["id"] = existing.id
                     payload["created_at"] = existing.created_at
                     conn.execute(
                         update(word_inventory)
-                        .where(word_inventory.c.source_csv_job_item_id == item.id)
+                        .where(word_inventory.c.id == existing.id)
                         .values(**payload)
                     )
                 else:

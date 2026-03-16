@@ -27,6 +27,9 @@ def _generated_batch_id() -> str:
 
 
 IMPORT_COMMIT_CHUNK_SIZE = 25
+ALLOWED_GENDER_OPTIONS = ("male", "female")
+ALLOWED_AGE_OPTIONS = ("toddler", "kid", "tween", "teenager")
+ALLOWED_SKIN_OPTIONS = ("white", "black", "asian", "brown")
 
 
 def _json_default(value):
@@ -38,6 +41,18 @@ def _json_default(value):
 def _parse_profile_key(value: str) -> dict[str, str]:
     gender, age, skin_color = (str(value or "").split(":") + ["", "", ""])[:3]
     return {"gender": gender, "age": age, "skin_color": skin_color}
+
+
+def _clean_requested_options(values: Any, allowed: tuple[str, ...]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in values if isinstance(values, list) else []:
+        value = str(raw or "").strip().lower()
+        if not value or value not in allowed or value in seen:
+            continue
+        cleaned.append(value)
+        seen.add(value)
+    return cleaned
 
 
 def _row_task_key(item_id: str, step_name: str, profile: dict[str, str]) -> str:
@@ -55,6 +70,7 @@ class CsvDagService:
         person_gender_options: list[str],
         person_age_options: list[str],
         person_skin_color_options: list[str],
+        override_existing_variants: bool = False,
     ) -> dict[str, Any]:
         config = self.repo.get_runtime_config()
         return {
@@ -67,113 +83,134 @@ class CsvDagService:
             "person_gender_options": list(person_gender_options),
             "person_age_options": list(person_age_options),
             "person_skin_color_options": list(person_skin_color_options),
+            "override_existing_variants": bool(override_existing_variants),
         }
 
-    def _build_task_specs(self, item: CsvJobItem, entry: Entry) -> list[dict[str, Any]]:
-        gender_options = json.loads(entry.person_gender_options_json)
-        age_options = json.loads(entry.person_age_options_json)
-        skin_options = json.loads(entry.person_skin_color_options_json)
+    def _requested_profiles(self, job: CsvJob) -> list[dict[str, str]]:
+        snapshot = self.repo.json_field_dict(job.config_snapshot_json)
+        gender_options = _clean_requested_options(snapshot.get("person_gender_options", []), ALLOWED_GENDER_OPTIONS)
+        age_options = _clean_requested_options(snapshot.get("person_age_options", []), ALLOWED_AGE_OPTIONS)
+        skin_options = _clean_requested_options(snapshot.get("person_skin_color_options", []), ALLOWED_SKIN_OPTIONS)
+        if not gender_options or not age_options or not skin_options:
+            raise RuntimeError("CSV DAG jobs require at least one gender, age, and skin selection")
+        return [
+            {"gender": gender, "age": age, "skin_color": skin_color}
+            for gender in gender_options
+            for age in age_options
+            for skin_color in skin_options
+        ]
 
-        specs: list[dict[str, Any]] = []
+    def _override_existing_variants_enabled(self, job: CsvJob) -> bool:
+        snapshot = self.repo.json_field_dict(job.config_snapshot_json)
+        raw_value = snapshot.get("override_existing_variants", False)
+        if isinstance(raw_value, bool):
+            return raw_value
+        return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _build_task_specs(self, item: CsvJobItem, entry: Entry, job: CsvJob) -> list[dict[str, Any]]:
+        inventory_service = InventorySyncService(self.db)
+        requested_profiles = self._requested_profiles(job)
+        override_requested_variants = self._override_existing_variants_enabled(job)
         base_profile = {"gender": DEFAULT_GENDER, "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
-        base_spec = {
-            "step_name": "step1_base",
-            "task_key": _row_task_key(item.id, "step1_base", base_profile),
-            "profile": base_profile,
-            "source_profile": {},
-            "branch_role": "base_profile",
-            "dependency_keys": [],
-            "dependency_task_ids": [],
-        }
-        specs.append(base_spec)
-
-        for age in age_options:
-            if age == DEFAULT_AGE:
-                continue
-            profile = {"gender": DEFAULT_GENDER, "age": age, "skin_color": DEFAULT_SKIN_COLOR}
-            spec = {
-                "step_name": "step2_male_age",
-                "task_key": _row_task_key(item.id, "step2_male_age", profile),
-                "profile": profile,
-                "source_profile": base_profile,
-                "branch_role": "male_age_variant",
-                "dependency_keys": [base_spec["task_key"]],
-                "dependency_task_ids": [],
-            }
-            specs.append(spec)
-
-        if "female" in gender_options:
-            female_kid = {"gender": "female", "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
-            spec = {
-                "step_name": "step3_female_white",
-                "task_key": _row_task_key(item.id, "step3_female_white", female_kid),
-                "profile": female_kid,
-                "source_profile": base_profile,
-                "branch_role": "female_seed",
-                "dependency_keys": [base_spec["task_key"]],
-                "dependency_task_ids": [],
-            }
-            specs.append(spec)
-
-            for age in age_options:
-                if age == DEFAULT_AGE:
-                    continue
-                male_source = {"gender": DEFAULT_GENDER, "age": age, "skin_color": DEFAULT_SKIN_COLOR}
-                profile = {"gender": "female", "age": age, "skin_color": DEFAULT_SKIN_COLOR}
-                spec = {
-                    "step_name": "step3_female_white",
-                    "task_key": _row_task_key(item.id, "step3_female_white", profile),
-                    "profile": profile,
-                    "source_profile": male_source,
-                    "branch_role": "female_age_variant",
-                    "dependency_keys": [_row_task_key(item.id, "step2_male_age", male_source)],
-                    "dependency_task_ids": [],
-                }
-                specs.append(spec)
-
-        for skin_color in skin_options:
-            if skin_color == DEFAULT_SKIN_COLOR:
-                continue
-            for gender in gender_options:
-                for age in age_options:
-                    target = {"gender": gender, "age": age, "skin_color": skin_color}
-                    source = {"gender": gender, "age": age, "skin_color": DEFAULT_SKIN_COLOR}
-                    source_step = "step1_base" if gender == DEFAULT_GENDER and age == DEFAULT_AGE else (
-                        "step2_male_age" if gender == DEFAULT_GENDER else "step3_female_white"
-                    )
-                    spec = {
-                        "step_name": "step4_race_variant",
-                        "task_key": _row_task_key(item.id, "step4_race_variant", target),
-                        "profile": target,
-                        "source_profile": source,
-                        "branch_role": "appearance_variant",
-                        "dependency_keys": [_row_task_key(item.id, source_step, source)],
-                        "dependency_task_ids": [],
-                    }
-                    specs.append(spec)
-
         created_specs: list[dict[str, Any]] = []
-        for spec in specs:
-            dependency_keys = [key for key in spec["dependency_keys"] if key]
+        spec_by_key: dict[str, dict[str, Any]] = {}
+
+        def inventory_regular_available(profile: dict[str, str]) -> bool:
+            return bool(inventory_service.slot_path_for_entry_profile(entry, profile, background="regular"))
+
+        def inventory_pair_available(profile: dict[str, str]) -> bool:
+            regular = inventory_service.slot_path_for_entry_profile(entry, profile, background="regular")
+            white_bg = inventory_service.slot_path_for_entry_profile(entry, profile, background="white_bg")
+            return bool(regular and white_bg)
+
+        def create_spec(
+            *,
+            step_name: str,
+            profile: dict[str, str],
+            source_profile: dict[str, str] | None,
+            branch_role: str,
+            dependency_keys: list[str],
+        ) -> str:
+            task_key = _row_task_key(item.id, step_name, profile)
+            if task_key in spec_by_key:
+                return task_key
             node = self.repo.create_csv_task_node_uncommitted(
                 csv_job_id=item.csv_job_id,
                 csv_job_item_id=item.id,
-                step_name=spec["step_name"],
-                task_key=spec["task_key"],
-                profile_key=profile_key(spec["profile"]),
-                source_profile_key=profile_key(spec["source_profile"]) if spec["source_profile"] else "",
-                branch_role=spec["branch_role"],
-                dependency_keys=dependency_keys,
+                step_name=step_name,
+                task_key=task_key,
+                profile_key=profile_key(profile),
+                source_profile_key=profile_key(source_profile) if source_profile else "",
+                branch_role=branch_role,
+                dependency_keys=[key for key in dependency_keys if key],
                 dependency_task_ids=[],
                 status="pending",
             )
-            created_specs.append({**spec, "node": node})
+            spec_by_key[task_key] = {
+                "step_name": step_name,
+                "task_key": task_key,
+                "profile": profile,
+                "source_profile": source_profile or {},
+                "branch_role": branch_role,
+                "dependency_keys": [key for key in dependency_keys if key],
+                "node": node,
+            }
+            created_specs.append(spec_by_key[task_key])
+            return task_key
 
-        self.db.flush()
-        task_id_by_key = {spec["task_key"]: spec["node"].id for spec in created_specs}
+        def ensure_profile(profile: dict[str, str], *, force_generate: bool = False, require_pair: bool = True) -> str | None:
+            if not force_generate and (inventory_pair_available(profile) if require_pair else inventory_regular_available(profile)):
+                return None
+            if profile["skin_color"] != DEFAULT_SKIN_COLOR:
+                source_profile = {**profile, "skin_color": DEFAULT_SKIN_COLOR}
+                dependency_key = ensure_profile(source_profile, force_generate=False, require_pair=False)
+                return create_spec(
+                    step_name="step4_race_variant",
+                    profile=profile,
+                    source_profile=source_profile,
+                    branch_role="appearance_variant",
+                    dependency_keys=[dependency_key] if dependency_key else [],
+                )
+            if profile["gender"] == "female":
+                source_profile = (
+                    base_profile
+                    if profile["age"] == DEFAULT_AGE
+                    else {"gender": DEFAULT_GENDER, "age": profile["age"], "skin_color": DEFAULT_SKIN_COLOR}
+                )
+                dependency_key = ensure_profile(source_profile, force_generate=False, require_pair=False)
+                return create_spec(
+                    step_name="step3_female_white",
+                    profile=profile,
+                    source_profile=source_profile,
+                    branch_role="female_seed" if profile["age"] == DEFAULT_AGE else "female_age_variant",
+                    dependency_keys=[dependency_key] if dependency_key else [],
+                )
+            if profile["age"] != DEFAULT_AGE:
+                dependency_key = ensure_profile(base_profile, force_generate=False, require_pair=False)
+                return create_spec(
+                    step_name="step2_male_age",
+                    profile=profile,
+                    source_profile=base_profile,
+                    branch_role="male_age_variant",
+                    dependency_keys=[dependency_key] if dependency_key else [],
+                )
+            return create_spec(
+                step_name="step1_base",
+                profile=base_profile,
+                source_profile=None,
+                branch_role="base_profile",
+                dependency_keys=[],
+            )
+
+        for profile in requested_profiles:
+            ensure_profile(profile, force_generate=override_requested_variants, require_pair=True)
 
         for spec in created_specs:
-            dependency_ids = [task_id_by_key[key] for key in spec["dependency_keys"] if key in task_id_by_key]
+            dependency_ids = [
+                spec_by_key[key]["node"].id
+                for key in spec["dependency_keys"]
+                if key in spec_by_key
+            ]
             if dependency_ids:
                 spec["node"].dependency_task_ids_json = json.dumps(dependency_ids, ensure_ascii=True)
                 self.db.add(spec["node"])
@@ -188,6 +225,7 @@ class CsvDagService:
         person_gender_options: list[str],
         person_age_options: list[str],
         person_skin_color_options: list[str],
+        override_existing_variants: bool = False,
     ) -> dict[str, Any]:
         if execution_mode != "csv_dag":
             raise RuntimeError("CsvDagService only supports csv_dag execution mode")
@@ -198,6 +236,7 @@ class CsvDagService:
             person_gender_options=person_gender_options,
             person_age_options=person_age_options,
             person_skin_color_options=person_skin_color_options,
+            override_existing_variants=override_existing_variants,
         )
         job = self.repo.create_csv_job(
             batch_id=batch_id,
@@ -231,7 +270,11 @@ class CsvDagService:
                     row_index=index,
                     source_row=row,
                 )
-                self._build_task_specs(item, entry)
+                created_specs = self._build_task_specs(item, entry, job)
+                if not created_specs:
+                    item.status = "completed"
+                    item.error_detail = "Requested variants already exist in inventory"
+                    self.db.add(item)
                 imported_count += 1
                 pending_rows_in_chunk += 1
                 results.append({"row_index": index, "status": "imported", "entry_id": entry.id})
@@ -282,7 +325,11 @@ class CsvDagService:
         job = self.repo.get_csv_job(job_id)
         if job is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
-        for task in self.repo.list_csv_tasks(job_id):
+        tasks = self.repo.list_csv_tasks(job_id)
+        if not tasks:
+            finalized = self.repo.finalize_csv_job_status(job_id) or job
+            return finalized
+        for task in tasks:
             if task.status == "pending":
                 self.repo.update_csv_task(task, status="queued", error_summary="", finished_at=None)
         return self.repo.update_csv_job(job, status="queued", error_detail="", finished_at=None)
@@ -531,17 +578,29 @@ class CsvDagService:
                 )
             else:
                 dependency_ids = [str(value) for value in json.loads(task.dependency_task_ids_json or "[]") if str(value)]
-                if not dependency_ids:
-                    raise RuntimeError(f"Task {task.task_key} has no dependency task ids")
-                source_task = self.repo.get_csv_task(dependency_ids[0])
-                if source_task is None or not source_task.regular_asset_id:
-                    raise RuntimeError(f"Task {task.task_key} is missing its source asset")
-                source_asset = self.repo.get_asset(source_task.regular_asset_id)
-                if source_asset is None:
-                    raise RuntimeError(f"Missing source asset {source_task.regular_asset_id} for task {task.task_key}")
-                winner_attempt = max(1, int((self.repo.get_run(shadow_run.id).optimization_attempt if self.repo.get_run(shadow_run.id) else 1) or 1))
                 target_profile = _parse_profile_key(task.profile_key)
                 source_profile = _parse_profile_key(task.source_profile_key) if task.source_profile_key else None
+                if dependency_ids:
+                    source_task = self.repo.get_csv_task(dependency_ids[0])
+                    if source_task is None or not source_task.regular_asset_id:
+                        raise RuntimeError(f"Task {task.task_key} is missing its source asset")
+                    source_asset: Asset | str | None = self.repo.get_asset(source_task.regular_asset_id)
+                    if source_asset is None:
+                        raise RuntimeError(f"Missing source asset {source_task.regular_asset_id} for task {task.task_key}")
+                else:
+                    if not source_profile:
+                        raise RuntimeError(f"Task {task.task_key} has no dependency or reusable source profile")
+                    inventory_source = InventorySyncService(self.db).slot_path_for_entry_profile(
+                        entry,
+                        source_profile,
+                        background="regular",
+                    )
+                    if not inventory_source:
+                        raise RuntimeError(
+                            f"Task {task.task_key} could not find reusable inventory source for {profile_key(source_profile)}"
+                        )
+                    source_asset = inventory_source
+                winner_attempt = max(1, int((self.repo.get_run(shadow_run.id).optimization_attempt if self.repo.get_run(shadow_run.id) else 1) or 1))
                 created = runner.create_profile_variant_pair(
                     owner_run_id=shadow_run.id,
                     entry=entry,
