@@ -31,6 +31,7 @@ class Entry(Base):
     person_age_options_json: Mapped[str] = mapped_column(Text, default='["kid"]', nullable=False)
     person_skin_color_options_json: Mapped[str] = mapped_column(Text, default='["white"]', nullable=False)
     batch: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    has_person: Mapped[str] = mapped_column(String(8), default="", nullable=False)
     source_row_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)

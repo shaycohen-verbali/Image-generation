@@ -338,6 +338,14 @@ class Repository:
     def get_entry(self, entry_id: str) -> Entry | None:
         return self.db.execute(select(Entry).where(Entry.id == entry_id)).scalar_one_or_none()
 
+    def update_entry_has_person(self, entry_id: str, has_person: str) -> None:
+        entry = self.get_entry(entry_id)
+        if entry is None:
+            return
+        entry.has_person = has_person
+        self.db.add(entry)
+        self.db.commit()
+
     def batch_job_summary(self, batch_id: str) -> dict[str, Any] | None:
         batch = str(batch_id or "").strip()
         if not batch:

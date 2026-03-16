@@ -31,6 +31,7 @@ DEFAULT_VARIANT_WORKERS = 2
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     init_inventory_db()
+    _ensure_inventory_columns()
     _ensure_entry_columns()
     _ensure_run_columns()
     _ensure_runtime_config_columns()
@@ -156,6 +157,20 @@ def _ensure_runtime_config_columns() -> None:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
 
 
+def _ensure_inventory_columns() -> None:
+    from app.db.inventory_session import inventory_engine as inv_engine  # avoid circular at module level
+    if inv_engine is None:
+        return
+    with inv_engine.begin() as conn:
+        if str(inv_engine.url).startswith("sqlite"):
+            rows = conn.execute(text("PRAGMA table_info(word_inventory)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "has_person" not in existing:
+                conn.execute(text("ALTER TABLE word_inventory ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+        else:
+            conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS has_person TEXT NOT NULL DEFAULT ''"))
+
+
 def _ensure_entry_columns() -> None:
     if not str(engine.url).startswith("sqlite"):
         return
@@ -168,6 +183,8 @@ def _ensure_entry_columns() -> None:
             conn.execute(text("ALTER TABLE entries ADD COLUMN person_age_options_json TEXT NOT NULL DEFAULT '[\"kid\"]'"))
         if "person_skin_color_options_json" not in existing:
             conn.execute(text("ALTER TABLE entries ADD COLUMN person_skin_color_options_json TEXT NOT NULL DEFAULT '[\"white\"]'"))
+        if "has_person" not in existing:
+            conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_run_columns() -> None:

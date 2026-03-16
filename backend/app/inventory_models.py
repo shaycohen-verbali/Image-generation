@@ -36,6 +36,7 @@ word_inventory = Table(
     Column("category", String(256), nullable=False, default=""),
     Column("context", Text, nullable=False, default=""),
     Column("job_status", String(64), nullable=False, default="pending"),
+    Column("has_person", String(8), nullable=False, default=""),
     Column("fully_complete", Boolean, nullable=False, default=False),
     Column("missing_slots_json", Text, nullable=False, default="[]"),
     Column("failure_reasons_json", Text, nullable=False, default="[]"),

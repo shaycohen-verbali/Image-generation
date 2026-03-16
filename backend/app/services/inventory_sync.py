@@ -123,6 +123,7 @@ class InventorySyncService:
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
             "context": entry.context,
+            "has_person": str(getattr(entry, "has_person", "") or ""),
             "job_status": item.status,
             "fully_complete": item.status == "completed" and not missing_slots and not failures,
             "missing_slots_json": json.dumps(missing_slots, ensure_ascii=True),

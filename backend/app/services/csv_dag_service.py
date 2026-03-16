@@ -653,7 +653,41 @@ class CsvDagService:
                     base_regular_asset_id=regular_asset.id,
                     base_white_bg_asset_id=white_bg_asset.id,
                 )
+                _, shadow_stages, _, _ = self.repo.run_snapshot(shadow_run.id)
+                winning_stage3 = next(
+                    (
+                        s for s in shadow_stages
+                        if s.stage_name == "stage3_upgrade" and int(s.attempt or 0) == winner_attempt and s.status == "completed"
+                    ),
+                    None,
+                )
+                has_person = ""
+                if winning_stage3:
+                    try:
+                        decision = json.loads(winning_stage3.response_json or "{}").get("decision", {})
+                        raw = str(decision.get("resolved_need_person", "") or "").strip().lower()
+                        has_person = "yes" if raw == "yes" else ("no" if raw == "no" else "")
+                    except Exception:
+                        pass
+                if has_person:
+                    self.repo.update_entry_has_person(entry.id, has_person)
             else:
+                if str(getattr(entry, "has_person", "") or "").strip().lower() == "no":
+                    self.repo.update_csv_task(
+                        task,
+                        status="completed",
+                        error_summary="No person required for this word",
+                        finished_at=datetime.utcnow(),
+                    )
+                    self.repo.add_csv_task_attempt(
+                        csv_task_node_id=task.id,
+                        attempt_number=attempt_number,
+                        status="completed",
+                        request_json={"step_name": task.step_name},
+                        response_json={"skipped": True, "reason": "No person required for this word"},
+                        finished_at=datetime.utcnow(),
+                    )
+                    return self.repo.get_csv_task(task.id) or task
                 dependency_ids = [str(value) for value in json.loads(task.dependency_task_ids_json or "[]") if str(value)]
                 target_profile = _parse_profile_key(task.profile_key)
                 source_profile = _parse_profile_key(task.source_profile_key) if task.source_profile_key else None
