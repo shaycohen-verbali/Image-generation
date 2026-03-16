@@ -24,6 +24,16 @@ from app.services.storage import materialize_path
 
 router = APIRouter(prefix="/api/v1/csv-jobs", tags=["csv-jobs"])
 
+_SAMPLE_CSV_CONTENT = (
+    "word,part of speech,category\n"
+    "soccer,noun,sport\n"
+    "soccer ball,noun,sport\n"
+    "bucket,noun,\n"
+    "play,verb,music\n"
+    "play,verb,game\n"
+    "hamburger,noun,food\n"
+)
+
 
 def _parse_list_field(value: str | None, default: list[str]) -> list[str]:
     text = str(value or "").strip()
@@ -77,6 +87,15 @@ def clear_csv_jobs(db: Session = Depends(db_dependency)) -> CsvJobClearResponse:
     service = CsvDagService(db)
     result = service.clear_terminal_jobs()
     return CsvJobClearResponse(**result)
+
+
+@router.get("/sample-csv")
+def download_sample_csv() -> PlainTextResponse:
+    return PlainTextResponse(
+        _SAMPLE_CSV_CONTENT,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=test_word_list.csv"},
+    )
 
 
 @router.get("/{job_id}", response_model=CsvJobOut)
@@ -148,26 +167,6 @@ def sync_csv_job_inventory(job_id: str, db: Session = Depends(db_dependency)) ->
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CsvJobInventorySyncResponse(**result)
-
-
-_SAMPLE_CSV_CONTENT = (
-    "word,part of speech,category\n"
-    "soccer,noun,sport\n"
-    "soccer ball,noun,sport\n"
-    "bucket,noun,\n"
-    "play,verb,music\n"
-    "play,verb,game\n"
-    "hamburger,noun,food\n"
-)
-
-
-@router.get("/sample-csv")
-def download_sample_csv() -> PlainTextResponse:
-    return PlainTextResponse(
-        _SAMPLE_CSV_CONTENT,
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=test_word_list.csv"},
-    )
 
 
 @router.get("/{job_id}/export/download")
