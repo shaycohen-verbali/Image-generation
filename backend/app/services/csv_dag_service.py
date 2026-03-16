@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -24,6 +24,12 @@ from app.services.utils import sanitize_filename
 def _generated_batch_id() -> str:
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     return f"csv_{stamp}_{uuid4().hex[:6]}"
+
+
+def _json_default(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
 
 
 def _parse_profile_key(value: str) -> dict[str, str]:
@@ -779,7 +785,10 @@ class CsvDagService:
                 for item in rows
             ],
         }
-        manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        manifest_path.write_text(
+            json.dumps(manifest_payload, ensure_ascii=False, indent=2, default=_json_default),
+            encoding="utf-8",
+        )
 
         with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(summary_csv, arcname="job_summary.csv")
