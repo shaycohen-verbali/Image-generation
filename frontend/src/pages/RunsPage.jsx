@@ -936,6 +936,7 @@ export default function RunsPage() {
                       <th>Status</th>
                       <th>Progress</th>
                       <th>Current step</th>
+                      <th>Person?</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -959,6 +960,7 @@ export default function RunsPage() {
                         </td>
                         <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
                         <td>{item.current_step || '-'}</td>
+                        <td>{item.has_person === 'yes' ? 'Yes' : item.has_person === 'no' ? 'No' : '-'}</td>
                       </tr>
                     ))}
                   </tbody>

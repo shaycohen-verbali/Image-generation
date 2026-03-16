@@ -338,6 +338,7 @@ class CsvJobItemOut(BaseModel):
     blocking_reason: str = ""
     waiting_on_steps: list[str] = Field(default_factory=list)
     progress: CsvJobItemProgressOut = Field(default_factory=CsvJobItemProgressOut)
+    has_person: str = ""
     created_at: datetime
     updated_at: datetime
 

@@ -863,6 +863,7 @@ class CsvDagService:
                     "blocking_reason": item_progress["blocking_reason"],
                     "waiting_on_steps": item_progress["waiting_on_steps"],
                     "progress": item_progress["progress"],
+                    "has_person": str(getattr(entry, "has_person", "") or "") if entry else "",
                     "created_at": item.created_at,
                     "updated_at": item.updated_at,
                 }
