@@ -172,19 +172,20 @@ def _ensure_inventory_columns() -> None:
 
 
 def _ensure_entry_columns() -> None:
-    if not str(engine.url).startswith("sqlite"):
-        return
     with engine.begin() as conn:
-        rows = conn.execute(text("PRAGMA table_info(entries)")).fetchall()
-        existing = {row[1] for row in rows}
-        if "person_gender_options_json" not in existing:
-            conn.execute(text("ALTER TABLE entries ADD COLUMN person_gender_options_json TEXT NOT NULL DEFAULT '[\"male\"]'"))
-        if "person_age_options_json" not in existing:
-            conn.execute(text("ALTER TABLE entries ADD COLUMN person_age_options_json TEXT NOT NULL DEFAULT '[\"kid\"]'"))
-        if "person_skin_color_options_json" not in existing:
-            conn.execute(text("ALTER TABLE entries ADD COLUMN person_skin_color_options_json TEXT NOT NULL DEFAULT '[\"white\"]'"))
-        if "has_person" not in existing:
-            conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+        if str(engine.url).startswith("sqlite"):
+            rows = conn.execute(text("PRAGMA table_info(entries)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "person_gender_options_json" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN person_gender_options_json TEXT NOT NULL DEFAULT '[\"male\"]'"))
+            if "person_age_options_json" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN person_age_options_json TEXT NOT NULL DEFAULT '[\"kid\"]'"))
+            if "person_skin_color_options_json" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN person_skin_color_options_json TEXT NOT NULL DEFAULT '[\"white\"]'"))
+            if "has_person" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+        else:
+            conn.execute(text("ALTER TABLE entries ADD COLUMN IF NOT EXISTS has_person TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_run_columns() -> None:
