@@ -634,7 +634,7 @@ class CsvDagService:
                 )
                 finished_task = self.repo.update_csv_task(
                     task,
-                    source_asset_id=source_asset.id,
+                    source_asset_id=source_asset.id if not isinstance(source_asset, str) else None,
                     regular_asset_id=regular_asset.id,
                     white_bg_asset_id=white_bg_asset.id,
                     status="completed",
