@@ -116,45 +116,62 @@ def init_db() -> None:
 
 
 def _ensure_runtime_config_columns() -> None:
-    if not str(engine.url).startswith("sqlite"):
-        return
     with engine.begin() as conn:
-        rows = conn.execute(text("PRAGMA table_info(runtime_config)")).fetchall()
-        existing = {row[1] for row in rows}
-        if "max_parallel_runs" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
-        if "max_variant_workers" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 2"))
-        if "stage3_critique_model" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
-        if "stage3_generate_model" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
-        if "quality_gate_model" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
-        if "image_aspect_ratio" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
-        if "image_resolution" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_resolution TEXT NOT NULL DEFAULT '1K'"))
-        if "image_format" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_format TEXT NOT NULL DEFAULT 'image/jpeg'"))
-        if "nano_banana_safety_level" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN nano_banana_safety_level TEXT NOT NULL DEFAULT 'default'"))
-        if "prompt_engineer_mode" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
-        if "responses_prompt_engineer_model" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
-        if "responses_vector_store_id" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
-        if "visual_style_id" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_id TEXT NOT NULL DEFAULT 'warm_watercolor_storybook_kids_v3'"))
-        if "visual_style_name" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_name TEXT NOT NULL DEFAULT 'Warm Watercolor Storybook Kids Style v3'"))
-        if "visual_style_prompt_block" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_prompt_block TEXT NOT NULL DEFAULT ''"))
-        if "stage1_prompt_template" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage1_prompt_template TEXT NOT NULL DEFAULT ''"))
-        if "stage3_prompt_template" not in existing:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
+        if str(engine.url).startswith("sqlite"):
+            rows = conn.execute(text("PRAGMA table_info(runtime_config)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "max_parallel_runs" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
+            if "max_variant_workers" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 2"))
+            if "stage3_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "stage3_generate_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            if "quality_gate_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+            if "image_aspect_ratio" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
+            if "image_resolution" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_resolution TEXT NOT NULL DEFAULT '1K'"))
+            if "image_format" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_format TEXT NOT NULL DEFAULT 'image/jpeg'"))
+            if "nano_banana_safety_level" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN nano_banana_safety_level TEXT NOT NULL DEFAULT 'default'"))
+            if "prompt_engineer_mode" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
+            if "responses_prompt_engineer_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "responses_vector_store_id" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
+            if "visual_style_id" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_id TEXT NOT NULL DEFAULT 'warm_watercolor_storybook_kids_v3'"))
+            if "visual_style_name" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_name TEXT NOT NULL DEFAULT 'Warm Watercolor Storybook Kids Style v3'"))
+            if "visual_style_prompt_block" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_prompt_block TEXT NOT NULL DEFAULT ''"))
+            if "stage1_prompt_template" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage1_prompt_template TEXT NOT NULL DEFAULT ''"))
+            if "stage3_prompt_template" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
+        else:
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS max_variant_workers INTEGER NOT NULL DEFAULT 2"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_resolution TEXT NOT NULL DEFAULT '1K'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_format TEXT NOT NULL DEFAULT 'image/jpeg'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS nano_banana_safety_level TEXT NOT NULL DEFAULT 'default'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS visual_style_id TEXT NOT NULL DEFAULT 'warm_watercolor_storybook_kids_v3'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS visual_style_name TEXT NOT NULL DEFAULT 'Warm Watercolor Storybook Kids Style v3'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS visual_style_prompt_block TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage1_prompt_template TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_inventory_columns() -> None:
@@ -189,13 +206,14 @@ def _ensure_entry_columns() -> None:
 
 
 def _ensure_run_columns() -> None:
-    if not str(engine.url).startswith("sqlite"):
-        return
     with engine.begin() as conn:
-        rows = conn.execute(text("PRAGMA table_info(runs)")).fetchall()
-        existing = {row[1] for row in rows}
-        if "execution_mode" not in existing:
-            conn.execute(text("ALTER TABLE runs ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
+        if str(engine.url).startswith("sqlite"):
+            rows = conn.execute(text("PRAGMA table_info(runs)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "execution_mode" not in existing:
+                conn.execute(text("ALTER TABLE runs ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
+        else:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
 
 
 if __name__ == "__main__":
