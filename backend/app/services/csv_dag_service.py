@@ -59,6 +59,57 @@ def _row_task_key(item_id: str, step_name: str, profile: dict[str, str]) -> str:
     return f"{item_id}:{step_name}:{profile_key(profile)}"
 
 
+def _dependency_profile_for(profile: dict[str, str]) -> dict[str, str] | None:
+    """Return the profile whose regular image is the required source for generating this profile.
+
+    Dependency table:
+      white male kid          → None (base, no dependency)
+      {non-white} male kid    → white male kid
+      white female kid        → white male kid
+      {non-white} female kid  → white female kid
+      {any} male {non-kid}    → {same-race} male kid
+      {any} female {non-kid}  → {same-race} female kid
+    """
+    gender = profile.get("gender", "")
+    age = profile.get("age", "")
+    skin = profile.get("skin_color", "")
+
+    if gender == DEFAULT_GENDER and age == DEFAULT_AGE and skin == DEFAULT_SKIN_COLOR:
+        return None  # base – no dependency
+
+    if age == DEFAULT_AGE:
+        if gender == DEFAULT_GENDER:
+            return {"gender": DEFAULT_GENDER, "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
+        # female kid
+        if skin == DEFAULT_SKIN_COLOR:
+            return {"gender": DEFAULT_GENDER, "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
+        return {"gender": "female", "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
+
+    # non-kid: depends on same-race same-gender kid
+    return {"gender": gender, "age": DEFAULT_AGE, "skin_color": skin}
+
+
+def _branch_role_for(profile: dict[str, str]) -> str:
+    gender = profile.get("gender", "")
+    age = profile.get("age", "")
+    skin = profile.get("skin_color", "")
+    if gender == DEFAULT_GENDER and age == DEFAULT_AGE and skin == DEFAULT_SKIN_COLOR:
+        return "base_profile"
+    if age == DEFAULT_AGE and gender == DEFAULT_GENDER:
+        return "race_male_kid"
+    if age == DEFAULT_AGE and skin == DEFAULT_SKIN_COLOR:
+        return "female_seed"
+    if age == DEFAULT_AGE:
+        return "race_female_kid"
+    if skin == DEFAULT_SKIN_COLOR and gender == DEFAULT_GENDER:
+        return "male_age_variant"
+    if skin == DEFAULT_SKIN_COLOR:
+        return "female_age_variant"
+    if gender == DEFAULT_GENDER:
+        return "race_male_age"
+    return "race_female_age"
+
+
 class CsvDagService:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -107,114 +158,129 @@ class CsvDagService:
             return raw_value
         return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
 
-    def _build_task_specs(self, item: CsvJobItem, entry: Entry, job: CsvJob) -> list[dict[str, Any]]:
+    def _build_task_specs(
+        self, item: CsvJobItem, entry: Entry, job: CsvJob
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Build task specs for each requested profile following the dependency table.
+
+        Returns (created_specs, skipped_notes).  A profile is skipped (with a note) when its
+        direct dependency is neither available in inventory nor scheduled as a task in this job.
+        """
         inventory_service = InventorySyncService(self.db)
         requested_profiles = self._requested_profiles(job)
-        override_requested_variants = self._override_existing_variants_enabled(job)
-        base_profile = {"gender": DEFAULT_GENDER, "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
+        override = self._override_existing_variants_enabled(job)
+
         created_specs: list[dict[str, Any]] = []
-        spec_by_key: dict[str, dict[str, Any]] = {}
+        spec_by_task_key: dict[str, dict[str, Any]] = {}
+        spec_by_profile_key: dict[str, dict[str, Any]] = {}
+        skipped_notes: list[str] = []
 
-        def inventory_regular_available(profile: dict[str, str]) -> bool:
-            return bool(inventory_service.slot_path_for_entry_profile(entry, profile, background="regular"))
+        def inventory_regular_available(p: dict[str, str]) -> bool:
+            return bool(inventory_service.slot_path_for_entry_profile(entry, p, background="regular"))
 
-        def inventory_pair_available(profile: dict[str, str]) -> bool:
-            regular = inventory_service.slot_path_for_entry_profile(entry, profile, background="regular")
-            white_bg = inventory_service.slot_path_for_entry_profile(entry, profile, background="white_bg")
-            return bool(regular and white_bg)
+        def inventory_pair_available(p: dict[str, str]) -> bool:
+            return bool(
+                inventory_service.slot_path_for_entry_profile(entry, p, background="regular")
+                and inventory_service.slot_path_for_entry_profile(entry, p, background="white_bg")
+            )
 
-        def create_spec(
-            *,
-            step_name: str,
-            profile: dict[str, str],
-            source_profile: dict[str, str] | None,
-            branch_role: str,
-            dependency_keys: list[str],
-        ) -> str:
-            task_key = _row_task_key(item.id, step_name, profile)
-            if task_key in spec_by_key:
-                return task_key
+        # Profiles whose regular image already exists in inventory are immediately available
+        available_regular: set[str] = {
+            profile_key(p) for p in requested_profiles if inventory_regular_available(p)
+        }
+
+        def _create_spec(p: dict[str, str], source_p: dict[str, str] | None, dep_task_key: str | None) -> str:
+            step_name = "step1_base" if source_p is None else "step2_variant"
+            tk = _row_task_key(item.id, step_name, p)
+            dep_keys = [dep_task_key] if dep_task_key else []
             node = self.repo.create_csv_task_node_uncommitted(
                 csv_job_id=item.csv_job_id,
                 csv_job_item_id=item.id,
                 step_name=step_name,
-                task_key=task_key,
-                profile_key=profile_key(profile),
-                source_profile_key=profile_key(source_profile) if source_profile else "",
-                branch_role=branch_role,
-                dependency_keys=[key for key in dependency_keys if key],
+                task_key=tk,
+                profile_key=profile_key(p),
+                source_profile_key=profile_key(source_p) if source_p else "",
+                branch_role=_branch_role_for(p),
+                dependency_keys=dep_keys,
                 dependency_task_ids=[],
                 status="pending",
             )
-            spec_by_key[task_key] = {
+            spec = {
                 "step_name": step_name,
-                "task_key": task_key,
-                "profile": profile,
-                "source_profile": source_profile or {},
-                "branch_role": branch_role,
-                "dependency_keys": [key for key in dependency_keys if key],
+                "task_key": tk,
+                "profile": p,
+                "source_profile": source_p or {},
+                "branch_role": _branch_role_for(p),
+                "dependency_keys": dep_keys,
                 "node": node,
             }
-            created_specs.append(spec_by_key[task_key])
-            return task_key
+            spec_by_task_key[tk] = spec
+            spec_by_profile_key[profile_key(p)] = spec
+            created_specs.append(spec)
+            return tk
 
-        def ensure_profile(profile: dict[str, str], *, force_generate: bool = False, require_pair: bool = True) -> str | None:
-            if not force_generate and (inventory_pair_available(profile) if require_pair else inventory_regular_available(profile)):
-                return None
-            if profile["skin_color"] != DEFAULT_SKIN_COLOR:
-                source_profile = {**profile, "skin_color": DEFAULT_SKIN_COLOR}
-                dependency_key = ensure_profile(source_profile, force_generate=False, require_pair=False)
-                return create_spec(
-                    step_name="step4_race_variant",
-                    profile=profile,
-                    source_profile=source_profile,
-                    branch_role="appearance_variant",
-                    dependency_keys=[dependency_key] if dependency_key else [],
-                )
-            if profile["gender"] == "female":
-                source_profile = (
-                    base_profile
-                    if profile["age"] == DEFAULT_AGE
-                    else {"gender": DEFAULT_GENDER, "age": profile["age"], "skin_color": DEFAULT_SKIN_COLOR}
-                )
-                dependency_key = ensure_profile(source_profile, force_generate=False, require_pair=False)
-                return create_spec(
-                    step_name="step3_female_white",
-                    profile=profile,
-                    source_profile=source_profile,
-                    branch_role="female_seed" if profile["age"] == DEFAULT_AGE else "female_age_variant",
-                    dependency_keys=[dependency_key] if dependency_key else [],
-                )
-            if profile["age"] != DEFAULT_AGE:
-                dependency_key = ensure_profile(base_profile, force_generate=False, require_pair=False)
-                return create_spec(
-                    step_name="step2_male_age",
-                    profile=profile,
-                    source_profile=base_profile,
-                    branch_role="male_age_variant",
-                    dependency_keys=[dependency_key] if dependency_key else [],
-                )
-            return create_spec(
-                step_name="step1_base",
-                profile=base_profile,
-                source_profile=None,
-                branch_role="base_profile",
-                dependency_keys=[],
-            )
+        def _dep_depth(p: dict[str, str]) -> int:
+            depth = 0
+            current = p
+            visited: set[str] = set()
+            while True:
+                pk = profile_key(current)
+                if pk in visited:
+                    break
+                visited.add(pk)
+                dep = _dependency_profile_for(current)
+                if dep is None:
+                    break
+                depth += 1
+                current = dep
+            return depth
 
-        for profile in requested_profiles:
-            ensure_profile(profile, force_generate=override_requested_variants, require_pair=True)
+        # Process profiles shallowest-dependency-first so intermediates are scheduled before dependents
+        for prof in sorted(requested_profiles, key=_dep_depth):
+            pk = profile_key(prof)
 
+            if pk in spec_by_profile_key:
+                continue  # already scheduled
+
+            # Already fully done in inventory and not overriding – mark available and skip
+            if not override and inventory_pair_available(prof):
+                available_regular.add(pk)
+                continue
+
+            dep = _dependency_profile_for(prof)
+
+            if dep is None:
+                # Base profile – always create, no dependency needed
+                _create_spec(prof, None, None)
+                available_regular.add(pk)
+                continue
+
+            dep_pk = profile_key(dep)
+            dep_spec = spec_by_profile_key.get(dep_pk)
+
+            if dep_spec is None and dep_pk not in available_regular:
+                # Dependency not available in inventory and not being generated – skip
+                skipped_notes.append(
+                    f"Skipped {pk}: dependency '{dep_pk}' not available in inventory"
+                )
+                continue
+
+            dep_task_key = dep_spec["task_key"] if dep_spec else None
+            _create_spec(prof, dep, dep_task_key)
+            available_regular.add(pk)
+
+        # Wire dependency task IDs into each node's JSON field
         for spec in created_specs:
-            dependency_ids = [
-                spec_by_key[key]["node"].id
-                for key in spec["dependency_keys"]
-                if key in spec_by_key
+            dep_ids = [
+                spec_by_task_key[k]["node"].id
+                for k in spec["dependency_keys"]
+                if k in spec_by_task_key
             ]
-            if dependency_ids:
-                spec["node"].dependency_task_ids_json = json.dumps(dependency_ids, ensure_ascii=True)
+            if dep_ids:
+                spec["node"].dependency_task_ids_json = json.dumps(dep_ids, ensure_ascii=True)
                 self.db.add(spec["node"])
-        return created_specs
+
+        return created_specs, skipped_notes
 
     def import_csv_job(
         self,
@@ -270,14 +336,23 @@ class CsvDagService:
                     row_index=index,
                     source_row=row,
                 )
-                created_specs = self._build_task_specs(item, entry, job)
+                created_specs, skipped_notes = self._build_task_specs(item, entry, job)
                 if not created_specs:
                     item.status = "completed"
-                    item.error_detail = "Requested variants already exist in inventory"
+                    item.error_detail = (
+                        "; ".join(skipped_notes[:3]) if skipped_notes
+                        else "Requested variants already exist in inventory"
+                    )
+                    self.db.add(item)
+                elif skipped_notes:
+                    item.error_detail = "Partial skip: " + "; ".join(skipped_notes[:3])
                     self.db.add(item)
                 imported_count += 1
                 pending_rows_in_chunk += 1
-                results.append({"row_index": index, "status": "imported", "entry_id": entry.id})
+                row_result: dict[str, Any] = {"row_index": index, "status": "imported", "entry_id": entry.id}
+                if skipped_notes:
+                    row_result["skipped_profiles"] = skipped_notes
+                results.append(row_result)
 
                 if pending_rows_in_chunk >= IMPORT_COMMIT_CHUNK_SIZE:
                     self.db.commit()
@@ -382,6 +457,8 @@ class CsvDagService:
     def _step_label(step_name: str) -> str:
         return {
             "step1_base": "Base images",
+            "step2_variant": "Variant image",
+            # legacy names kept for backward compatibility with existing task rows
             "step2_male_age": "Male age variant",
             "step3_female_white": "Female white variant",
             "step4_race_variant": "Race variant",
