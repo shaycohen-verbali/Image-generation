@@ -85,6 +85,15 @@ class Repository:
             pass
         return instance
 
+    def _managed_instance(self, instance):
+        identity = getattr(instance, "id", None)
+        if not identity:
+            return instance
+        managed = self.db.get(type(instance), identity)
+        if managed is not None:
+            return managed
+        return instance
+
     def get_runtime_config(self) -> RuntimeConfig:
         config = self.db.execute(select(RuntimeConfig).where(RuntimeConfig.id == 1)).scalar_one_or_none()
         if config is None:
@@ -840,12 +849,13 @@ class Repository:
         return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.created_at))).scalars())
 
     def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
+        managed = self._managed_instance(job)
         for key, value in updates.items():
-            setattr(job, key, value)
-        self.db.add(job)
+            setattr(managed, key, value)
+        self.db.add(managed)
         self.db.commit()
-        self.db.refresh(job)
-        return self._release_instance(job)
+        self.db.refresh(managed)
+        return self._release_instance(managed)
 
     def create_csv_job_item(
         self,
@@ -899,12 +909,13 @@ class Repository:
         return self.db.execute(select(CsvJobItem).where(CsvJobItem.id == item_id)).scalar_one_or_none()
 
     def update_csv_job_item(self, item: CsvJobItem, **updates: Any) -> CsvJobItem:
+        managed = self._managed_instance(item)
         for key, value in updates.items():
-            setattr(item, key, value)
-        self.db.add(item)
+            setattr(managed, key, value)
+        self.db.add(managed)
         self.db.commit()
-        self.db.refresh(item)
-        return self._release_instance(item)
+        self.db.refresh(managed)
+        return self._release_instance(managed)
 
     def create_csv_task_node(
         self,
@@ -983,12 +994,13 @@ class Repository:
         return self.db.execute(select(CsvTaskNode).where(CsvTaskNode.id == task_id)).scalar_one_or_none()
 
     def update_csv_task(self, task: CsvTaskNode, **updates: Any) -> CsvTaskNode:
+        managed = self._managed_instance(task)
         for key, value in updates.items():
-            setattr(task, key, value)
-        self.db.add(task)
+            setattr(managed, key, value)
+        self.db.add(managed)
         self.db.commit()
-        self.db.refresh(task)
-        return self._release_instance(task)
+        self.db.refresh(managed)
+        return self._release_instance(managed)
 
     def add_csv_task_attempt(
         self,

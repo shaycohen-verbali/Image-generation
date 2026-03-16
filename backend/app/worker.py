@@ -12,7 +12,9 @@ from app.services.csv_dag_service import CsvDagService
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
 
-CSV_TASK_TIMEOUT_SECONDS = 180
+# At higher CSV concurrency, a healthy base word can take several minutes end-to-end.
+# Keep a timeout guard, but leave enough room for legitimate stage3/stage4/quality latency.
+CSV_TASK_TIMEOUT_SECONDS = 420
 WORKER_EXECUTOR_MAX = 256
 
 
