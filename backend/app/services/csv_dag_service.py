@@ -411,6 +411,9 @@ class CsvDagService:
         if any(status == "queued" for status in statuses):
             next_status = "running" if item.shadow_run_id or any(status in {"completed", "canceled"} for status in statuses) else "queued"
             return self.repo.update_csv_job_item(item, status=next_status, error_detail="")
+        if any(status == "pending" for status in statuses):
+            next_status = "running" if item.shadow_run_id or any(status in {"completed", "canceled"} for status in statuses) else "pending"
+            return self.repo.update_csv_job_item(item, status=next_status, error_detail="")
         if any(status == "canceled" for status in statuses):
             return self.repo.update_csv_job_item(item, status="canceled", error_detail="Canceled by user")
         return self.repo.update_csv_job_item(item, status="completed", error_detail="")

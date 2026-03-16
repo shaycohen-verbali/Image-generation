@@ -944,8 +944,8 @@ class Repository:
             self.db.execute(
                 select(CsvTaskNode)
                 .join(CsvJob, CsvJob.id == CsvTaskNode.csv_job_id)
-                .where(CsvTaskNode.status == "queued")
-                .where(CsvJob.status.in_(["queued", "running", "retry_queued", "imported"]))
+                .where(CsvTaskNode.status.in_(["queued", "pending"]))
+                .where(CsvJob.status.in_(["queued", "running", "retry_queued"]))
                 .order_by(CsvTaskNode.created_at.asc())
             ).scalars()
         )
@@ -964,7 +964,7 @@ class Repository:
             updated = self.db.execute(
                 update(CsvTaskNode)
                 .where(CsvTaskNode.id == task.id)
-                .where(CsvTaskNode.status == "queued")
+                .where(CsvTaskNode.status.in_(["queued", "pending"]))
                 .values(status="running", started_at=datetime.utcnow())
             )
             if updated.rowcount == 0:
@@ -1081,6 +1081,14 @@ class Repository:
             if job.status == "cancel_requested":
                 return self.update_csv_job(job, status="cancel_requested", error_detail=job.error_detail or "Canceled by user")
             return self.update_csv_job(job, status="running")
+        if any(status == "pending" for status in statuses):
+            if job.status == "cancel_requested":
+                return self.update_csv_job(job, status="cancel_requested", error_detail=job.error_detail or "Canceled by user")
+            if job.status in {"queued", "retry_queued"}:
+                return self.update_csv_job(job, status=job.status)
+            if job.started_at is not None or any(status in {"completed", "failed", "canceled", "queued"} for status in statuses):
+                return self.update_csv_job(job, status="running")
+            return self.update_csv_job(job, status="imported")
         if any(status == "queued" for status in statuses):
             queued_tasks = [task for task in tasks if task.status == "queued"]
             blocked_results = [self._queued_csv_task_is_blocked(task) for task in queued_tasks]
