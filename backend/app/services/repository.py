@@ -1156,7 +1156,7 @@ class Repository:
             self.db.execute(
                 select(CsvTaskNode)
                 .where(CsvTaskNode.csv_job_id == csv_job_id)
-                .where(CsvTaskNode.status.in_(["queued"]))
+                .where(CsvTaskNode.status.in_(["queued", "pending"]))
             ).scalars()
         )
         count = 0
@@ -1167,6 +1167,23 @@ class Repository:
             self.db.add(task)
             count += 1
         if count:
+            self.db.commit()
+        affected_items = {
+            task.csv_job_item_id
+            for task in tasks
+            if str(task.csv_job_item_id or "").strip()
+        }
+        if affected_items:
+            for item_id in affected_items:
+                item = self.get_csv_job_item(item_id)
+                if item is None:
+                    continue
+                item_tasks = [task for task in self.list_csv_tasks(csv_job_id) if task.csv_job_item_id == item.id]
+                statuses = [task.status for task in item_tasks]
+                if statuses and all(status == "canceled" for status in statuses):
+                    item.status = "canceled"
+                    item.error_detail = "Canceled by user"
+                    self.db.add(item)
             self.db.commit()
         running = self.db.execute(
             select(func.count()).select_from(CsvTaskNode).where(CsvTaskNode.csv_job_id == csv_job_id).where(CsvTaskNode.status == "running")

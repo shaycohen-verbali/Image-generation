@@ -14,6 +14,7 @@ import {
   listRuns,
   retryCsvJobFailures,
   retryRun,
+  startCsvJob,
   stopRun,
   updateConfig,
 } from '../lib/api'
@@ -80,7 +81,8 @@ function csvJobMainStatus(rawStatus) {
   if (value === 'failed') return { main: 'failure', sub: 'One or more rows failed' }
   if (value === 'canceled') return { main: 'failure', sub: 'Canceled' }
   if (value === 'cancel_requested') return { main: 'running', sub: 'Stopping after active work finishes' }
-  if (['queued', 'retry_queued', 'imported'].includes(value)) return { main: 'pending', sub: 'Waiting to be picked up' }
+  if (value === 'imported') return { main: 'pending', sub: 'Imported and not started yet' }
+  if (['queued', 'retry_queued'].includes(value)) return { main: 'pending', sub: 'Waiting to be picked up' }
   return { main: 'running', sub: 'Work is in progress' }
 }
 
@@ -352,11 +354,16 @@ export default function RunsPage() {
   const runsRef = useRef([])
   const detailStateRef = useRef(null)
   const detailRef = useRef(null)
+  const selectedCsvJobIdRef = useRef('')
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
     setStoredRunId(selectedRunId)
   }, [selectedRunId])
+
+  useEffect(() => {
+    selectedCsvJobIdRef.current = selectedCsvJobId
+  }, [selectedCsvJobId])
 
   useEffect(() => {
     runsRef.current = runs
@@ -512,9 +519,12 @@ export default function RunsPage() {
     try {
       const data = await listCsvJobs()
       setCsvJobs(data)
-      if (!selectedCsvJobId && data.length > 0) {
+      const activeCsvJobId = selectedCsvJobIdRef.current
+      if (!activeCsvJobId && data.length > 0) {
+        selectedCsvJobIdRef.current = data[0].id
         setSelectedCsvJobId(data[0].id)
-      } else if (selectedCsvJobId && !data.some((job) => job.id === selectedCsvJobId)) {
+      } else if (activeCsvJobId && !data.some((job) => job.id === activeCsvJobId)) {
+        selectedCsvJobIdRef.current = data[0]?.id || ''
         setSelectedCsvJobId(data[0]?.id || '')
         setCsvJobOverview(null)
       }
@@ -529,6 +539,9 @@ export default function RunsPage() {
     if (!jobId) return
     try {
       const data = await getCsvJobOverview(jobId)
+      if (selectedCsvJobIdRef.current && selectedCsvJobIdRef.current !== jobId) {
+        return
+      }
       setCsvJobOverview(data)
     } catch (error) {
       if (!isPolling) {
@@ -746,6 +759,17 @@ export default function RunsPage() {
       setMessage(`Requeued ${result.requeued_task_count} failed CSV tasks`)
       refreshCsvJobs()
       loadCsvJobDetail(jobId)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const onStartCsvJob = async (jobId) => {
+    try {
+      const result = await startCsvJob(jobId)
+      setMessage(`Started CSV job ${jobId}`)
+      refreshCsvJobs()
+      loadCsvJobDetail(result.job_id || jobId)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -1020,6 +1044,7 @@ export default function RunsPage() {
                     <th>Rows</th>
                     <th>Duration</th>
                     <th>Started</th>
+                    <th>Start</th>
                     <th>Retry</th>
                     <th>Cancel</th>
                     <th>Export</th>
@@ -1032,6 +1057,7 @@ export default function RunsPage() {
                       className={job.id === selectedCsvJobId ? 'selected-row' : 'clickable-row'}
                       onClick={() => {
                         setCsvJobOverview(null)
+                        selectedCsvJobIdRef.current = job.id
                         setSelectedCsvJobId(job.id)
                         setSelectedCsvItemId('')
                         setSelectedCsvStatusFilter('')
@@ -1047,6 +1073,17 @@ export default function RunsPage() {
                       <td>{job.total_row_count}</td>
                       <td>{job.started_at ? `${elapsedSeconds(job.started_at, job.finished_at, nowMs)}s` : '-'}</td>
                       <td>{formatLocalDateTime(job.started_at)}</td>
+                      <td>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onStartCsvJob(job.id)
+                          }}
+                          disabled={job.status !== 'imported'}
+                        >
+                          Start
+                        </button>
+                      </td>
                       <td>
                         <button
                           onClick={(event) => {
