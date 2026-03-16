@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { buildApiUrl, createExport, exportCsvJob, getExport, listCsvJobs, listExports, listRuns } from '../lib/api'
+import { buildApiUrl, createExport, exportCsvJob, listCsvJobs, listRuns } from '../lib/api'
 
 const LEGACY_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -39,16 +39,24 @@ function exportSourceSummary(item) {
   return 'Legacy export'
 }
 
+function triggerDownload(path) {
+  const url = buildApiUrl(path)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.rel = 'noreferrer'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
 export default function ExportsPage() {
-  const [sourceMode, setSourceMode] = useState('legacy_run')
+  const [sourceMode, setSourceMode] = useState('csv_job')
   const [statusFilter, setStatusFilter] = useState('')
   const [selectedRunId, setSelectedRunId] = useState('')
   const [selectedCsvJobId, setSelectedCsvJobId] = useState('')
   const [runs, setRuns] = useState([])
   const [csvJobs, setCsvJobs] = useState([])
-  const [exportsList, setExportsList] = useState([])
-  const [selectedExportId, setSelectedExportId] = useState('')
-  const [exportDetail, setExportDetail] = useState(null)
+  const [preparedExport, setPreparedExport] = useState(null)
   const [message, setMessage] = useState('')
 
   const selectedRun = useMemo(
@@ -61,7 +69,7 @@ export default function ExportsPage() {
   )
 
   const refreshData = async () => {
-    const [runsResult, csvJobsResult, exportsResult] = await Promise.allSettled([listRuns(), listCsvJobs(), listExports()])
+    const [runsResult, csvJobsResult] = await Promise.allSettled([listRuns(), listCsvJobs()])
 
     if (runsResult.status === 'fulfilled') {
       const runsData = runsResult.value
@@ -83,18 +91,7 @@ export default function ExportsPage() {
       setCsvJobs([])
     }
 
-    if (exportsResult.status === 'fulfilled') {
-      const exportsData = exportsResult.value
-      setExportsList(exportsData)
-      if (!selectedExportId && exportsData.length) {
-        setSelectedExportId(exportsData[0].id)
-        setExportDetail(exportsData[0])
-      }
-    } else {
-      setExportsList([])
-    }
-
-    const failures = [runsResult, csvJobsResult, exportsResult]
+    const failures = [runsResult, csvJobsResult]
       .filter((result) => result.status === 'rejected')
       .map((result) => result.reason?.message || 'Failed to fetch')
     if (failures.length) {
@@ -115,16 +112,8 @@ export default function ExportsPage() {
     }
   }, [sourceMode, runs.length, csvJobs.length])
 
-  useEffect(() => {
-    if (!selectedExportId) return
-    const match = exportsList.find((item) => item.id === selectedExportId)
-    if (match) {
-      setExportDetail(match)
-    }
-  }, [exportsList, selectedExportId])
-
   const create = async () => {
-    setMessage('Creating export...')
+    setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : 'Preparing legacy export package...')
     try {
       if (sourceMode === 'csv_job') {
         if (!selectedCsvJobId) {
@@ -132,31 +121,32 @@ export default function ExportsPage() {
           return
         }
         const result = await exportCsvJob(selectedCsvJobId)
-        window.open(buildApiUrl(result.download_url), '_blank', 'noopener,noreferrer')
-        setMessage(`Prepared CSV job package for ${selectedCsvJob?.batch_id || selectedCsvJobId}`)
-      } else {
-        const payload = {}
-        if (statusFilter) payload.status = [statusFilter]
-        if (selectedRunId) payload.run_ids = [selectedRunId]
-        const result = await createExport(payload)
-        setSelectedExportId(result.id)
-        setExportDetail(result)
-        setMessage(`Created export ${result.id}`)
-        refreshData()
+        const nextPrepared = {
+          kind: 'csv_job',
+          id: result.job_id,
+          batch_id: result.batch_id,
+          file_name: result.file_name,
+          package_download_url: result.download_url,
+        }
+        setPreparedExport(nextPrepared)
+        setMessage(`Prepared CSV job package for ${result.job_id}`)
+        triggerDownload(result.download_url)
+        return
       }
-    } catch (error) {
-      setMessage(`Error: ${error.message}`)
-    }
-  }
 
-  const load = async () => {
-    if (!selectedExportId) return
-    setMessage('Loading export...')
-    try {
-      const result = await getExport(selectedExportId)
-      setExportDetail(result)
-      setMessage(`Loaded export ${result.id}`)
-      refreshData()
+      const payload = {}
+      if (statusFilter) payload.status = [statusFilter]
+      if (selectedRunId) payload.run_ids = [selectedRunId]
+      const result = await createExport(payload)
+      const nextPrepared = {
+        ...result,
+        kind: 'legacy',
+      }
+      setPreparedExport(nextPrepared)
+      setMessage(`Prepared export ${result.id}`)
+      if (result.package_zip_download_url) {
+        triggerDownload(result.package_zip_download_url)
+      }
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -167,37 +157,51 @@ export default function ExportsPage() {
       <article className="card">
         <h2>Create New Export</h2>
         <p className="config-help-text">
-          Export Builder creates a new downloadable package. Export History lets you reopen packages that were already created earlier.
+          Choose the source you want, confirm the specific run or CSV job number below, and then download the package directly.
         </p>
+
         <div className="form-grid">
           <label>
             Source
             <select value={sourceMode} onChange={(e) => setSourceMode(e.target.value)}>
-              <option value="legacy_run">Legacy run bundle</option>
               <option value="csv_job">CSV DAG job package</option>
+              <option value="legacy_run">Legacy run bundle</option>
             </select>
           </label>
+
           {sourceMode === 'csv_job' ? (
-            <label>
-              Pick a CSV job
+            <>
+              <label>
+                Pick a CSV job
                 <select value={selectedCsvJobId} onChange={(e) => setSelectedCsvJobId(e.target.value)}>
                   <option value="">Select a CSV job</option>
                   {csvJobs.map((job) => (
                     <option key={job.id} value={job.id}>
-                      {`${job.id} · ${job.batch_id} · ${job.status} · ${formatLocalDateTime(job.created_at)}`}
+                      {`${job.batch_id} · ${job.status} · ${formatLocalDateTime(job.created_at)}`}
                     </option>
                   ))}
                 </select>
               </label>
+              {selectedCsvJob ? (
+                <div className="form-grid">
+                  <p className="config-help-text"><strong>CSV job number:</strong> <span style={{ wordBreak: 'break-all' }}>{selectedCsvJob.id}</span></p>
+                  <p className="config-help-text"><strong>Batch number:</strong> <span style={{ wordBreak: 'break-all' }}>{selectedCsvJob.batch_id}</span></p>
+                  <p className="config-help-text"><strong>Status:</strong> {selectedCsvJob.status}</p>
+                  <p className="config-help-text"><strong>Created:</strong> {formatLocalDateTime(selectedCsvJob.created_at)}</p>
+                </div>
+              ) : (
+                <p className="config-help-text">Choose a CSV job to download its package zip directly.</p>
+              )}
+            </>
           ) : (
             <>
               <label>
-                Pick a run (optional)
+                Pick a run
                 <select value={selectedRunId} onChange={(e) => setSelectedRunId(e.target.value)}>
-                  <option value="">All legacy runs</option>
+                  <option value="">Select a run</option>
                   {runs.map((run) => (
                     <option key={run.id} value={run.id}>
-                      {`${run.id} · ${run.word || 'word'} · ${run.part_of_sentence || 'pos'} · ${run.category || 'category'} · ${formatLocalDateTime(run.created_at)}`}
+                      {`${run.word || 'word'} · ${run.part_of_sentence || 'pos'} · ${run.category || 'category'} · ${formatLocalDateTime(run.created_at)}`}
                     </option>
                   ))}
                 </select>
@@ -212,110 +216,72 @@ export default function ExportsPage() {
                   ))}
                 </select>
               </label>
-              <p className="config-help-text">
-                This filter only narrows legacy run exports. Leave it on All statuses unless you want to export one specific legacy run state.
-              </p>
+              {selectedRun ? (
+                <div className="form-grid">
+                  <p className="config-help-text"><strong>Run number:</strong> <span style={{ wordBreak: 'break-all' }}>{selectedRun.id}</span></p>
+                  <p className="config-help-text"><strong>Word:</strong> {selectedRun.word}</p>
+                  <p className="config-help-text"><strong>POS:</strong> {selectedRun.part_of_sentence}</p>
+                  <p className="config-help-text"><strong>Category:</strong> {selectedRun.category || '-'}</p>
+                  <p className="config-help-text"><strong>Created:</strong> {formatLocalDateTime(selectedRun.created_at)}</p>
+                </div>
+              ) : (
+                <p className="config-help-text">Choose a legacy run to export. The status filter is optional.</p>
+              )}
             </>
           )}
         </div>
 
-        {sourceMode === 'csv_job' ? (
-          selectedCsvJob ? (
-            <p className="config-help-text">
-              Selected CSV job: {selectedCsvJob.id} · {selectedCsvJob.batch_id} · {selectedCsvJob.status} · {formatLocalDateTime(selectedCsvJob.created_at)}
-            </p>
-          ) : (
-            <p className="config-help-text">Choose a CSV job to download its package zip directly.</p>
-          )
-        ) : selectedRun ? (
-          <p className="config-help-text">
-            Selected run: {selectedRun.id} · {selectedRun.word} · {selectedRun.part_of_sentence} · {selectedRun.category || 'no category'} · {formatLocalDateTime(selectedRun.created_at)}
-          </p>
-        ) : runs.length === 0 ? (
-          <p className="config-help-text">No legacy runs are available right now. Switch to CSV DAG job package if that is the flow you want to export.</p>
-        ) : (
-          <p className="config-help-text">No specific run selected. Export will include all legacy runs matching the optional filter.</p>
-        )}
-
         <div className="inline-fields">
-          <button onClick={create}>{sourceMode === 'csv_job' ? 'Download CSV Job Package' : 'Create Export'}</button>
+          <button onClick={create}>
+            {sourceMode === 'csv_job' ? 'Download CSV Job Package' : 'Create And Download Export'}
+          </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
         </div>
       </article>
 
-      <article className="card">
-        <h2>Export History</h2>
-        <p className="config-help-text">
-          Pick a previously created export here if you want to download it again without rebuilding it.
-        </p>
-        <label>
-          Choose export
-          <select value={selectedExportId} onChange={(e) => setSelectedExportId(e.target.value)}>
-            <option value="">Select an export</option>
-            {exportsList.map((item) => (
-              <option key={item.id} value={item.id}>
-                {`${item.id} · ${exportSourceSummary(item)} · ${item.status} · ${formatLocalDateTime(item.created_at)}`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="inline-fields">
-          <button onClick={load} disabled={!selectedExportId}>Load Export</button>
-        </div>
-
-        {exportDetail ? (
-          <>
-            <h3>Export {exportDetail.id}</h3>
-            <p>Source: <strong>{exportSourceSummary(exportDetail)}</strong></p>
-            <p>Status: <strong>{exportDetail.status}</strong></p>
-            <p>Created: {formatLocalDateTime(exportDetail.created_at)}</p>
-
-            <div className="inline-fields">
-              {exportDetail.csv_path ? (
-                <a href={buildApiUrl(exportDetail.csv_download_url)} target="_blank" rel="noreferrer">Download CSV</a>
-              ) : (
-                <span>CSV not ready</span>
-              )}
-              {exportDetail.zip_path ? (
-                <a href={buildApiUrl(exportDetail.white_bg_zip_download_url)} target="_blank" rel="noreferrer">
-                  Download ZIP (White Background)
-                </a>
-              ) : (
-                <span>White-background ZIP not ready</span>
-              )}
-              {exportDetail.with_bg_zip_path ? (
-                <a href={buildApiUrl(exportDetail.with_bg_zip_download_url)} target="_blank" rel="noreferrer">
-                  Download ZIP (With Background)
-                </a>
-              ) : (
-                <span>With-background ZIP not ready</span>
-              )}
-              {exportDetail.package_zip_path ? (
-                <a href={buildApiUrl(exportDetail.package_zip_download_url)} target="_blank" rel="noreferrer">
-                  Download Full Package
-                </a>
-              ) : (
-                <span>Package ZIP not ready</span>
-              )}
-              {exportDetail.manifest_path ? (
-                <a href={buildApiUrl(exportDetail.manifest_download_url)} target="_blank" rel="noreferrer">
-                  Download Manifest
-                </a>
-              ) : (
-                <span>Manifest not ready</span>
-              )}
-            </div>
-
-            <pre>{JSON.stringify(exportDetail, null, 2)}</pre>
-          </>
-        ) : (
-          <p>Select an export to inspect it.</p>
-        )}
-      </article>
-
       <article className="card message-card">
         <h2>Status</h2>
-        <p>{message}</p>
+        <p>{message || 'No export has been prepared yet.'}</p>
+
+        {preparedExport ? (
+          <div className="form-grid">
+            {preparedExport.kind === 'csv_job' ? (
+              <>
+                <p className="config-help-text"><strong>CSV job number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.id}</span></p>
+                <p className="config-help-text"><strong>Batch number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>
+                <p className="config-help-text"><strong>File name:</strong> {preparedExport.file_name}</p>
+                <div className="inline-fields">
+                  <button type="button" onClick={() => triggerDownload(preparedExport.package_download_url)}>
+                    Download Package Again
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="config-help-text"><strong>Export number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.id}</span></p>
+                <p className="config-help-text"><strong>Source:</strong> {exportSourceSummary(preparedExport)}</p>
+                <p className="config-help-text"><strong>Status:</strong> {preparedExport.status}</p>
+                <div className="inline-fields">
+                  {preparedExport.csv_download_url ? (
+                    <button type="button" onClick={() => triggerDownload(preparedExport.csv_download_url)}>Download CSV</button>
+                  ) : null}
+                  {preparedExport.white_bg_zip_download_url ? (
+                    <button type="button" onClick={() => triggerDownload(preparedExport.white_bg_zip_download_url)}>Download White Background ZIP</button>
+                  ) : null}
+                  {preparedExport.with_bg_zip_download_url ? (
+                    <button type="button" onClick={() => triggerDownload(preparedExport.with_bg_zip_download_url)}>Download With Background ZIP</button>
+                  ) : null}
+                  {preparedExport.package_zip_download_url ? (
+                    <button type="button" onClick={() => triggerDownload(preparedExport.package_zip_download_url)}>Download Full Package</button>
+                  ) : null}
+                  {preparedExport.manifest_download_url ? (
+                    <button type="button" onClick={() => triggerDownload(preparedExport.manifest_download_url)}>Download Manifest</button>
+                  ) : null}
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
       </article>
     </section>
   )

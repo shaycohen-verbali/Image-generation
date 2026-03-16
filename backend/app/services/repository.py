@@ -1073,7 +1073,26 @@ class Repository:
         job = self.get_csv_job(csv_job_id)
         if job is None:
             return None
+        items = self.list_csv_job_items(csv_job_id)
         tasks = self.list_csv_tasks(csv_job_id)
+        if items:
+            item_statuses = [str(item.status or "").lower() for item in items]
+            if all(status in {"completed", "failed", "canceled"} for status in item_statuses):
+                if any(status == "failed" for status in item_statuses):
+                    return self.update_csv_job(
+                        job,
+                        status="failed",
+                        finished_at=datetime.utcnow(),
+                        error_detail="One or more CSV DAG rows failed",
+                    )
+                if any(status == "canceled" for status in item_statuses):
+                    return self.update_csv_job(
+                        job,
+                        status="canceled",
+                        finished_at=datetime.utcnow(),
+                        error_detail=job.error_detail or "Canceled by user",
+                    )
+                return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
         if not tasks:
             return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow())
         statuses = [task.status for task in tasks]
