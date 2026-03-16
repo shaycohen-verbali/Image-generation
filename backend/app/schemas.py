@@ -327,6 +327,9 @@ class CsvJobItemOut(BaseModel):
     status: str
     error_detail: str = ""
     shadow_run_id: str | None = None
+    shadow_run_status: str = ""
+    shadow_run_current_stage: str = ""
+    shadow_run_error_detail: str = ""
     base_regular_asset_id: str | None = None
     base_white_bg_asset_id: str | None = None
     main_status: str = "pending"

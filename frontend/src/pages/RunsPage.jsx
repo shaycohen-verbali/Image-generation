@@ -236,6 +236,10 @@ function csvTaskDiagnostics(tasks, selectedId) {
   })
 }
 
+function csvAssetAvailabilityLabel(assetId) {
+  return assetId ? 'Created' : 'Not created'
+}
+
 function shouldPollRuns(runs) {
   return (Array.isArray(runs) ? runs : []).some((run) => !isTerminalRunStatus(run?.status))
 }
@@ -1237,15 +1241,47 @@ export default function RunsPage() {
                     <p>{selectedCsvItem.shadow_run_id || '-'}</p>
                   </div>
                   <div>
-                    <strong>Error</strong>
-                    <p>{selectedCsvItem.error_detail || '-'}</p>
+                    <strong>Shadow run status</strong>
+                    <p>
+                      {selectedCsvItem.shadow_run_status || '-'}
+                      {selectedCsvItem.shadow_run_current_stage ? ` · ${selectedCsvItem.shadow_run_current_stage}` : ''}
+                    </p>
                   </div>
+                  <div>
+                    <strong>Error</strong>
+                    <p>{selectedCsvItem.error_detail || selectedCsvItem.shadow_run_error_detail || '-'}</p>
+                  </div>
+                </div>
+                <div className="table-wrap runs-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Output</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Base regular</td>
+                        <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_regular_asset_id)}</td>
+                      </tr>
+                      <tr>
+                        <td>Base white background</td>
+                        <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_white_bg_asset_id)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
                 <div className="csv-word-image-grid">
                   {selectedCsvItemImages.length ? (
                     selectedCsvItemImages.map((image) => (
                       <article key={`${selectedCsvItem.id}:${image.id}:${image.label}`} className="csv-word-image-card">
-                        <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
+                        <DeferredAssetImage
+                          asset={image.id}
+                          alt={image.label}
+                          buttonLabel={`Load ${image.label}`}
+                          className="asset-image"
+                        />
                         <div className="csv-word-image-meta">
                           <strong>{image.label}</strong>
                           <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
@@ -1265,6 +1301,8 @@ export default function RunsPage() {
                         <th>Step</th>
                         <th>Profile</th>
                         <th>Status</th>
+                        <th>Regular image</th>
+                        <th>White bg image</th>
                         <th>Waiting on</th>
                         <th>Error</th>
                       </tr>
@@ -1275,6 +1313,8 @@ export default function RunsPage() {
                           <td>{task.stepLabel}</td>
                           <td>{task.profileLabel || '-'}</td>
                           <td>{csvPrettyStatus(task.status)}</td>
+                          <td>{csvAssetAvailabilityLabel(task.regular_asset_id)}</td>
+                          <td>{csvAssetAvailabilityLabel(task.white_bg_asset_id)}</td>
                           <td>{task.waitingOnLabel || '-'}</td>
                           <td>{task.error_summary || '-'}</td>
                         </tr>

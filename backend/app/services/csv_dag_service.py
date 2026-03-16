@@ -474,17 +474,32 @@ class CsvDagService:
             storage_prefix = self._storage_prefix(job, item)
             if task.step_name == "step1_base":
                 completed_run = runner.process_base_run(shadow_run.id, storage_prefix=storage_prefix)
+                completed_run = self.repo.get_run(shadow_run.id) or completed_run
+                if completed_run.status != "completed_base_assets":
+                    status_label = str(completed_run.status or "unknown")
+                    detail = str(completed_run.error_detail or "").strip()
+                    if detail:
+                        raise RuntimeError(f"Base DAG run ended with status {status_label}: {detail}")
+                    raise RuntimeError(f"Base DAG run ended with status {status_label}")
                 winner_attempt = max(1, int(completed_run.optimization_attempt or 1))
+                shadow_assets = self.repo.run_snapshot(shadow_run.id)[2]
                 regular_asset = next(
-                    (asset for asset in self.repo.run_snapshot(shadow_run.id)[2] if asset.stage_name == "stage3_upgraded" and int(asset.attempt or 0) == winner_attempt),
+                    (asset for asset in shadow_assets if asset.stage_name == "stage3_upgraded" and int(asset.attempt or 0) == winner_attempt),
                     None,
                 )
                 white_bg_asset = next(
-                    (asset for asset in self.repo.run_snapshot(shadow_run.id)[2] if asset.stage_name == "stage4_white_bg" and int(asset.attempt or 0) == winner_attempt),
+                    (asset for asset in shadow_assets if asset.stage_name == "stage4_white_bg" and int(asset.attempt or 0) == winner_attempt),
                     None,
                 )
                 if regular_asset is None or white_bg_asset is None:
-                    raise RuntimeError("Base DAG task completed without both regular and white-background assets")
+                    missing_assets: list[str] = []
+                    if regular_asset is None:
+                        missing_assets.append("regular")
+                    if white_bg_asset is None:
+                        missing_assets.append("white-background")
+                    raise RuntimeError(
+                        f"Base DAG winner attempt {winner_attempt} is missing {', '.join(missing_assets)} asset(s)"
+                    )
                 current_task = self.repo.get_csv_task(task.id)
                 if current_task is None or current_task.status != "running":
                     return current_task or task
@@ -638,6 +653,7 @@ class CsvDagService:
         word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0}
         for item in overview["items"]:
             entry = self.repo.get_entry(item.entry_id)
+            shadow_run = self.repo.get_run(item.shadow_run_id) if item.shadow_run_id else None
             item_progress = self._item_progress_payload(item, tasks)
             word_counts[item_progress["main_status"]] += 1
             items_payload.append(
@@ -651,6 +667,9 @@ class CsvDagService:
                     "status": item.status,
                     "error_detail": item.error_detail,
                     "shadow_run_id": item.shadow_run_id,
+                    "shadow_run_status": shadow_run.status if shadow_run else "",
+                    "shadow_run_current_stage": shadow_run.current_stage if shadow_run else "",
+                    "shadow_run_error_detail": shadow_run.error_detail if shadow_run else "",
                     "base_regular_asset_id": item.base_regular_asset_id,
                     "base_white_bg_asset_id": item.base_white_bg_asset_id,
                     "main_status": item_progress["main_status"],
