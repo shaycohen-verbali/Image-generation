@@ -1275,6 +1275,9 @@ class Repository:
                     )
                 return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
         if not tasks:
+            if not items:
+                # Job was just created and the import hasn't committed yet — keep current status
+                return job
             return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow())
         statuses = [task.status for task in tasks]
         if any(status == "running" for status in statuses):

@@ -360,6 +360,9 @@ class CsvDagService:
 
         if imported_count == 0:
             self.repo.update_csv_job(job, status="failed", error_detail="No valid CSV rows were imported", finished_at=datetime.utcnow())
+        else:
+            # Finalize ensures "imported" status even if the race window already set it to "completed"
+            self.repo.finalize_csv_job_status(job.id)
         return {
             "job_id": job.id,
             "batch_id": batch_id,
