@@ -428,6 +428,14 @@ export default function RunsPage() {
   )
   const csvJobItems = Array.isArray(csvJobOverview?.items) ? csvJobOverview.items : []
   const csvJobTasks = Array.isArray(csvJobOverview?.tasks) ? csvJobOverview.tasks : []
+  const visibleCsvJobs = useMemo(() => {
+    if (!Array.isArray(csvJobs) || csvJobs.length === 0) return []
+    if (selectedCsvJobId) {
+      const selected = csvJobs.find((job) => job.id === selectedCsvJobId)
+      if (selected) return [selected]
+    }
+    return [csvJobs[0]]
+  }, [csvJobs, selectedCsvJobId])
   const csvJobLiveCounts = useMemo(() => csvJobWordSummary(csvJobItems, csvJobTasks), [csvJobItems, csvJobTasks])
   const filteredCsvJobItems = useMemo(() => {
     if (!selectedCsvStatusFilter) return csvJobItems
@@ -1020,10 +1028,10 @@ export default function RunsPage() {
             <div>
               <p className="detail-eyebrow">Second Floor</p>
               <h2>CSV Stats</h2>
-              <p className="runs-floor-copy">CSV DAG history and the selected job summary live here, separately from legacy runs.</p>
+              <p className="runs-floor-copy">The current CSV DAG job and its summary live here, separately from legacy runs.</p>
             </div>
             <div className="runs-floor-summary">
-              <span>{csvJobs.length} total</span>
+              <span>{visibleCsvJobs.length} shown</span>
               <button type="button" onClick={() => refreshCsvJobs()} className="button-secondary">Refresh</button>
               <button type="button" onClick={onClearCsvHistory} className="button-secondary">Clear CSV History</button>
             </div>
@@ -1031,8 +1039,8 @@ export default function RunsPage() {
 
           <div className="csv-section-block">
             <div className="csv-section-head">
-              <h3>CSV Job History</h3>
-              <p>Most recently created jobs are shown first.</p>
+              <h3>Current CSV Job</h3>
+              <p>The selected job stays pinned here while you inspect it.</p>
             </div>
 
             <div className="table-wrap runs-table-wrap">
@@ -1051,7 +1059,7 @@ export default function RunsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {csvJobs.map((job) => (
+                  {visibleCsvJobs.map((job) => (
                     <tr
                       key={job.id}
                       className={job.id === selectedCsvJobId ? 'selected-row' : 'clickable-row'}
