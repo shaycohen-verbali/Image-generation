@@ -38,4 +38,15 @@ app.include_router(csv_jobs_router)
 
 @app.on_event("startup")
 def on_startup() -> None:
-    init_db()
+    import time
+
+    last_exc: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            init_db()
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < 3:
+                time.sleep(3.0 * attempt)
+    raise RuntimeError("init_db failed after 3 attempts") from last_exc
