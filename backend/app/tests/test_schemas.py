@@ -52,22 +52,15 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
     except ValidationError:
         assert True
 
-    try:
-        RuntimeConfigUpdate(max_parallel_runs=51)
-        assert False, "expected ValidationError"
-    except ValidationError:
-        assert True
-
-    try:
-        RuntimeConfigUpdate(max_variant_workers=17)
-        assert False, "expected ValidationError"
-    except ValidationError:
-        assert True
-
-
 def test_runtime_config_update_accepts_gpt54_for_stage3_critique() -> None:
     config = RuntimeConfigUpdate(stage3_critique_model="gpt-5.4")
     assert config.stage3_critique_model == "gpt-5.4"
+
+
+def test_runtime_config_update_accepts_large_worker_counts() -> None:
+    config = RuntimeConfigUpdate(max_parallel_runs=200, max_variant_workers=200)
+    assert config.max_parallel_runs == 200
+    assert config.max_variant_workers == 200
 
 
 def test_runtime_config_update_rejects_unknown_image_format() -> None:

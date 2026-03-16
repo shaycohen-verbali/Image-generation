@@ -12,6 +12,9 @@ from app.services.csv_dag_service import CsvDagService
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
 
+CSV_TASK_TIMEOUT_SECONDS = 180
+WORKER_EXECUTOR_MAX = 256
+
 
 def _process_single_run(run_id: str) -> None:
     with SessionLocal() as db:
@@ -35,15 +38,30 @@ def run_worker() -> None:
     active_runs: dict[Future, str] = {}
     active_csv_tasks: dict[Future, str] = {}
 
-    with ThreadPoolExecutor(max_workers=24) as executor:
+    with ThreadPoolExecutor(max_workers=WORKER_EXECUTOR_MAX) as executor:
         while True:
             with SessionLocal() as db:
                 repo = Repository(db)
                 config = repo.get_runtime_config()
-                max_parallel_runs = max(1, min(int(config.max_parallel_runs), 12))
-                max_variant_workers = max(1, min(int(config.max_variant_workers), 12))
-                max_parallel_csv_tasks = max(1, min(max_parallel_runs * max_variant_workers, 24))
+                max_parallel_runs = max(1, int(config.max_parallel_runs or 1))
+                max_variant_workers = max(1, int(config.max_variant_workers or 1))
+                max_parallel_csv_tasks = max_variant_workers
                 poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
+                timed_out_task_ids = repo.fail_stale_running_csv_tasks(timeout_seconds=CSV_TASK_TIMEOUT_SECONDS)
+
+            if timed_out_task_ids:
+                timed_out = set(timed_out_task_ids)
+                released_futures = [future for future, task_id in active_csv_tasks.items() if task_id in timed_out]
+                for future in released_futures:
+                    active_csv_tasks.pop(future, None)
+                logger.warning(
+                    "csv tasks timed out",
+                    extra={
+                        "csv_task_ids": timed_out_task_ids,
+                        "timeout_seconds": CSV_TASK_TIMEOUT_SECONDS,
+                        "released_slots": len(released_futures),
+                    },
+                )
 
             done = [future for future in active_runs if future.done()]
             for future in done:

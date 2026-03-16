@@ -251,12 +251,12 @@ export default function SubmitPage() {
   const onSaveWorkerConfig = async () => {
     const parsedRuns = Number(runWorkerCount)
     const parsedVariants = Number(variantWorkerCount)
-    if (!Number.isInteger(parsedRuns) || parsedRuns < 1 || parsedRuns > 12) {
-      setMessage('Run workers must be an integer between 1 and 12')
+    if (!Number.isInteger(parsedRuns) || parsedRuns < 1) {
+      setMessage('Run workers must be a positive integer')
       return
     }
-    if (!Number.isInteger(parsedVariants) || parsedVariants < 1 || parsedVariants > 12) {
-      setMessage('Variant workers must be an integer between 1 and 12')
+    if (!Number.isInteger(parsedVariants) || parsedVariants < 1) {
+      setMessage('Variant workers must be a positive integer')
       return
     }
     setMessage('Saving worker configuration...')
@@ -571,14 +571,13 @@ export default function SubmitPage() {
       <div className="submit-support-grid">
         <article className="card">
           <h2>Processing Speed</h2>
-          <p>Split throughput by goal: run workers start whole words, variant workers fan out image variations inside a run.</p>
+          <p>Run workers control legacy runs. For CSV DAG jobs, variant workers control how many words are processed at once.</p>
           <div className="inline-fields">
             <label>
               Run workers
               <input
                 type="number"
                 min="1"
-                max="12"
                 value={runWorkerCount}
                 onChange={(e) => setRunWorkerCount(e.target.value)}
               />
@@ -588,7 +587,6 @@ export default function SubmitPage() {
               <input
                 type="number"
                 min="1"
-                max="12"
                 value={variantWorkerCount}
                 onChange={(e) => setVariantWorkerCount(e.target.value)}
               />

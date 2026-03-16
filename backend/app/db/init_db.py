@@ -24,10 +24,8 @@ from app.services.prompt_templates import (
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
 DEFAULT_PARALLEL_RUNS = 1
-SAFE_PARALLEL_RUNS = 12
 MIN_VARIANT_WORKERS = 1
 DEFAULT_VARIANT_WORKERS = 2
-SAFE_VARIANT_WORKERS = 12
 
 
 def init_db() -> None:
@@ -48,8 +46,8 @@ def init_db() -> None:
                     max_api_retries=settings.max_api_retries,
                     stage_retry_limit=settings.stage_retry_limit,
                     worker_poll_seconds=settings.worker_poll_seconds,
-                    max_parallel_runs=max(MIN_PARALLEL_RUNS, min(int(settings.max_parallel_runs), SAFE_PARALLEL_RUNS)),
-                    max_variant_workers=max(MIN_VARIANT_WORKERS, min(int(settings.max_variant_workers), SAFE_VARIANT_WORKERS)),
+                    max_parallel_runs=max(MIN_PARALLEL_RUNS, int(settings.max_parallel_runs)),
+                    max_variant_workers=max(MIN_VARIANT_WORKERS, int(settings.max_variant_workers)),
                     flux_imagen_fallback_enabled=settings.flux_imagen_fallback_enabled,
                     openai_assistant_id=settings.openai_assistant_id,
                     openai_assistant_name=settings.openai_assistant_name,
@@ -77,12 +75,8 @@ def init_db() -> None:
                 existing.quality_threshold = MIN_QUALITY_THRESHOLD
             if int(existing.max_parallel_runs) < MIN_PARALLEL_RUNS:
                 existing.max_parallel_runs = DEFAULT_PARALLEL_RUNS
-            if int(existing.max_parallel_runs) > SAFE_PARALLEL_RUNS:
-                existing.max_parallel_runs = SAFE_PARALLEL_RUNS
             if int(getattr(existing, "max_variant_workers", DEFAULT_VARIANT_WORKERS)) < MIN_VARIANT_WORKERS:
                 existing.max_variant_workers = DEFAULT_VARIANT_WORKERS
-            if int(getattr(existing, "max_variant_workers", DEFAULT_VARIANT_WORKERS)) > SAFE_VARIANT_WORKERS:
-                existing.max_variant_workers = SAFE_VARIANT_WORKERS
             existing.stage3_critique_model = normalize_vision_model(existing.stage3_critique_model or existing.openai_model_vision)
             if (
                 existing.stage3_critique_model == "gpt-4o-mini"

@@ -485,6 +485,9 @@ class CsvDagService:
                 )
                 if regular_asset is None or white_bg_asset is None:
                     raise RuntimeError("Base DAG task completed without both regular and white-background assets")
+                current_task = self.repo.get_csv_task(task.id)
+                if current_task is None or current_task.status != "running":
+                    return current_task or task
                 self.repo.add_csv_task_attempt(
                     csv_task_node_id=task.id,
                     attempt_number=attempt_number,
@@ -539,6 +542,9 @@ class CsvDagService:
                 )
                 regular_asset = created["regular_asset"]
                 white_bg_asset = created["white_bg_asset"]
+                current_task = self.repo.get_csv_task(task.id)
+                if current_task is None or current_task.status != "running":
+                    return current_task or task
                 self.repo.add_csv_task_attempt(
                     csv_task_node_id=task.id,
                     attempt_number=attempt_number,
@@ -562,6 +568,9 @@ class CsvDagService:
                     finished_at=datetime.utcnow(),
                 )
         except Exception as exc:  # noqa: BLE001
+            current_task = self.repo.get_csv_task(task.id)
+            if current_task is None or current_task.status != "running":
+                return current_task or task
             self.repo.add_csv_task_attempt(
                 csv_task_node_id=task.id,
                 attempt_number=attempt_number,

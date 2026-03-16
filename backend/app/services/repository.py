@@ -51,9 +51,7 @@ from app.services.utils import deterministic_entry_id, source_row_hash
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
-MAX_PARALLEL_RUNS = 12
 MIN_VARIANT_WORKERS = 1
-MAX_VARIANT_WORKERS = 12
 
 
 def _dumps(value: dict[str, Any] | list[Any]) -> str:
@@ -124,8 +122,8 @@ class Repository:
         )
         config.openai_model_vision = config.stage3_critique_model
         config.quality_threshold = max(MIN_QUALITY_THRESHOLD, int(config.quality_threshold))
-        config.max_parallel_runs = max(MIN_PARALLEL_RUNS, min(int(config.max_parallel_runs), MAX_PARALLEL_RUNS))
-        config.max_variant_workers = max(MIN_VARIANT_WORKERS, min(int(config.max_variant_workers), MAX_VARIANT_WORKERS))
+        config.max_parallel_runs = max(MIN_PARALLEL_RUNS, int(config.max_parallel_runs))
+        config.max_variant_workers = max(MIN_VARIANT_WORKERS, int(config.max_variant_workers))
         self.db.add(config)
         self.db.commit()
         self.db.refresh(config)
@@ -1071,6 +1069,65 @@ class Repository:
                 self.update_csv_job_item(item, status="running", error_detail="")
             return claimed
         return None
+
+    def fail_stale_running_csv_tasks(self, *, timeout_seconds: int) -> list[str]:
+        cutoff = datetime.utcnow().timestamp() - max(1, int(timeout_seconds))
+        stale_tasks = list(
+            self.db.execute(
+                select(CsvTaskNode)
+                .where(CsvTaskNode.status == "running")
+                .where(CsvTaskNode.started_at.is_not(None))
+            ).scalars()
+        )
+        timed_out_ids: list[str] = []
+        affected_item_ids: set[str] = set()
+        affected_job_ids: set[str] = set()
+        for task in stale_tasks:
+            if task.started_at is None or task.started_at.timestamp() > cutoff:
+                continue
+            task.status = "failed"
+            task.error_summary = f"Timed out after {int(timeout_seconds)} seconds"
+            task.finished_at = datetime.utcnow()
+            self.db.add(task)
+            timed_out_ids.append(task.id)
+            affected_item_ids.add(task.csv_job_item_id)
+            affected_job_ids.add(task.csv_job_id)
+        if not timed_out_ids:
+            return []
+        self.db.commit()
+        for item_id in affected_item_ids:
+            item = self.get_csv_job_item(item_id)
+            if item is None:
+                continue
+            tasks = [task for task in self.list_csv_tasks(item.csv_job_id) if task.csv_job_item_id == item.id]
+            statuses = [task.status for task in tasks]
+            if not statuses:
+                item.status = "pending"
+                item.error_detail = ""
+            elif any(status == "running" for status in statuses):
+                item.status = "running"
+                item.error_detail = ""
+            elif any(status == "failed" for status in statuses):
+                first_failure = next((task for task in tasks if task.status == "failed"), None)
+                item.status = "failed"
+                item.error_detail = first_failure.error_summary if first_failure else "Task failed"
+            elif any(status == "queued" for status in statuses):
+                item.status = "running" if item.shadow_run_id or any(status in {"completed", "canceled"} for status in statuses) else "queued"
+                item.error_detail = ""
+            elif any(status == "pending" for status in statuses):
+                item.status = "running" if item.shadow_run_id or any(status in {"completed", "canceled"} for status in statuses) else "pending"
+                item.error_detail = ""
+            elif any(status == "canceled" for status in statuses):
+                item.status = "canceled"
+                item.error_detail = "Canceled by user"
+            else:
+                item.status = "completed"
+                item.error_detail = ""
+            self.db.add(item)
+        self.db.commit()
+        for job_id in affected_job_ids:
+            self.finalize_csv_job_status(job_id)
+        return timed_out_ids
 
     def retry_failed_csv_tasks(self, csv_job_id: str) -> int:
         tasks = list(
