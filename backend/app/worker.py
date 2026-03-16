@@ -46,8 +46,7 @@ def run_worker() -> None:
                     repo = Repository(db)
                     config = repo.get_runtime_config()
                     max_parallel_runs = max(1, int(config.max_parallel_runs or 1))
-                    max_variant_workers = max(1, int(config.max_variant_workers or 1))
-                    max_parallel_csv_tasks = max_variant_workers
+                    max_parallel_csv_tasks = max_parallel_runs
                     poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
                     timed_out_task_ids = repo.fail_stale_running_csv_tasks(timeout_seconds=CSV_TASK_TIMEOUT_SECONDS)
 

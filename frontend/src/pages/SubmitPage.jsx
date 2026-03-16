@@ -571,7 +571,7 @@ export default function SubmitPage() {
       <div className="submit-support-grid">
         <article className="card">
           <h2>Processing Speed</h2>
-          <p>Run workers control legacy runs. For CSV DAG jobs, variant workers control how many words are processed at once.</p>
+          <p>Run workers control whole-word concurrency, including CSV DAG jobs. Variant workers control image fanout inside each word.</p>
           <div className="inline-fields">
             <label>
               Run workers
