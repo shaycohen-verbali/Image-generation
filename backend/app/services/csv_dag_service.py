@@ -184,14 +184,7 @@ class CsvDagService:
                 and inventory_service.slot_path_for_entry_profile(entry, p, background="white_bg")
             )
 
-        # The base (male, kid, white) is the root of every dependency chain.
-        # Always include it so variants have something to depend on, even when
-        # the user didn't explicitly request that combination.
-        base_profile = {"gender": DEFAULT_GENDER, "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
-        base_pk = profile_key(base_profile)
         profiles_to_process = list(requested_profiles)
-        if base_pk not in {profile_key(p) for p in requested_profiles}:
-            profiles_to_process.insert(0, base_profile)
 
         # Profiles whose regular image already exists in inventory are immediately available
         available_regular: set[str] = {
@@ -266,13 +259,6 @@ class CsvDagService:
 
             dep_pk = profile_key(dep)
             dep_spec = spec_by_profile_key.get(dep_pk)
-
-            if dep_spec is None and dep_pk not in available_regular:
-                # Dependency not available in inventory and not being generated – skip
-                skipped_notes.append(
-                    f"Skipped {pk}: dependency '{dep_pk}' not available in inventory"
-                )
-                continue
 
             dep_task_key = dep_spec["task_key"] if dep_spec else None
             _create_spec(prof, dep, dep_task_key)
@@ -700,13 +686,32 @@ class CsvDagService:
                 dependency_ids = [str(value) for value in json.loads(task.dependency_task_ids_json or "[]") if str(value)]
                 target_profile = _parse_profile_key(task.profile_key)
                 source_profile = _parse_profile_key(task.source_profile_key) if task.source_profile_key else None
+                def _cannot_complete(reason: str) -> CsvTaskNode:
+                    self.repo.update_csv_task(
+                        task,
+                        status="completed",
+                        error_summary=reason,
+                        finished_at=datetime.utcnow(),
+                    )
+                    self.repo.add_csv_task_attempt(
+                        csv_task_node_id=task.id,
+                        attempt_number=attempt_number,
+                        status="completed",
+                        request_json={"step_name": task.step_name},
+                        response_json={"skipped": True, "reason": reason},
+                        finished_at=datetime.utcnow(),
+                    )
+                    return self.repo.get_csv_task(task.id) or task
+
                 if dependency_ids:
                     source_task = self.repo.get_csv_task(dependency_ids[0])
                     if source_task is None or not source_task.regular_asset_id:
-                        raise RuntimeError(f"Task {task.task_key} is missing its source asset")
+                        dep_label = profile_key(source_profile) if source_profile else dependency_ids[0]
+                        return _cannot_complete(f"Cannot complete: dependency image for '{dep_label}' is not yet available")
                     source_asset: Asset | str | None = self.repo.get_asset(source_task.regular_asset_id)
                     if source_asset is None:
-                        raise RuntimeError(f"Missing source asset {source_task.regular_asset_id} for task {task.task_key}")
+                        dep_label = profile_key(source_profile) if source_profile else dependency_ids[0]
+                        return _cannot_complete(f"Cannot complete: dependency image for '{dep_label}' is not yet available")
                 else:
                     if not source_profile:
                         raise RuntimeError(f"Task {task.task_key} has no dependency or reusable source profile")
@@ -716,9 +721,7 @@ class CsvDagService:
                         background="regular",
                     )
                     if not inventory_source:
-                        raise RuntimeError(
-                            f"Task {task.task_key} could not find reusable inventory source for {profile_key(source_profile)}"
-                        )
+                        return _cannot_complete(f"Cannot complete: dependency image for '{profile_key(source_profile)}' is not yet available")
                     source_asset = inventory_source
                 winner_attempt = max(1, int((self.repo.get_run(shadow_run.id).optimization_attempt if self.repo.get_run(shadow_run.id) else 1) or 1))
                 created = runner.create_profile_variant_pair(
