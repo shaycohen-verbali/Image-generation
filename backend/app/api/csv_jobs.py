@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import db_dependency
@@ -148,6 +149,15 @@ def sync_csv_job_inventory(job_id: str, db: Session = Depends(db_dependency)) ->
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CsvJobInventorySyncResponse(**result)
+
+
+@router.get("/sample-csv")
+def download_sample_csv() -> PlainTextResponse:
+    csv_path = Path(__file__).parents[3] / "frontend" / "public" / "test_word_list.csv"
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail="Sample CSV not found")
+    content = csv_path.read_text(encoding="utf-8")
+    return PlainTextResponse(content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=test_word_list.csv"})
 
 
 @router.get("/{job_id}/export/download")

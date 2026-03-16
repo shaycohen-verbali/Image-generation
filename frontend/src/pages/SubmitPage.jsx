@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import {
+  API_BASE,
   applyEntryProfileOptions,
   createEntry,
   createRuns,
@@ -26,7 +27,7 @@ export default function SubmitPage() {
     { value: 'block_medium_and_above', label: 'Block medium and above' },
     { value: 'block_low_and_above', label: 'Block low and above' },
   ]
-  const SAMPLE_CSV_URL = `${import.meta.env.BASE_URL || '/'}test_word_list.csv`
+  const SAMPLE_CSV_URL = `${API_BASE}/csv-jobs/sample-csv`
   const SAMPLE_CSV_NAME = 'test_word_list.csv'
   const [form, setForm] = useState({
     word: '',
