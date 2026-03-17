@@ -425,6 +425,7 @@ class CsvDagService:
         job = self.repo.get_csv_job(job_id)
         if job is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
+        self._backfill_has_person_for_job(job_id)
         service = InventorySyncService(self.db)
         synced = service.sync_csv_job(job_id)
         return {
@@ -450,6 +451,43 @@ class CsvDagService:
     @staticmethod
     def _storage_prefix(job: CsvJob, item: CsvJobItem) -> str:
         return f"csv-jobs/{sanitize_filename(job.id)}/{sanitize_filename(item.id)}"
+
+    def _read_has_person_from_shadow_run(self, shadow_run_id: str) -> str:
+        """Extract has_person from the winning stage3_upgrade result of a shadow run."""
+        run = self.repo.get_run(shadow_run_id)
+        if run is None:
+            return ""
+        winner_attempt = max(1, int(run.optimization_attempt or 1))
+        _, shadow_stages, _, _ = self.repo.run_snapshot(shadow_run_id)
+        stage3 = next(
+            (s for s in shadow_stages if s.stage_name == "stage3_upgrade" and int(s.attempt or 0) == winner_attempt),
+            None,
+        )
+        if stage3 is None:
+            return ""
+        try:
+            decision = json.loads(stage3.response_json or "{}").get("decision", {})
+            raw = str(decision.get("resolved_need_person", "") or "").strip().lower()
+            return "yes" if raw == "yes" else ("no" if raw == "no" else "")
+        except Exception:
+            return ""
+
+    def _backfill_has_person_for_job(self, job_id: str) -> None:
+        """For any item whose entry.has_person is empty, read it from the base shadow run and write it."""
+        overview = self.repo.csv_job_overview(job_id)
+        if overview is None:
+            return
+        for item in overview["items"]:
+            if not item.shadow_run_id:
+                continue
+            entry = self.repo.get_entry(item.entry_id)
+            if entry is None:
+                continue
+            if str(getattr(entry, "has_person", "") or "").strip():
+                continue
+            has_person_val = self._read_has_person_from_shadow_run(item.shadow_run_id)
+            if has_person_val:
+                self.repo.update_entry_has_person(entry.id, has_person_val)
 
     @staticmethod
     def _step_label(step_name: str) -> str:
@@ -655,7 +693,7 @@ class CsvDagService:
                 winning_stage3 = next(
                     (
                         s for s in shadow_stages
-                        if s.stage_name == "stage3_upgrade" and int(s.attempt or 0) == winner_attempt and s.status == "completed"
+                        if s.stage_name == "stage3_upgrade" and int(s.attempt or 0) == winner_attempt
                     ),
                     None,
                 )
@@ -670,7 +708,12 @@ class CsvDagService:
                 if has_person:
                     self.repo.update_entry_has_person(entry.id, has_person)
             else:
-                if str(getattr(entry, "has_person", "") or "").strip().lower() == "no":
+                has_person_val = str(getattr(entry, "has_person", "") or "").strip().lower()
+                if not has_person_val and item.shadow_run_id:
+                    has_person_val = self._read_has_person_from_shadow_run(item.shadow_run_id)
+                    if has_person_val:
+                        self.repo.update_entry_has_person(entry.id, has_person_val)
+                if has_person_val == "no":
                     self.repo.update_csv_task(
                         task,
                         status="completed",
@@ -792,6 +835,7 @@ class CsvDagService:
         self._update_item_status(item)
         finalized_job = self.repo.finalize_csv_job_status(job.id)
         if finalized_job is not None and finalized_job.status in {"completed", "failed", "canceled"}:
+            self._backfill_has_person_for_job(job.id)
             InventorySyncService(self.db).sync_csv_job(job.id)
         return self.repo.get_csv_task(task.id) or finished_task
 
@@ -829,6 +873,7 @@ class CsvDagService:
             if self.repo.get_csv_job(job_id) is None:
                 return None
             raise
+        self._backfill_has_person_for_job(job_id)
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             return None

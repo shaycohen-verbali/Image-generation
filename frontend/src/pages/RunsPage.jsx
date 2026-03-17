@@ -26,6 +26,8 @@ const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
 const RUNS_POLL_MS = 30000
 const DETAIL_POLL_RUNNING_MS = 12000
 const DETAIL_POLL_WAITING_MS = 20000
+const CSV_LIST_POLL_MS = 5000
+const CSV_DETAIL_POLL_MS = 5000
 
 function isTerminalRunStatus(status) {
   const value = String(status || '').toLowerCase()
@@ -636,11 +638,10 @@ export default function RunsPage() {
     refreshCsvJobs()
     const timer = setInterval(() => {
       if (!pageVisible) return
-      if (!csvJobs.some((job) => !isTerminalCsvJobStatus(job.status))) return
       refreshCsvJobs({ isPolling: true })
-    }, RUNS_POLL_MS)
+    }, CSV_LIST_POLL_MS)
     return () => clearInterval(timer)
-  }, [pageVisible, csvJobPollKey])
+  }, [pageVisible])
 
   useEffect(() => {
     if (!selectedCsvJobId || !pageVisible) return
@@ -685,7 +686,7 @@ export default function RunsPage() {
       if (!selectedCsvJobId) return
       if (isTerminalCsvJobStatus(csvJobOverview?.job?.status)) return
       loadCsvJobDetail(selectedCsvJobId, { isPolling: true })
-    }, DETAIL_POLL_WAITING_MS)
+    }, CSV_DETAIL_POLL_MS)
     return () => clearInterval(timer)
   }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status])
 
