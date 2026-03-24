@@ -311,6 +311,30 @@ class GoogleImageClient:
         aspect_ratio: str | None,
         image_size: str | None,
     ) -> dict[str, Any]:
+        request = self.white_bg_request_summary(
+            image_path,
+            word=word,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+        return self._run_generation(
+            run_id=run_id,
+            model_name=google_image_model_name("nano-banana-2"),
+            prompt=str(request["prompt"]),
+            image_paths=[image_path],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+            safety_level=self.settings.nano_banana_safety_level,
+        )
+
+    def white_bg_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+    ) -> dict[str, Any]:
         prompt = (
             "remove the background and replace it with pure solid white. Keep the exact same character identity, face, hairstyle, clothing, pose, ball position, scale, and camera framing. "
             "Do not redraw the subject, do not change the avatar, and do not add or remove body parts or props. Keep the full body and the full ball entirely inside the frame with clean margin on every side. "
@@ -319,15 +343,15 @@ class GoogleImageClient:
             f'The image\'s main message is to represent the concept "{word}". '
             "Do not add text in the image."
         )
-        return self._run_generation(
-            run_id=run_id,
-            model_name=google_image_model_name("nano-banana-2"),
-            prompt=prompt,
-            image_paths=[image_path],
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-            safety_level=self.settings.nano_banana_safety_level,
-        )
+        return {
+            "model": "nano-banana-2",
+            "provider_model": google_image_model_name("nano-banana-2"),
+            "prompt": prompt,
+            "source_image_path": image_path.as_posix(),
+            "aspect_ratio": aspect_ratio or "",
+            "image_size": image_size or "",
+            "safety_level": normalize_nano_banana_safety_level(self.settings.nano_banana_safety_level),
+        }
 
     def profile_variant_request_summary(
         self,

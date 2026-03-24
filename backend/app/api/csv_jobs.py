@@ -10,6 +10,8 @@ from app.api.deps import db_dependency
 from app.schemas import (
     CsvJobCancelResponse,
     CsvJobClearResponse,
+    CsvJobContinueRequest,
+    CsvJobContinueResponse,
     CsvJobExportResponse,
     CsvJobImportResponse,
     CsvJobInventorySyncResponse,
@@ -124,6 +126,26 @@ def start_csv_job(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobSt
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CsvJobStartResponse(job_id=job.id, status=job.status)
+
+
+@router.post("/{job_id}/continue", response_model=CsvJobContinueResponse)
+def continue_csv_job(
+    job_id: str,
+    payload: CsvJobContinueRequest,
+    db: Session = Depends(db_dependency),
+) -> CsvJobContinueResponse:
+    service = CsvDagService(db)
+    try:
+        result = service.continue_job(
+            job_id,
+            person_gender_options=payload.person_gender_options,
+            person_age_options=payload.person_age_options,
+            person_skin_color_options=payload.person_skin_color_options,
+            override_existing_variants=payload.override_existing_variants,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CsvJobContinueResponse(**result)
 
 
 @router.post("/{job_id}/retry-failures", response_model=CsvJobRetryResponse)

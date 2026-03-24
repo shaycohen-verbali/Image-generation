@@ -5,6 +5,7 @@ import {
   cancelCsvJob,
   clearTerminalCsvJobs,
   clearTerminalRuns,
+  continueCsvJob,
   deleteRun,
   exportCsvJob,
   getConfig,
@@ -98,6 +99,12 @@ function csvPrettyStatus(status) {
 function csvProfileSummary(profileKey) {
   const [gender, age, skinColor] = String(profileKey || '').split(':')
   return [age, gender, skinColor].filter(Boolean).join(' ')
+}
+
+function normalizeProfileOptionLabel(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function formatLocalDateTime(value) {
@@ -338,6 +345,10 @@ const stagePriority = {
   stage5_variant_white_bg: 5,
 }
 
+const CSV_GENDER_OPTIONS = ['male', 'female']
+const CSV_AGE_OPTIONS = ['toddler', 'kid', 'tween', 'teenager']
+const CSV_SKIN_OPTIONS = ['white', 'black', 'asian', 'brown']
+
 export default function RunsPage() {
   const algoDiagramEnabled = import.meta.env.VITE_ALGO_DIAGRAM_ENABLED !== 'false'
   const [filters, setFilters] = useState({ status: '', word: '', part_of_sentence: '', category: '' })
@@ -362,6 +373,12 @@ export default function RunsPage() {
   const [csvJobOverview, setCsvJobOverview] = useState(null)
   const [selectedCsvItemId, setSelectedCsvItemId] = useState('')
   const [selectedCsvStatusFilter, setSelectedCsvStatusFilter] = useState('')
+  const [continueSelections, setContinueSelections] = useState({
+    person_gender_options: [],
+    person_age_options: [],
+    person_skin_color_options: [],
+    override_existing_variants: false,
+  })
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [pageVisible, setPageVisible] = useState(() => {
     if (typeof document === 'undefined') return true
@@ -380,6 +397,15 @@ export default function RunsPage() {
 
   useEffect(() => {
     selectedCsvJobIdRef.current = selectedCsvJobId
+  }, [selectedCsvJobId])
+
+  useEffect(() => {
+    setContinueSelections({
+      person_gender_options: [],
+      person_age_options: [],
+      person_skin_color_options: [],
+      override_existing_variants: false,
+    })
   }, [selectedCsvJobId])
 
   useEffect(() => {
@@ -445,6 +471,12 @@ export default function RunsPage() {
   )
   const csvJobItems = Array.isArray(csvJobOverview?.items) ? csvJobOverview.items : []
   const csvJobTasks = Array.isArray(csvJobOverview?.tasks) ? csvJobOverview.tasks : []
+  const requestedProfileHistory = Array.isArray(csvJobOverview?.requested_profile_history)
+    ? csvJobOverview.requested_profile_history
+    : []
+  const currentRequestedProfiles = Array.isArray(csvJobOverview?.job?.requested_profiles)
+    ? csvJobOverview.job.requested_profiles
+    : []
   const visibleCsvJobs = useMemo(() => {
     if (!Array.isArray(csvJobs) || csvJobs.length === 0) return []
     if (selectedCsvJobId) {
@@ -474,6 +506,11 @@ export default function RunsPage() {
   const selectedCsvTaskDiagnostics = useMemo(
     () => csvTaskDiagnostics(csvJobTasks, selectedCsvItem?.id),
     [csvJobTasks, selectedCsvItem?.id]
+  )
+  const canContinueSelectedCsvJob = Boolean(
+    selectedCsvJobId &&
+    csvJobOverview?.job &&
+    isTerminalCsvJobStatus(csvJobOverview.job.status)
   )
 
   async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
@@ -819,6 +856,47 @@ export default function RunsPage() {
         setSelectedCsvItemId('')
         setCsvJobOverview(null)
       }
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const onToggleContinueSelection = (field, option) => {
+    setContinueSelections((current) => {
+      const currentValues = Array.isArray(current[field]) ? current[field] : []
+      const nextValues = currentValues.includes(option)
+        ? currentValues.filter((value) => value !== option)
+        : [...currentValues, option]
+      return {
+        ...current,
+        [field]: nextValues,
+      }
+    })
+  }
+
+  const onContinueCsvJob = async () => {
+    if (!selectedCsvJobId) {
+      setMessage('Select a completed CSV job first')
+      return
+    }
+    if (
+      !continueSelections.person_gender_options.length ||
+      !continueSelections.person_age_options.length ||
+      !continueSelections.person_skin_color_options.length
+    ) {
+      setMessage('Choose at least one gender, one age, and one skin color for the next variants')
+      return
+    }
+    try {
+      const result = await continueCsvJob(selectedCsvJobId, continueSelections)
+      setMessage(`Started follow-up CSV job ${result.batch_id}`)
+      selectedCsvJobIdRef.current = result.job_id
+      setSelectedCsvJobId(result.job_id)
+      setSelectedCsvItemId('')
+      setSelectedCsvStatusFilter('')
+      setCsvJobOverview(null)
+      refreshCsvJobs()
+      loadCsvJobDetail(result.job_id)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     }
@@ -1203,6 +1281,113 @@ export default function RunsPage() {
               <p className="config-help-text">
                 Click a status chip to filter the word list on the first floor.
               </p>
+              <div className="csv-request-history">
+                <div>
+                  <strong>Current requested variants</strong>
+                  <div className="csv-request-chip-row">
+                    {currentRequestedProfiles.length ? (
+                      currentRequestedProfiles.map((profileKey) => (
+                        <span key={`current:${profileKey}`} className="csv-status-chip">
+                          {csvProfileSummary(profileKey)}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="config-help-text">No requested variants recorded.</span>
+                    )}
+                  </div>
+                </div>
+                {requestedProfileHistory.length > 0 ? (
+                  <div>
+                    <strong>Requested variant history</strong>
+                    <div className="csv-request-history-list">
+                      {requestedProfileHistory.map((historyItem) => (
+                        <div key={historyItem.job_id} className="csv-request-history-card">
+                          <div className="status-stack">
+                            <strong>
+                              {historyItem.is_current ? 'Current job' : 'Previous job'} · {historyItem.batch_id}
+                            </strong>
+                            <span>
+                              {formatLocalDateTime(historyItem.created_at)} · {csvPrettyStatus(historyItem.status)}
+                            </span>
+                          </div>
+                          <div className="csv-request-chip-row">
+                            {(Array.isArray(historyItem.requested_profiles) ? historyItem.requested_profiles : []).map((profileKey) => (
+                              <span key={`${historyItem.job_id}:${profileKey}`} className="csv-status-chip">
+                                {csvProfileSummary(profileKey)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {canContinueSelectedCsvJob ? (
+                <div className="csv-continue-panel">
+                  <div className="csv-section-head">
+                    <h3>Continue With More Variants</h3>
+                    <p>Pick the next variants for the same words. We will create a new CSV DAG job and start it automatically.</p>
+                  </div>
+                  <div className="csv-continue-grid">
+                    <fieldset className="checkbox-group">
+                      <legend>Gender</legend>
+                      {CSV_GENDER_OPTIONS.map((option) => (
+                        <label key={`continue-gender:${option}`} className="checkbox-option">
+                          <input
+                            type="checkbox"
+                            checked={continueSelections.person_gender_options.includes(option)}
+                            onChange={() => onToggleContinueSelection('person_gender_options', option)}
+                          />
+                          <span>{normalizeProfileOptionLabel(option)}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                    <fieldset className="checkbox-group">
+                      <legend>Age</legend>
+                      {CSV_AGE_OPTIONS.map((option) => (
+                        <label key={`continue-age:${option}`} className="checkbox-option">
+                          <input
+                            type="checkbox"
+                            checked={continueSelections.person_age_options.includes(option)}
+                            onChange={() => onToggleContinueSelection('person_age_options', option)}
+                          />
+                          <span>{normalizeProfileOptionLabel(option)}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                    <fieldset className="checkbox-group">
+                      <legend>Skin color</legend>
+                      {CSV_SKIN_OPTIONS.map((option) => (
+                        <label key={`continue-skin:${option}`} className="checkbox-option">
+                          <input
+                            type="checkbox"
+                            checked={continueSelections.person_skin_color_options.includes(option)}
+                            onChange={() => onToggleContinueSelection('person_skin_color_options', option)}
+                          />
+                          <span>{normalizeProfileOptionLabel(option)}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  </div>
+                  <label className="checkbox-option">
+                    <input
+                      type="checkbox"
+                      checked={continueSelections.override_existing_variants}
+                      onChange={(event) =>
+                        setContinueSelections((current) => ({
+                          ...current,
+                          override_existing_variants: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span>Override existing images for the requested variants</span>
+                  </label>
+                  <button type="button" className="button-primary" onClick={onContinueCsvJob}>
+                    Continue Process
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p style={{ marginTop: 16 }}>Select a CSV job to see its overview.</p>

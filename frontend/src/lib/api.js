@@ -91,6 +91,15 @@ export async function startCsvJob(jobId) {
   return parseResponse(response)
 }
 
+export async function continueCsvJob(jobId, payload) {
+  const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/continue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return parseResponse(response)
+}
+
 export async function retryCsvJobFailures(jobId) {
   const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/retry-failures`, { method: 'POST' })
   return parseResponse(response)

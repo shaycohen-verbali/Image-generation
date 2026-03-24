@@ -122,6 +122,7 @@ class CsvDagService:
         person_age_options: list[str],
         person_skin_color_options: list[str],
         override_existing_variants: bool = False,
+        continued_from_job_id: str = "",
     ) -> dict[str, Any]:
         config = self.repo.get_runtime_config()
         return {
@@ -135,6 +136,7 @@ class CsvDagService:
             "person_age_options": list(person_age_options),
             "person_skin_color_options": list(person_skin_color_options),
             "override_existing_variants": bool(override_existing_variants),
+            "continued_from_job_id": str(continued_from_job_id or "").strip(),
         }
 
     def _requested_profiles(self, job: CsvJob) -> list[dict[str, str]]:
@@ -157,6 +159,51 @@ class CsvDagService:
         if isinstance(raw_value, bool):
             return raw_value
         return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _continued_from_job_id(self, job: CsvJob) -> str:
+        snapshot = self.repo.json_field_dict(job.config_snapshot_json)
+        return str(snapshot.get("continued_from_job_id") or "").strip()
+
+    def _requested_profile_keys(self, job: CsvJob) -> list[str]:
+        try:
+            return [profile_key(profile) for profile in self._requested_profiles(job)]
+        except RuntimeError:
+            return []
+
+    def _requested_profile_history(self, job: CsvJob) -> list[dict[str, Any]]:
+        history: list[dict[str, Any]] = []
+        current: CsvJob | None = job
+        visited: set[str] = set()
+        while current is not None and current.id not in visited:
+            visited.add(current.id)
+            history.append(
+                {
+                    "job_id": current.id,
+                    "batch_id": current.batch_id,
+                    "requested_profiles": self._requested_profile_keys(current),
+                    "created_at": current.created_at,
+                    "status": current.status,
+                    "is_current": current.id == job.id,
+                }
+            )
+            parent_id = self._continued_from_job_id(current)
+            current = self.repo.get_csv_job(parent_id) if parent_id else None
+        history.reverse()
+        return history
+
+    def _source_row_payload(self, item: CsvJobItem, entry: Entry) -> dict[str, Any]:
+        try:
+            parsed = json.loads(item.source_row_json or "{}")
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        return {
+            "word": entry.word,
+            "part of speech": entry.part_of_sentence,
+            "category": entry.category,
+            "context": entry.context,
+        }
 
     def _build_task_specs(
         self, item: CsvJobItem, entry: Entry, job: CsvJob
@@ -298,6 +345,7 @@ class CsvDagService:
             person_age_options=person_age_options,
             person_skin_color_options=person_skin_color_options,
             override_existing_variants=override_existing_variants,
+            continued_from_job_id="",
         )
         job = self.repo.create_csv_job(
             batch_id=batch_id,
@@ -371,6 +419,113 @@ class CsvDagService:
             "skipped_count": skipped_count,
             "execution_mode": execution_mode,
             "rows": results,
+            "continued_from_job_id": None,
+        }
+
+    def continue_job(
+        self,
+        job_id: str,
+        *,
+        person_gender_options: list[str],
+        person_age_options: list[str],
+        person_skin_color_options: list[str],
+        override_existing_variants: bool = False,
+    ) -> dict[str, Any]:
+        source_job = self.repo.get_csv_job(job_id)
+        if source_job is None:
+            raise RuntimeError(f"CSV job not found: {job_id}")
+        finalized = self.repo.finalize_csv_job_status(job_id) or source_job
+        if finalized.status not in {"completed", "failed", "canceled"}:
+            raise RuntimeError("You can continue a CSV job only after it has finished")
+        requested_profiles = [
+            _clean_requested_options(person_gender_options, ALLOWED_GENDER_OPTIONS),
+            _clean_requested_options(person_age_options, ALLOWED_AGE_OPTIONS),
+            _clean_requested_options(person_skin_color_options, ALLOWED_SKIN_OPTIONS),
+        ]
+        if not all(requested_profiles):
+            raise RuntimeError("Choose at least one gender, one age, and one skin color to continue")
+
+        source_snapshot = self.repo.json_field_dict(source_job.config_snapshot_json)
+        snapshot = self._runtime_snapshot(
+            person_gender_options=requested_profiles[0],
+            person_age_options=requested_profiles[1],
+            person_skin_color_options=requested_profiles[2],
+            override_existing_variants=override_existing_variants,
+            continued_from_job_id=source_job.id,
+        )
+        if source_snapshot.get("source_csv_path"):
+            snapshot["source_csv_path"] = source_snapshot["source_csv_path"]
+
+        new_batch_id = _generated_batch_id()
+        new_job = self.repo.create_csv_job(
+            batch_id=new_batch_id,
+            source_file_name=source_job.source_file_name,
+            execution_mode="csv_dag",
+            config_snapshot=snapshot,
+        )
+
+        source_items = self.repo.list_csv_job_items(source_job.id)
+        imported_count = 0
+        skipped_count = 0
+        pending_rows_in_chunk = 0
+        try:
+            for source_item in source_items:
+                entry = self.repo.get_entry(source_item.entry_id)
+                if entry is None:
+                    skipped_count += 1
+                    continue
+                item = self.repo.create_csv_job_item_uncommitted(
+                    csv_job_id=new_job.id,
+                    entry_id=entry.id,
+                    row_index=source_item.row_index,
+                    source_row=self._source_row_payload(source_item, entry),
+                )
+                created_specs, skipped_notes = self._build_task_specs(item, entry, new_job)
+                if not created_specs:
+                    item.status = "completed"
+                    item.error_detail = (
+                        "; ".join(skipped_notes[:3]) if skipped_notes
+                        else "Requested variants already exist in inventory"
+                    )
+                    self.db.add(item)
+                elif skipped_notes:
+                    item.error_detail = "Partial skip: " + "; ".join(skipped_notes[:3])
+                    self.db.add(item)
+                imported_count += 1
+                pending_rows_in_chunk += 1
+                if pending_rows_in_chunk >= IMPORT_COMMIT_CHUNK_SIZE:
+                    self.db.commit()
+                    pending_rows_in_chunk = 0
+            if pending_rows_in_chunk:
+                self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+        if imported_count == 0:
+            failed_job = self.repo.update_csv_job(
+                new_job,
+                status="failed",
+                error_detail="No rows were available to continue",
+                finished_at=datetime.utcnow(),
+            )
+            return {
+                "job_id": failed_job.id,
+                "batch_id": failed_job.batch_id,
+                "status": failed_job.status,
+                "imported_count": imported_count,
+                "skipped_count": skipped_count,
+                "continued_from_job_id": source_job.id,
+            }
+
+        started_job = self.start_job(new_job.id)
+        return {
+            "job_id": started_job.id,
+            "batch_id": started_job.batch_id,
+            "status": started_job.status,
+            "imported_count": imported_count,
+            "skipped_count": skipped_count,
+            "continued_from_job_id": source_job.id,
         }
 
     def list_jobs(self) -> list[dict[str, Any]]:
@@ -834,9 +989,8 @@ class CsvDagService:
 
         self._update_item_status(item)
         finalized_job = self.repo.finalize_csv_job_status(job.id)
-        if finalized_job is not None and finalized_job.status in {"completed", "failed", "canceled"}:
-            self._backfill_has_person_for_job(job.id)
-            InventorySyncService(self.db).sync_csv_job(job.id)
+        self._backfill_has_person_for_job(job.id)
+        InventorySyncService(self.db).sync_csv_job(job.id)
         return self.repo.get_csv_task(task.id) or finished_task
 
     def _serialize_job(self, job: CsvJob, overview: dict[str, Any]) -> dict[str, Any]:
@@ -853,6 +1007,8 @@ class CsvDagService:
             "started_at": job.started_at,
             "finished_at": job.finished_at,
             "duration_seconds": duration_seconds,
+            "requested_profiles": self._requested_profile_keys(job),
+            "continued_from_job_id": self._continued_from_job_id(job) or None,
             "created_at": job.created_at,
             "updated_at": job.updated_at,
         }
@@ -944,6 +1100,7 @@ class CsvDagService:
             "items": items_payload,
             "tasks": tasks_payload,
             "word_counts": word_counts,
+            "requested_profile_history": self._requested_profile_history(job),
             "export_ready": job.status in {"completed", "failed", "canceled"},
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }

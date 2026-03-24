@@ -270,6 +270,7 @@ class CsvJobImportResponse(BaseModel):
     skipped_count: int
     execution_mode: ExecutionMode
     rows: list[EntryImportRowResult] = Field(default_factory=list)
+    continued_from_job_id: str | None = None
 
 
 class CsvJobOut(BaseModel):
@@ -283,6 +284,8 @@ class CsvJobOut(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_seconds: float = 0
+    requested_profiles: list[str] = Field(default_factory=list)
+    continued_from_job_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -350,6 +353,7 @@ class CsvJobOverviewOut(BaseModel):
     items: list[CsvJobItemOut] = Field(default_factory=list)
     tasks: list[CsvJobTaskOut] = Field(default_factory=list)
     word_counts: dict[str, int] = Field(default_factory=dict)
+    requested_profile_history: list[dict[str, Any]] = Field(default_factory=list)
     export_ready: bool = False
     export_id: str | None = None
 
@@ -357,6 +361,22 @@ class CsvJobOverviewOut(BaseModel):
 class CsvJobStartResponse(BaseModel):
     job_id: str
     status: str
+
+
+class CsvJobContinueRequest(BaseModel):
+    person_gender_options: list[str] = Field(default_factory=list)
+    person_age_options: list[str] = Field(default_factory=list)
+    person_skin_color_options: list[str] = Field(default_factory=list)
+    override_existing_variants: bool = False
+
+
+class CsvJobContinueResponse(BaseModel):
+    job_id: str
+    batch_id: str
+    status: str
+    imported_count: int
+    skipped_count: int
+    continued_from_job_id: str
 
 
 class CsvJobRetryResponse(BaseModel):

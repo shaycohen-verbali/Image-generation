@@ -970,6 +970,17 @@ class PipelineRunner:
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
             )
+            request_summary = self._json_dict(submitted.get("request_summary"))
+            if request_summary.get("prompt"):
+                self.repo.add_prompt(
+                    run_id=owner_run_id,
+                    stage_name="stage4_variant_generate",
+                    attempt=winner_attempt,
+                    prompt_text=str(request_summary.get("prompt") or ""),
+                    needs_person="yes",
+                    source="csv_dag_variant",
+                    raw_response_json=request_summary,
+                )
             created = self._json_dict(submitted.get("created"))
             prediction_id = str(created.get("id") or "")
             if not prediction_id:
@@ -997,6 +1008,22 @@ class PipelineRunner:
             )
 
             self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
+            white_bg_request = self.google_images.white_bg_request_summary(
+                self._local_asset_path(regular_asset),
+                word=entry.word,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+            )
+            if white_bg_request.get("prompt"):
+                self.repo.add_prompt(
+                    run_id=owner_run_id,
+                    stage_name="stage5_variant_white_bg",
+                    attempt=winner_attempt,
+                    prompt_text=str(white_bg_request.get("prompt") or ""),
+                    needs_person="yes",
+                    source="csv_dag_variant_white_bg",
+                    raw_response_json=white_bg_request,
+                )
             white_bg_result = self.google_images.nano_banana_white_bg(
                 self._local_asset_path(regular_asset),
                 entry.word,
@@ -2279,6 +2306,22 @@ class PipelineRunner:
         if upgraded_asset is None:
             raise RuntimeError(f"Missing stage3 upgraded image for winner attempt {winner_attempt}")
         runtime_config = self.repo.get_runtime_config()
+        white_bg_request = self.google_images.white_bg_request_summary(
+            self._local_asset_path(upgraded_asset),
+            word=entry.word,
+            aspect_ratio=runtime_config.image_aspect_ratio,
+            image_size=runtime_config.image_resolution,
+        )
+        if white_bg_request.get("prompt"):
+            self.repo.add_prompt(
+                run_id=run.id,
+                stage_name="stage4_background",
+                attempt=winner_attempt,
+                prompt_text=str(white_bg_request.get("prompt") or ""),
+                needs_person="yes",
+                source="base_white_bg",
+                raw_response_json=white_bg_request,
+            )
         self._record_event(
             run_id=run.id,
             stage_name="stage4_background",
