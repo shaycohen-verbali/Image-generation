@@ -308,6 +308,43 @@ body {
   gap: 4px;
 }
 
+.csv-word-image-link-wrap {
+  position: relative;
+  width: fit-content;
+}
+
+.csv-word-image-hover-preview {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  width: 13rem;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 8px 18px var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 10;
+}
+
+.csv-word-image-link-wrap:hover .csv-word-image-hover-preview,
+.csv-word-image-link-wrap:focus-within .csv-word-image-hover-preview {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.csv-word-image-hover-preview img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+  background: #f0f0f0;
+}
+
 .runs-layout {
   display: grid;
   gap: 12px;

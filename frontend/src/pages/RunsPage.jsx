@@ -28,7 +28,9 @@ const RUNS_POLL_MS = 30000
 const DETAIL_POLL_RUNNING_MS = 12000
 const DETAIL_POLL_WAITING_MS = 20000
 const CSV_LIST_POLL_MS = 5000
+const CSV_LIST_POLL_FAST_MS = 1500
 const CSV_DETAIL_POLL_MS = 5000
+const CSV_DETAIL_POLL_FAST_MS = 1500
 
 function isTerminalRunStatus(status) {
   const value = String(status || '').toLowerCase()
@@ -105,6 +107,11 @@ function normalizeProfileOptionLabel(value) {
   const text = String(value || '').trim()
   if (!text) return ''
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function csvProfileDisplay(profileKey) {
+  const [gender, age, skinColor] = String(profileKey || '').split(':')
+  return [skinColor, age, gender].filter(Boolean).map(normalizeProfileOptionLabel).join(' + ')
 }
 
 function formatLocalDateTime(value) {
@@ -512,6 +519,11 @@ export default function RunsPage() {
     csvJobOverview?.job &&
     isTerminalCsvJobStatus(csvJobOverview.job.status)
   )
+  const selectedCsvJob = csvJobOverview?.job || csvJobs.find((job) => job.id === selectedCsvJobId) || null
+  const shouldFastPollCsv =
+    Boolean(selectedCsvJobId) &&
+    !!selectedCsvJob &&
+    ['imported', 'queued', 'retry_queued', 'pending'].includes(String(selectedCsvJob.status || '').toLowerCase())
 
   async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
     if (!runId) return
@@ -676,9 +688,9 @@ export default function RunsPage() {
     const timer = setInterval(() => {
       if (!pageVisible) return
       refreshCsvJobs({ isPolling: true })
-    }, CSV_LIST_POLL_MS)
+    }, shouldFastPollCsv ? CSV_LIST_POLL_FAST_MS : CSV_LIST_POLL_MS)
     return () => clearInterval(timer)
-  }, [pageVisible])
+  }, [pageVisible, shouldFastPollCsv])
 
   useEffect(() => {
     if (!selectedCsvJobId || !pageVisible) return
@@ -723,9 +735,9 @@ export default function RunsPage() {
       if (!selectedCsvJobId) return
       if (isTerminalCsvJobStatus(csvJobOverview?.job?.status)) return
       loadCsvJobDetail(selectedCsvJobId, { isPolling: true })
-    }, CSV_DETAIL_POLL_MS)
+    }, shouldFastPollCsv ? CSV_DETAIL_POLL_FAST_MS : CSV_DETAIL_POLL_MS)
     return () => clearInterval(timer)
-  }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status])
+  }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status, shouldFastPollCsv])
 
   useEffect(() => {
     if (!filteredCsvJobItems.length) {
@@ -1012,6 +1024,7 @@ export default function RunsPage() {
                       <th>Word</th>
                       <th>POS</th>
                       <th>Category</th>
+                      <th>Profile</th>
                       <th>Status</th>
                       <th>Progress</th>
                       <th>Current step</th>
@@ -1031,6 +1044,13 @@ export default function RunsPage() {
                         <td>{item.word || '-'}</td>
                         <td>{item.part_of_sentence || '-'}</td>
                         <td>{item.category || '-'}</td>
+                        <td>
+                          {item.current_profile_key
+                            ? csvProfileDisplay(item.current_profile_key)
+                            : Array.isArray(item.requested_profile_keys) && item.requested_profile_keys.length
+                              ? item.requested_profile_keys.map(csvProfileDisplay).join(', ')
+                              : '-'}
+                        </td>
                         <td>
                           <div className="status-stack">
                             <strong>{csvPrettyStatus(item.main_status)}</strong>
@@ -1483,9 +1503,14 @@ export default function RunsPage() {
                         />
                         <div className="csv-word-image-meta">
                           <strong>{image.label}</strong>
-                          <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
-                            Open image
-                          </a>
+                          <div className="csv-word-image-link-wrap">
+                            <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
+                              Preview image
+                            </a>
+                            <div className="csv-word-image-hover-preview">
+                              <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
+                            </div>
+                          </div>
                         </div>
                       </article>
                     ))

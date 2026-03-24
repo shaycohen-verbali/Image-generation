@@ -338,6 +338,8 @@ class CsvJobItemOut(BaseModel):
     main_status: str = "pending"
     sub_status: str = ""
     current_step: str = ""
+    current_profile_key: str = ""
+    requested_profile_keys: list[str] = Field(default_factory=list)
     blocking_reason: str = ""
     waiting_on_steps: list[str] = Field(default_factory=list)
     progress: CsvJobItemProgressOut = Field(default_factory=CsvJobItemProgressOut)

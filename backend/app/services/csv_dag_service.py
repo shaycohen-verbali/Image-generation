@@ -658,6 +658,9 @@ class CsvDagService:
     def _item_progress_payload(self, item: CsvJobItem, tasks: list[CsvTaskNode]) -> dict[str, Any]:
         relevant = [task for task in tasks if task.csv_job_item_id == item.id]
         task_by_id = {task.id: task for task in relevant}
+        requested_profile_keys = [
+            key for key in dict.fromkeys(str(task.profile_key or "").strip() for task in relevant) if key
+        ]
         counts = {"pending": 0, "queued": 0, "running": 0, "completed": 0, "failed": 0, "canceled": 0}
         for task in relevant:
             status = str(task.status or "").lower()
@@ -667,6 +670,7 @@ class CsvDagService:
         running_task = next((task for task in relevant if task.status == "running"), None)
         waiting_task = next((task for task in relevant if task.status in {"queued", "pending"}), None)
         failed_task = next((task for task in relevant if task.status == "failed"), None)
+        completed_task = next((task for task in reversed(relevant) if task.status == "completed"), None)
         all_canceled = total > 0 and all(task.status == "canceled" for task in relevant)
         blocking_reason = ""
         waiting_on_steps: list[str] = []
@@ -722,6 +726,12 @@ class CsvDagService:
             "main_status": main_status,
             "sub_status": sub_status,
             "current_step": current_step,
+            "current_profile_key": (
+                str((running_task or waiting_task or failed_task or completed_task).profile_key or "")
+                if (running_task or waiting_task or failed_task or completed_task) is not None
+                else ""
+            ),
+            "requested_profile_keys": requested_profile_keys,
             "blocking_reason": blocking_reason,
             "waiting_on_steps": waiting_on_steps,
             "progress": {
@@ -1061,6 +1071,8 @@ class CsvDagService:
                     "main_status": item_progress["main_status"],
                     "sub_status": item_progress["sub_status"],
                     "current_step": item_progress["current_step"],
+                    "current_profile_key": item_progress["current_profile_key"],
+                    "requested_profile_keys": item_progress["requested_profile_keys"],
                     "blocking_reason": item_progress["blocking_reason"],
                     "waiting_on_steps": item_progress["waiting_on_steps"],
                     "progress": item_progress["progress"],

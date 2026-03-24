@@ -51,4 +51,5 @@ def get_asset_content(asset_id: str, db: Session = Depends(db_dependency)) -> Fi
         path,
         media_type=asset.mime_type or "application/octet-stream",
         filename=asset.file_name,
+        content_disposition_type="inline",
     )
