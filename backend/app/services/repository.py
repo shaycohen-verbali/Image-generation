@@ -314,6 +314,13 @@ class Repository:
     def get_run(self, run_id: str) -> Run | None:
         return self.db.execute(select(Run).where(Run.id == run_id)).scalar_one_or_none()
 
+    def get_runs_by_ids(self, run_ids: list[str]) -> dict[str, Run]:
+        normalized = [str(value or "").strip() for value in run_ids if str(value or "").strip()]
+        if not normalized:
+            return {}
+        rows = list(self.db.execute(select(Run).where(Run.id.in_(normalized))).scalars())
+        return {row.id: row for row in rows}
+
     def list_runs(
         self,
         *,
@@ -337,6 +344,13 @@ class Repository:
 
     def get_entry(self, entry_id: str) -> Entry | None:
         return self.db.execute(select(Entry).where(Entry.id == entry_id)).scalar_one_or_none()
+
+    def get_entries_by_ids(self, entry_ids: list[str]) -> dict[str, Entry]:
+        normalized = [str(value or "").strip() for value in entry_ids if str(value or "").strip()]
+        if not normalized:
+            return {}
+        rows = list(self.db.execute(select(Entry).where(Entry.id.in_(normalized))).scalars())
+        return {row.id: row for row in rows}
 
     def update_entry_has_person(self, entry_id: str, has_person: str) -> None:
         entry = self.get_entry(entry_id)
@@ -761,6 +775,24 @@ class Repository:
             .limit(1)
         ).scalar_one_or_none()
 
+    def get_assets_by_abs_paths(self, paths: list[str]) -> dict[str, Asset]:
+        normalized = [str(value or "").strip() for value in paths if str(value or "").strip()]
+        if not normalized:
+            return {}
+        rows = list(
+            self.db.execute(
+                select(Asset)
+                .where(Asset.abs_path.in_(normalized))
+                .order_by(desc(Asset.created_at))
+            ).scalars()
+        )
+        assets_by_path: dict[str, Asset] = {}
+        for row in rows:
+            key = str(row.abs_path or "").strip()
+            if key and key not in assets_by_path:
+                assets_by_path[key] = row
+        return assets_by_path
+
     def add_score(
         self,
         *,
@@ -876,6 +908,19 @@ class Repository:
 
     def list_csv_jobs(self) -> list[CsvJob]:
         return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.created_at))).scalars())
+
+    def get_csv_job_row_counts(self, job_ids: list[str]) -> dict[str, int]:
+        normalized = [str(value or "").strip() for value in job_ids if str(value or "").strip()]
+        if not normalized:
+            return {}
+        rows = list(
+            self.db.execute(
+                select(CsvJobItem.csv_job_id, func.count(CsvJobItem.id))
+                .where(CsvJobItem.csv_job_id.in_(normalized))
+                .group_by(CsvJobItem.csv_job_id)
+            )
+        )
+        return {str(job_id): int(count or 0) for job_id, count in rows}
 
     def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
         managed = self._managed_instance(job)

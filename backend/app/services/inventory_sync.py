@@ -96,6 +96,73 @@ class InventorySyncService:
                     )
         return profiles
 
+    def available_profiles_for_entries(self, entries: list[Entry]) -> dict[str, list[dict[str, object]]]:
+        if inventory_engine is None:
+            return {}
+        normalized_entries = [entry for entry in entries if entry is not None]
+        if not normalized_entries:
+            return {}
+        entry_ids = [entry.id for entry in normalized_entries if str(entry.id or "").strip()]
+        if not entry_ids:
+            return {}
+
+        with inventory_engine.begin() as conn:
+            rows = list(
+                conn.execute(
+                    select(word_inventory)
+                    .where(word_inventory.c.source_entry_id.in_(entry_ids))
+                    .order_by(
+                        word_inventory.c.source_entry_id.asc(),
+                        desc(word_inventory.c.updated_at),
+                        desc(word_inventory.c.created_at),
+                    )
+                ).mappings()
+            )
+
+        latest_by_entry: dict[str, dict[str, object]] = {}
+        for row in rows:
+            entry_id = str(row.get("source_entry_id") or "").strip()
+            if entry_id and entry_id not in latest_by_entry:
+                latest_by_entry[entry_id] = dict(row)
+
+        all_paths: list[str] = []
+        for row in latest_by_entry.values():
+            for age in AGE_VALUES:
+                for gender in GENDER_VALUES:
+                    for skin_color in SKIN_VALUES:
+                        regular_path = str(row.get(inventory_slot_column_name(age, gender, skin_color, "regular")) or "").strip()
+                        white_bg_path = str(row.get(inventory_slot_column_name(age, gender, skin_color, "white_bg")) or "").strip()
+                        if regular_path:
+                            all_paths.append(regular_path)
+                        if white_bg_path:
+                            all_paths.append(white_bg_path)
+
+        assets_by_path = self.repo.get_assets_by_abs_paths(all_paths)
+
+        result: dict[str, list[dict[str, object]]] = {}
+        for entry_id, row in latest_by_entry.items():
+            profiles: list[dict[str, object]] = []
+            for age in AGE_VALUES:
+                for gender in GENDER_VALUES:
+                    for skin_color in SKIN_VALUES:
+                        regular_path = str(row.get(inventory_slot_column_name(age, gender, skin_color, "regular")) or "").strip()
+                        white_bg_path = str(row.get(inventory_slot_column_name(age, gender, skin_color, "white_bg")) or "").strip()
+                        if not regular_path and not white_bg_path:
+                            continue
+                        regular_asset = assets_by_path.get(regular_path)
+                        white_bg_asset = assets_by_path.get(white_bg_path)
+                        profiles.append(
+                            {
+                                "profile_key": f"{gender}:{age}:{skin_color}",
+                                "regular_asset_id": regular_asset.id if regular_asset is not None else None,
+                                "white_bg_asset_id": white_bg_asset.id if white_bg_asset is not None else None,
+                                "regular_path": regular_path,
+                                "white_bg_path": white_bg_path,
+                            }
+                        )
+            result[entry_id] = profiles
+        return result
+
     def _row_payload(
         self,
         *,

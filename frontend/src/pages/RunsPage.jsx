@@ -536,10 +536,18 @@ export default function RunsPage() {
     if (!Array.isArray(csvJobs) || csvJobs.length === 0) return []
     if (selectedCsvJobId) {
       const selected = csvJobs.find((job) => job.id === selectedCsvJobId)
-      if (selected) return [selected]
+      if (selected) {
+        if (csvJobOverview?.job?.id === selected.id) {
+          return [{ ...selected, ...csvJobOverview.job }]
+        }
+        return [selected]
+      }
+    }
+    if (csvJobOverview?.job?.id && (!csvJobs.length || csvJobs[0]?.id === csvJobOverview.job.id)) {
+      return [{ ...(csvJobs[0] || {}), ...csvJobOverview.job }]
     }
     return [csvJobs[0]]
-  }, [csvJobs, selectedCsvJobId])
+  }, [csvJobs, selectedCsvJobId, csvJobOverview])
   const csvJobLiveCounts = useMemo(() => csvJobWordSummary(csvJobItems, csvJobTasks), [csvJobItems, csvJobTasks])
   const filteredCsvJobItems = useMemo(() => {
     if (!selectedCsvStatusFilter) return csvJobItems

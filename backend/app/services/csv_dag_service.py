@@ -530,12 +530,22 @@ class CsvDagService:
 
     def list_jobs(self) -> list[dict[str, Any]]:
         jobs = self.repo.list_csv_jobs()
+        row_counts = self.repo.get_csv_job_row_counts([job.id for job in jobs])
         output: list[dict[str, Any]] = []
         for job in jobs:
-            finalized = self.repo.finalize_csv_job_status(job.id) or job
-            job = finalized
-            overview = self.repo.csv_job_overview(job.id) or {}
-            output.append(self._serialize_job(job, overview))
+            duration_seconds = 0.0
+            if job.started_at:
+                duration_end = job.finished_at or datetime.utcnow()
+                duration_seconds = max(0.0, (duration_end - job.started_at).total_seconds())
+            output.append(
+                self._serialize_job(
+                    job,
+                    {
+                        "total_row_count": row_counts.get(job.id, 0),
+                        "duration_seconds": duration_seconds,
+                    },
+                )
+            )
         return output
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
@@ -1039,20 +1049,26 @@ class CsvDagService:
             if self.repo.get_csv_job(job_id) is None:
                 return None
             raise
-        self._backfill_has_person_for_job(job_id)
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             return None
         job = overview["job"]
         tasks = overview["tasks"]
         inventory_service = InventorySyncService(self.db)
+        entries_by_id = self.repo.get_entries_by_ids(
+            [item.entry_id for item in overview["items"] if str(item.entry_id or "").strip()]
+        )
+        runs_by_id = self.repo.get_runs_by_ids(
+            [item.shadow_run_id for item in overview["items"] if str(item.shadow_run_id or "").strip()]
+        )
+        available_profiles_by_entry = inventory_service.available_profiles_for_entries(list(entries_by_id.values()))
         items_payload: list[dict[str, Any]] = []
         word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0}
         for item in overview["items"]:
-            entry = self.repo.get_entry(item.entry_id)
-            shadow_run = self.repo.get_run(item.shadow_run_id) if item.shadow_run_id else None
+            entry = entries_by_id.get(item.entry_id)
+            shadow_run = runs_by_id.get(item.shadow_run_id) if item.shadow_run_id else None
             item_progress = self._item_progress_payload(item, tasks)
-            available_profiles = inventory_service.available_profiles_for_entry(entry) if entry else []
+            available_profiles = available_profiles_by_entry.get(item.entry_id, []) if entry else []
             word_counts[item_progress["main_status"]] += 1
             items_payload.append(
                 {
