@@ -888,6 +888,11 @@ export default function RunsPage() {
   const onStartCsvJob = async (jobId) => {
     try {
       const result = await startCsvJob(jobId)
+      selectedCsvJobIdRef.current = result.job_id || jobId
+      setSelectedCsvJobId(result.job_id || jobId)
+      setSelectedCsvItemId('')
+      setSelectedCsvStatusFilter('')
+      setCsvJobOverview(null)
       setMessage(`Started CSV job ${jobId}`)
       refreshCsvJobs()
       loadCsvJobDetail(result.job_id || jobId)

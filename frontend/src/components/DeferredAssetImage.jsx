@@ -8,7 +8,7 @@ export default function DeferredAssetImage({
   buttonLabel = 'Load preview',
   className = 'asset-image',
 }) {
-  const assetId = asset?.id || ''
+  const assetId = typeof asset === 'string' ? asset : asset?.id || ''
   const [enabled, setEnabled] = useState(autoLoad)
 
   useEffect(() => {
