@@ -693,6 +693,15 @@ class Repository:
             .limit(1)
         ).scalar_one_or_none()
 
+    def get_latest_prompt_for_stage(self, *, run_id: str, stage_name: str) -> Prompt | None:
+        return self.db.execute(
+            select(Prompt)
+            .where(Prompt.run_id == run_id)
+            .where(Prompt.stage_name == stage_name)
+            .order_by(desc(Prompt.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
     def add_asset(
         self,
         *,
@@ -1284,7 +1293,7 @@ class Repository:
     def delete_csv_jobs(self, *, terminal_only: bool = True) -> int:
         stmt = select(CsvJob)
         if terminal_only:
-            stmt = stmt.where(CsvJob.status.in_(["completed", "failed", "canceled", "cancel_requested"]))
+            stmt = stmt.where(CsvJob.status.in_(["completed", "failed", "partial_failed", "canceled", "cancel_requested"]))
         jobs = list(self.db.execute(stmt).scalars())
         count = 0
         for job in jobs:
@@ -1326,11 +1335,12 @@ class Repository:
             item_statuses = [str(item.status or "").lower() for item in items]
             if all(status in {"completed", "failed", "canceled"} for status in item_statuses):
                 if any(status == "failed" for status in item_statuses):
+                    mixed_terminal = any(status == "completed" for status in item_statuses) or any(status == "canceled" for status in item_statuses)
                     return self.update_csv_job(
                         job,
-                        status="failed",
+                        status="partial_failed" if mixed_terminal else "failed",
                         finished_at=datetime.utcnow(),
-                        error_detail="One or more CSV DAG rows failed",
+                        error_detail="Some CSV DAG rows failed" if mixed_terminal else "One or more CSV DAG rows failed",
                     )
                 if any(status == "canceled" for status in item_statuses):
                     return self.update_csv_job(
@@ -1391,7 +1401,13 @@ class Repository:
             return self.update_csv_job(job, status="canceled", finished_at=datetime.utcnow())
         if any(status == "failed" for status in statuses):
             finished_at = None if any(status in {"queued", "running"} for status in statuses) else datetime.utcnow()
-            return self.update_csv_job(job, status="failed", finished_at=finished_at, error_detail="One or more CSV DAG tasks failed")
+            mixed_progress = any(status in {"completed", "canceled"} for status in statuses)
+            return self.update_csv_job(
+                job,
+                status="partial_failed" if mixed_progress and finished_at is not None else "failed",
+                finished_at=finished_at,
+                error_detail="Some CSV DAG tasks failed" if mixed_progress else "One or more CSV DAG tasks failed",
+            )
         return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
 
     def csv_job_overview(self, csv_job_id: str) -> dict[str, Any] | None:

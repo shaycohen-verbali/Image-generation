@@ -435,7 +435,7 @@ class CsvDagService:
         if source_job is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
         finalized = self.repo.finalize_csv_job_status(job_id) or source_job
-        if finalized.status not in {"completed", "failed", "canceled"}:
+        if finalized.status not in {"completed", "failed", "partial_failed", "canceled"}:
             raise RuntimeError("You can continue a CSV job only after it has finished")
         requested_profiles = [
             _clean_requested_options(person_gender_options, ALLOWED_GENDER_OPTIONS),
@@ -1132,7 +1132,7 @@ class CsvDagService:
             "tasks": tasks_payload,
             "word_counts": word_counts,
             "requested_profile_history": self._requested_profile_history(job),
-            "export_ready": job.status in {"completed", "failed", "canceled"},
+            "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }
 

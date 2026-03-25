@@ -15,7 +15,9 @@ const LEGACY_STATUS_OPTIONS = [
 
 function formatLocalDateTime(value) {
   if (!value) return '-'
-  const date = new Date(value)
+  const raw = String(value).trim()
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(raw) ? raw : `${raw}Z`
+  const date = new Date(normalized)
   if (Number.isNaN(date.getTime())) return '-'
   return new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
@@ -24,6 +26,13 @@ function formatLocalDateTime(value) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date)
+}
+
+function prettyCsvJobStatus(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (!raw) return '-'
+  if (raw === 'partial_failed') return 'partially failed'
+  return raw.replaceAll('_', ' ')
 }
 
 function exportSourceSummary(item) {
@@ -177,7 +186,7 @@ export default function ExportsPage() {
                   <option value="">Select a CSV job</option>
                   {csvJobs.map((job) => (
                     <option key={job.id} value={job.id}>
-                      {`${job.batch_id} · ${job.status} · ${formatLocalDateTime(job.created_at)}`}
+                      {`${job.batch_id} · ${prettyCsvJobStatus(job.status)} · ${formatLocalDateTime(job.created_at)}`}
                     </option>
                   ))}
                 </select>
@@ -186,7 +195,7 @@ export default function ExportsPage() {
                 <div className="form-grid">
                   <p className="config-help-text"><strong>CSV job number:</strong> <span style={{ wordBreak: 'break-all' }}>{selectedCsvJob.id}</span></p>
                   <p className="config-help-text"><strong>Batch number:</strong> <span style={{ wordBreak: 'break-all' }}>{selectedCsvJob.batch_id}</span></p>
-                  <p className="config-help-text"><strong>Status:</strong> {selectedCsvJob.status}</p>
+                  <p className="config-help-text"><strong>Status:</strong> {prettyCsvJobStatus(selectedCsvJob.status)}</p>
                   <p className="config-help-text"><strong>Created:</strong> {formatLocalDateTime(selectedCsvJob.created_at)}</p>
                 </div>
               ) : (

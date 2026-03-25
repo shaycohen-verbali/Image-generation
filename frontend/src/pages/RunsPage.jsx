@@ -54,7 +54,7 @@ function canStopRun(status) {
 
 function isTerminalCsvJobStatus(status) {
   const value = String(status || '').toLowerCase()
-  return ['completed', 'failed', 'canceled'].includes(value)
+  return ['completed', 'failed', 'partial_failed', 'canceled'].includes(value)
 }
 
 function csvItemTaskSummary(tasks, itemId) {
@@ -83,6 +83,7 @@ function csvStepLabel(stepName) {
 function csvJobMainStatus(rawStatus) {
   const value = String(rawStatus || '').toLowerCase()
   if (value === 'completed') return { main: 'completed', sub: 'All rows finished' }
+  if (value === 'partial_failed') return { main: 'failure', sub: 'Some rows failed and some completed' }
   if (value === 'failed') return { main: 'failure', sub: 'One or more rows failed' }
   if (value === 'canceled') return { main: 'failure', sub: 'Canceled' }
   if (value === 'cancel_requested') return { main: 'running', sub: 'Stopping after active work finishes' }
@@ -95,7 +96,9 @@ function csvPrettyStatus(status) {
   const value = String(status || '').trim()
   if (!value) return '-'
   if (value === 'failure') return 'Failure'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  if (value === 'partial_failed') return 'Partially failed'
+  const normalized = value.replaceAll('_', ' ')
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
 function csvProfileSummary(profileKey) {
@@ -116,7 +119,9 @@ function csvProfileDisplay(profileKey) {
 
 function formatLocalDateTime(value) {
   if (!value) return '-'
-  const date = new Date(value)
+  const raw = String(value).trim()
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(raw) ? raw : `${raw}Z`
+  const date = new Date(normalized)
   if (Number.isNaN(date.getTime())) return '-'
   return new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
@@ -1269,7 +1274,7 @@ export default function RunsPage() {
                             event.stopPropagation()
                             onRetryCsvJob(job.id)
                           }}
-                          disabled={job.status !== 'failed'}
+                          disabled={!['failed', 'partial_failed'].includes(String(job.status || '').toLowerCase())}
                         >
                           Retry
                         </button>

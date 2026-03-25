@@ -29,6 +29,14 @@ class InventorySyncService:
     def enabled(self) -> bool:
         return inventory_enabled()
 
+    def _prompt_for_stage(self, *, run_id: str, stage_name: str, attempt: int = 0):
+        prompt = None
+        if attempt > 0:
+            prompt = self.repo.get_prompt_for_stage_attempt(run_id=run_id, stage_name=stage_name, attempt=attempt)
+        if prompt is None:
+            prompt = self.repo.get_latest_prompt_for_stage(run_id=run_id, stage_name=stage_name)
+        return prompt
+
     @staticmethod
     def _requested_options(job: CsvJob) -> tuple[list[str], list[str], list[str]]:
         snapshot = Repository.json_field_dict(job.config_snapshot_json)
@@ -187,22 +195,14 @@ class InventorySyncService:
             asset = self.repo.get_asset(item.base_regular_asset_id)
             if asset is not None:
                 slot_values[inventory_slot_column_name("kid", "male", "white", "regular")] = asset.abs_path
-                prompt = self.repo.get_prompt_for_stage_attempt(
-                    run_id=asset.run_id,
-                    stage_name="stage3_upgrade",
-                    attempt=int(asset.attempt or 0),
-                )
+                prompt = self._prompt_for_stage(run_id=asset.run_id, stage_name="stage3_upgrade", attempt=int(asset.attempt or 0))
                 if prompt is not None:
                     prompt_values[inventory_prompt_column_name("kid", "male", "white", "regular")] = prompt.prompt_text
         if item.base_white_bg_asset_id:
             asset = self.repo.get_asset(item.base_white_bg_asset_id)
             if asset is not None:
                 slot_values[inventory_slot_column_name("kid", "male", "white", "white_bg")] = asset.abs_path
-                prompt = self.repo.get_prompt_for_stage_attempt(
-                    run_id=asset.run_id,
-                    stage_name="stage4_background",
-                    attempt=int(asset.attempt or 0),
-                )
+                prompt = self._prompt_for_stage(run_id=asset.run_id, stage_name="stage4_background", attempt=int(asset.attempt or 0))
                 if prompt is not None:
                     prompt_values[inventory_prompt_column_name("kid", "male", "white", "white_bg")] = prompt.prompt_text
 
@@ -214,7 +214,7 @@ class InventorySyncService:
                     regular = self.repo.get_asset(task.regular_asset_id)
                     if regular is not None:
                         slot_values[inventory_slot_column_name(age, gender, skin_color, "regular")] = regular.abs_path
-                        prompt = self.repo.get_prompt_for_stage_attempt(
+                        prompt = self._prompt_for_stage(
                             run_id=regular.run_id,
                             stage_name="stage4_variant_generate",
                             attempt=int(regular.attempt or 0),
@@ -225,7 +225,7 @@ class InventorySyncService:
                     white_bg = self.repo.get_asset(task.white_bg_asset_id)
                     if white_bg is not None:
                         slot_values[inventory_slot_column_name(age, gender, skin_color, "white_bg")] = white_bg.abs_path
-                        prompt = self.repo.get_prompt_for_stage_attempt(
+                        prompt = self._prompt_for_stage(
                             run_id=white_bg.run_id,
                             stage_name="stage5_variant_white_bg",
                             attempt=int(white_bg.attempt or 0),
@@ -254,17 +254,13 @@ class InventorySyncService:
                 winner_attempt = int(regular_asset.attempt or 0) if regular_asset is not None else 0
             prompt = None
             if winner_attempt > 0:
-                prompt = self.repo.get_prompt_for_stage_attempt(
+                prompt = self._prompt_for_stage(
                     run_id=item.shadow_run_id,
                     stage_name="stage3_upgrade",
                     attempt=winner_attempt,
                 )
             if prompt is None:
-                prompt = self.repo.get_prompt_for_stage_attempt(
-                    run_id=item.shadow_run_id,
-                    stage_name="stage1_prompt",
-                    attempt=1,
-                )
+                prompt = self._prompt_for_stage(run_id=item.shadow_run_id, stage_name="stage1_prompt", attempt=1)
             if prompt is not None:
                 prompt_need = str(prompt.needs_person or "").strip().lower()
                 if prompt_need in {"yes", "no"}:
