@@ -1045,12 +1045,14 @@ class CsvDagService:
             return None
         job = overview["job"]
         tasks = overview["tasks"]
+        inventory_service = InventorySyncService(self.db)
         items_payload: list[dict[str, Any]] = []
         word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0}
         for item in overview["items"]:
             entry = self.repo.get_entry(item.entry_id)
             shadow_run = self.repo.get_run(item.shadow_run_id) if item.shadow_run_id else None
             item_progress = self._item_progress_payload(item, tasks)
+            available_profiles = inventory_service.available_profiles_for_entry(entry) if entry else []
             word_counts[item_progress["main_status"]] += 1
             items_payload.append(
                 {
@@ -1073,6 +1075,7 @@ class CsvDagService:
                     "current_step": item_progress["current_step"],
                     "current_profile_key": item_progress["current_profile_key"],
                     "requested_profile_keys": item_progress["requested_profile_keys"],
+                    "available_profiles": available_profiles,
                     "blocking_reason": item_progress["blocking_reason"],
                     "waiting_on_steps": item_progress["waiting_on_steps"],
                     "progress": item_progress["progress"],

@@ -340,6 +340,7 @@ class CsvJobItemOut(BaseModel):
     current_step: str = ""
     current_profile_key: str = ""
     requested_profile_keys: list[str] = Field(default_factory=list)
+    available_profiles: list[dict[str, Any]] = Field(default_factory=list)
     blocking_reason: str = ""
     waiting_on_steps: list[str] = Field(default_factory=list)
     progress: CsvJobItemProgressOut = Field(default_factory=CsvJobItemProgressOut)

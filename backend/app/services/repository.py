@@ -740,6 +740,17 @@ class Repository:
             .limit(1)
         ).scalar_one_or_none()
 
+    def get_asset_by_abs_path(self, abs_path: str) -> Asset | None:
+        normalized = str(abs_path or "").strip()
+        if not normalized:
+            return None
+        return self.db.execute(
+            select(Asset)
+            .where(Asset.abs_path == normalized)
+            .order_by(desc(Asset.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
     def add_score(
         self,
         *,

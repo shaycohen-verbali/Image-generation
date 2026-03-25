@@ -8,7 +8,7 @@ from sqlalchemy import desc, select, update
 from sqlalchemy.orm import Session
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
-from app.inventory_models import BACKGROUND_VALUES, inventory_slot_column_name, word_inventory
+from app.inventory_models import AGE_VALUES, BACKGROUND_VALUES, GENDER_VALUES, SKIN_VALUES, inventory_slot_column_name, word_inventory
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry
 from app.services.repository import Repository
 
@@ -62,6 +62,31 @@ class InventorySyncService:
             background,
         )
         return str(row.get(slot_name) or "").strip()
+
+    def available_profiles_for_entry(self, entry: Entry) -> list[dict[str, object]]:
+        row = self.latest_entry_inventory_row(entry)
+        if not row:
+            return []
+        profiles: list[dict[str, object]] = []
+        for age in AGE_VALUES:
+            for gender in GENDER_VALUES:
+                for skin_color in SKIN_VALUES:
+                    regular_path = str(row.get(inventory_slot_column_name(age, gender, skin_color, "regular")) or "").strip()
+                    white_bg_path = str(row.get(inventory_slot_column_name(age, gender, skin_color, "white_bg")) or "").strip()
+                    if not regular_path and not white_bg_path:
+                        continue
+                    regular_asset = self.repo.get_asset_by_abs_path(regular_path) if regular_path else None
+                    white_bg_asset = self.repo.get_asset_by_abs_path(white_bg_path) if white_bg_path else None
+                    profiles.append(
+                        {
+                            "profile_key": f"{gender}:{age}:{skin_color}",
+                            "regular_asset_id": regular_asset.id if regular_asset is not None else None,
+                            "white_bg_asset_id": white_bg_asset.id if white_bg_asset is not None else None,
+                            "regular_path": regular_path,
+                            "white_bg_path": white_bg_path,
+                        }
+                    )
+        return profiles
 
     def _row_payload(
         self,

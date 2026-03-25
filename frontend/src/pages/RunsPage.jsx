@@ -241,6 +241,54 @@ function csvItemImages(item, tasks) {
   return images
 }
 
+function csvAvailableProfiles(item) {
+  return Array.isArray(item?.available_profiles) ? item.available_profiles : []
+}
+
+function csvItemProfileColumnText(item) {
+  if (item?.current_profile_key) {
+    return csvProfileDisplay(item.current_profile_key)
+  }
+  const available = csvAvailableProfiles(item)
+  if (available.length) {
+    return available.map((profile) => csvProfileDisplay(profile.profile_key)).join(', ')
+  }
+  if (Array.isArray(item?.requested_profile_keys) && item.requested_profile_keys.length) {
+    return item.requested_profile_keys.map(csvProfileDisplay).join(', ')
+  }
+  return '-'
+}
+
+function csvCombinedImages(item, tasks) {
+  const images = csvItemImages(item, tasks)
+  const seen = new Set(images.map((image) => `${image.id}:${image.kind}`))
+  csvAvailableProfiles(item).forEach((profile) => {
+    if (profile.regular_asset_id) {
+      const key = `${profile.regular_asset_id}:regular`
+      if (!seen.has(key)) {
+        seen.add(key)
+        images.push({
+          id: profile.regular_asset_id,
+          label: `${csvProfileDisplay(profile.profile_key)} regular`,
+          kind: 'regular',
+        })
+      }
+    }
+    if (profile.white_bg_asset_id) {
+      const key = `${profile.white_bg_asset_id}:white_bg`
+      if (!seen.has(key)) {
+        seen.add(key)
+        images.push({
+          id: profile.white_bg_asset_id,
+          label: `${csvProfileDisplay(profile.profile_key)} white background`,
+          kind: 'white_bg',
+        })
+      }
+    }
+  })
+  return images
+}
+
 function csvTaskDiagnostics(tasks, selectedId) {
   const relevant = (Array.isArray(tasks) ? tasks : []).filter((task) => task.csv_job_item_id === selectedId)
   const taskById = new Map(relevant.map((task) => [task.id, task]))
@@ -507,7 +555,7 @@ export default function RunsPage() {
   )
   const selectedCsvItemProgress = selectedCsvItem || null
   const selectedCsvItemImages = useMemo(
-    () => csvItemImages(selectedCsvItem, selectedCsvItemTasks),
+    () => csvCombinedImages(selectedCsvItem, selectedCsvItemTasks),
     [selectedCsvItem, selectedCsvItemTasks]
   )
   const selectedCsvTaskDiagnostics = useMemo(
@@ -1044,13 +1092,7 @@ export default function RunsPage() {
                         <td>{item.word || '-'}</td>
                         <td>{item.part_of_sentence || '-'}</td>
                         <td>{item.category || '-'}</td>
-                        <td>
-                          {item.current_profile_key
-                            ? csvProfileDisplay(item.current_profile_key)
-                            : Array.isArray(item.requested_profile_keys) && item.requested_profile_keys.length
-                              ? item.requested_profile_keys.map(csvProfileDisplay).join(', ')
-                              : '-'}
-                        </td>
+                        <td>{csvItemProfileColumnText(item)}</td>
                         <td>
                           <div className="status-stack">
                             <strong>{csvPrettyStatus(item.main_status)}</strong>
@@ -1488,6 +1530,32 @@ export default function RunsPage() {
                         <td>Base white background</td>
                         <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_white_bg_asset_id)}</td>
                       </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="table-wrap runs-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Created profile</th>
+                        <th>Regular</th>
+                        <th>White background</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvAvailableProfiles(selectedCsvItem).length ? (
+                        csvAvailableProfiles(selectedCsvItem).map((profile) => (
+                          <tr key={`${selectedCsvItem.id}:${profile.profile_key}`}>
+                            <td>{csvProfileDisplay(profile.profile_key)}</td>
+                            <td>{profile.regular_asset_id ? 'Created' : 'Not created'}</td>
+                            <td>{profile.white_bg_asset_id ? 'Created' : 'Not created'}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={3}>No created profiles recorded yet for this word.</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
