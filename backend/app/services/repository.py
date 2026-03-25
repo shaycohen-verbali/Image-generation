@@ -669,6 +669,16 @@ class Repository:
         self.db.refresh(prompt)
         return self._release_instance(prompt)
 
+    def get_prompt_for_stage_attempt(self, *, run_id: str, stage_name: str, attempt: int) -> Prompt | None:
+        return self.db.execute(
+            select(Prompt)
+            .where(Prompt.run_id == run_id)
+            .where(Prompt.stage_name == stage_name)
+            .where(Prompt.attempt == attempt)
+            .order_by(desc(Prompt.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
     def add_asset(
         self,
         *,

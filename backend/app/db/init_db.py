@@ -176,6 +176,7 @@ def _ensure_runtime_config_columns() -> None:
 
 def _ensure_inventory_columns() -> None:
     from app.db.inventory_session import inventory_engine as inv_engine  # avoid circular at module level
+    from app.inventory_models import BACKGROUND_VALUES, GENDER_VALUES, SKIN_VALUES, AGE_VALUES, inventory_prompt_column_name
     if inv_engine is None:
         return
     with inv_engine.begin() as conn:
@@ -184,8 +185,21 @@ def _ensure_inventory_columns() -> None:
             existing = {row[1] for row in rows}
             if "has_person" not in existing:
                 conn.execute(text("ALTER TABLE word_inventory ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+            for age in AGE_VALUES:
+                for gender in GENDER_VALUES:
+                    for skin_color in SKIN_VALUES:
+                        for background in BACKGROUND_VALUES:
+                            column_name = inventory_prompt_column_name(age, gender, skin_color, background)
+                            if column_name not in existing:
+                                conn.execute(text(f"ALTER TABLE word_inventory ADD COLUMN {column_name} TEXT NOT NULL DEFAULT ''"))
         else:
             conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS has_person TEXT NOT NULL DEFAULT ''"))
+            for age in AGE_VALUES:
+                for gender in GENDER_VALUES:
+                    for skin_color in SKIN_VALUES:
+                        for background in BACKGROUND_VALUES:
+                            column_name = inventory_prompt_column_name(age, gender, skin_color, background)
+                            conn.execute(text(f"ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS {column_name} TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_entry_columns() -> None:

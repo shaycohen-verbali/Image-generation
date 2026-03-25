@@ -8,7 +8,15 @@ from sqlalchemy import desc, select, update
 from sqlalchemy.orm import Session
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
-from app.inventory_models import AGE_VALUES, BACKGROUND_VALUES, GENDER_VALUES, SKIN_VALUES, inventory_slot_column_name, word_inventory
+from app.inventory_models import (
+    AGE_VALUES,
+    BACKGROUND_VALUES,
+    GENDER_VALUES,
+    SKIN_VALUES,
+    inventory_prompt_column_name,
+    inventory_slot_column_name,
+    word_inventory,
+)
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry
 from app.services.repository import Repository
 
@@ -101,16 +109,35 @@ class InventorySyncService:
             for column in word_inventory.columns
             if column.name.endswith("_path")
         }
+        prompt_values = {
+            column.name: ""
+            for column in word_inventory.columns
+            if column.name.endswith("_prompt")
+        }
         failures: list[dict[str, str]] = []
 
         if item.base_regular_asset_id:
             asset = self.repo.get_asset(item.base_regular_asset_id)
             if asset is not None:
                 slot_values[inventory_slot_column_name("kid", "male", "white", "regular")] = asset.abs_path
+                prompt = self.repo.get_prompt_for_stage_attempt(
+                    run_id=asset.run_id,
+                    stage_name="stage3_upgrade",
+                    attempt=int(asset.attempt or 0),
+                )
+                if prompt is not None:
+                    prompt_values[inventory_prompt_column_name("kid", "male", "white", "regular")] = prompt.prompt_text
         if item.base_white_bg_asset_id:
             asset = self.repo.get_asset(item.base_white_bg_asset_id)
             if asset is not None:
                 slot_values[inventory_slot_column_name("kid", "male", "white", "white_bg")] = asset.abs_path
+                prompt = self.repo.get_prompt_for_stage_attempt(
+                    run_id=asset.run_id,
+                    stage_name="stage4_background",
+                    attempt=int(asset.attempt or 0),
+                )
+                if prompt is not None:
+                    prompt_values[inventory_prompt_column_name("kid", "male", "white", "white_bg")] = prompt.prompt_text
 
         for task in tasks:
             profile = str(task.profile_key or "").split(":")
@@ -120,10 +147,24 @@ class InventorySyncService:
                     regular = self.repo.get_asset(task.regular_asset_id)
                     if regular is not None:
                         slot_values[inventory_slot_column_name(age, gender, skin_color, "regular")] = regular.abs_path
+                        prompt = self.repo.get_prompt_for_stage_attempt(
+                            run_id=regular.run_id,
+                            stage_name="stage4_variant_generate",
+                            attempt=int(regular.attempt or 0),
+                        )
+                        if prompt is not None:
+                            prompt_values[inventory_prompt_column_name(age, gender, skin_color, "regular")] = prompt.prompt_text
                 if task.white_bg_asset_id:
                     white_bg = self.repo.get_asset(task.white_bg_asset_id)
                     if white_bg is not None:
                         slot_values[inventory_slot_column_name(age, gender, skin_color, "white_bg")] = white_bg.abs_path
+                        prompt = self.repo.get_prompt_for_stage_attempt(
+                            run_id=white_bg.run_id,
+                            stage_name="stage5_variant_white_bg",
+                            attempt=int(white_bg.attempt or 0),
+                        )
+                        if prompt is not None:
+                            prompt_values[inventory_prompt_column_name(age, gender, skin_color, "white_bg")] = prompt.prompt_text
             if task.status in {"failed", "canceled"}:
                 failures.append(
                     {
@@ -138,6 +179,34 @@ class InventorySyncService:
         expected_slots = self._expected_slot_names(job)
         missing_slots = [slot for slot in expected_slots if not str(slot_values.get(slot) or "").strip()]
         now = datetime.utcnow()
+        has_person_value = str(getattr(entry, "has_person", "") or "").strip().lower()
+        if has_person_value not in {"yes", "no"} and item.shadow_run_id:
+            winner_attempt = 0
+            if item.base_regular_asset_id:
+                regular_asset = self.repo.get_asset(item.base_regular_asset_id)
+                winner_attempt = int(regular_asset.attempt or 0) if regular_asset is not None else 0
+            prompt = None
+            if winner_attempt > 0:
+                prompt = self.repo.get_prompt_for_stage_attempt(
+                    run_id=item.shadow_run_id,
+                    stage_name="stage3_upgrade",
+                    attempt=winner_attempt,
+                )
+            if prompt is None:
+                prompt = self.repo.get_prompt_for_stage_attempt(
+                    run_id=item.shadow_run_id,
+                    stage_name="stage1_prompt",
+                    attempt=1,
+                )
+            if prompt is not None:
+                prompt_need = str(prompt.needs_person or "").strip().lower()
+                if prompt_need in {"yes", "no"}:
+                    has_person_value = prompt_need
+        if has_person_value not in {"yes", "no"}:
+            existing_row = self.latest_entry_inventory_row(entry)
+            prior_value = str((existing_row or {}).get("has_person") or "").strip().lower()
+            if prior_value in {"yes", "no"}:
+                has_person_value = prior_value
         return {
             "source_csv_job_id": job.id,
             "source_csv_job_item_id": item.id,
@@ -148,7 +217,7 @@ class InventorySyncService:
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
             "context": entry.context,
-            "has_person": str(getattr(entry, "has_person", "") or ""),
+            "has_person": has_person_value,
             "job_status": item.status,
             "fully_complete": item.status == "completed" and not missing_slots and not failures,
             "missing_slots_json": json.dumps(missing_slots, ensure_ascii=True),
@@ -156,6 +225,7 @@ class InventorySyncService:
             "synced_at": now,
             "updated_at": now,
             **slot_values,
+            **prompt_values,
         }
 
     def build_export_rows(self, csv_job_id: str) -> list[dict[str, object]]:
@@ -188,7 +258,7 @@ class InventorySyncService:
             }
             for column in word_inventory.columns:
                 name = str(column.name)
-                if name.endswith("_path"):
+                if name.endswith("_path") or name.endswith("_prompt"):
                     export_row[name] = payload.get(name, "")
             rows.append(export_row)
         return rows

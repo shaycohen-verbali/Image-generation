@@ -22,6 +22,19 @@ slot_columns = [
     for background in BACKGROUND_VALUES
 ]
 
+
+def inventory_prompt_column_name(age: str, gender: str, skin_color: str, background: str) -> str:
+    return f"{age}_{gender}_{skin_color}_{background}_prompt"
+
+
+prompt_columns = [
+    Column(inventory_prompt_column_name(age, gender, skin_color, background), Text, nullable=False, default="")
+    for age in AGE_VALUES
+    for gender in GENDER_VALUES
+    for skin_color in SKIN_VALUES
+    for background in BACKGROUND_VALUES
+]
+
 word_inventory = Table(
     "word_inventory",
     inventory_metadata,
@@ -44,5 +57,6 @@ word_inventory = Table(
     Column("created_at", DateTime, nullable=False),
     Column("updated_at", DateTime, nullable=False),
     *slot_columns,
+    *prompt_columns,
     UniqueConstraint("source_csv_job_item_id", name="uq_word_inventory_job_item"),
 )
