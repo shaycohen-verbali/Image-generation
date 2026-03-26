@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import WorkflowCanvas from './WorkflowCanvas'
 
 const DEFAULT_VISUAL_STYLE_NAME = 'Warm Watercolor Storybook Kids Style v3'
@@ -473,8 +473,8 @@ function promptEngineerModeLabel(config) {
   return model.startsWith('gemini-') ? 'Direct Model API' : 'Responses API + Vector Store'
 }
 
-export default function AlgorithmStaticMap({ assistantName = '', config = null }) {
-  const [selectedNodeId, setSelectedNodeId] = useState('stage3_prompt_upgrade')
+export default function AlgorithmStaticMap({ assistantName = '', config = null, mode = 'csv_dag' }) {
+  const [selectedNodeId, setSelectedNodeId] = useState(mode === 'legacy' ? 'stage4_variant_generate' : 'stage3_prompt_upgrade')
   const promptEngineerLabel = promptEngineerModeLabel(config)
   const visualStyleName = config?.visual_style_name || DEFAULT_VISUAL_STYLE_NAME
   const visualStyleId = config?.visual_style_id || DEFAULT_VISUAL_STYLE_ID
@@ -488,7 +488,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
     .replaceAll('{visual_style_id}', visualStyleId)
     .replaceAll('{visual_style_block}', visualStyleBlock)
 
-  const nodes = useMemo(
+  useEffect(() => {
+    setSelectedNodeId(mode === 'legacy' ? 'stage4_variant_generate' : 'stage3_prompt_upgrade')
+  }, [mode])
+
+  const csvDagNodes = useMemo(
     () => [
       { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: `${promptEngineerLabel} + initial person guess`, status: 'queued', x: 40, y: 72 },
       { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 340, y: 72 },
@@ -620,7 +624,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
     [promptEngineerLabel],
   )
 
-  const edges = useMemo(
+  const csvDagEdges = useMemo(
     () => [
       { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1 + initial style hypothesis', fromPort: 'right', toPort: 'left' },
       { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
@@ -654,6 +658,92 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
     ],
     [],
   )
+
+  const legacyNodes = useMemo(
+    () => [
+      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: `${promptEngineerLabel} + initial person guess`, status: 'queued', x: 40, y: 72 },
+      { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 340, y: 72 },
+      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini + person/animal validation', status: 'queued', x: 640, y: 72 },
+      { id: 'stage3_anatomy_critique', label: 'Stage 3.15 Anatomy Critique', subtitle: 'limbs + body integrity check', status: 'queued', x: 940, y: 72 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: `${promptEngineerLabel} + resolved style`, status: 'queued', x: 1240, y: 72 },
+      { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 1540, y: 72 },
+      { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1840, y: 72 },
+      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'base winner white BG', status: 'queued', x: 2140, y: 72 },
+      {
+        id: 'variant_requested',
+        label: 'IF person variants were selected on Submit',
+        subtitle: 'No -> finish the run. Yes -> create optional variants for this same run.',
+        kind: 'decision',
+        status: 'queued',
+        x: 2440,
+        y: 72,
+      },
+      {
+        id: 'stage4_variant_generate',
+        label: 'Stage 5-8 Variant Finals',
+        subtitle: 'Generate the requested profile variants directly inside the run.',
+        badge: 'backend: stage4_variant_generate',
+        meta: [
+          'No inventory dependency planner here',
+          'Uses the current run winner image as the source',
+        ],
+        status: 'queued',
+        x: 2740,
+        y: 72,
+      },
+      {
+        id: 'stage81_variant_critique',
+        label: 'Step 8.1 Variant Critique',
+        subtitle: 'Review clothing/styling for age or gender changes.',
+        badge: 'backend: stage4_variant_critique',
+        status: 'queued',
+        x: 3040,
+        y: 72,
+      },
+      {
+        id: 'stage82_variant_correction',
+        label: 'Step 8.2 Variant Correction',
+        subtitle: 'One minimal correction pass only when needed.',
+        badge: 'backend: stage4_variant_correction',
+        status: 'queued',
+        x: 3340,
+        y: 72,
+      },
+      { id: 'stage5_variant_white_bg', label: 'Stage 9 Variant White BG', subtitle: 'white background for every final variant', badge: 'backend: stage5_variant_white_bg', status: 'queued', x: 3640, y: 72 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 3940, y: 72 },
+      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold or technical failure', status: 'error', x: 2140, y: 220 },
+    ],
+    [promptEngineerLabel],
+  )
+
+  const legacyEdges = useMemo(
+    () => [
+      { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1 + initial style hypothesis', fromPort: 'right', toPort: 'left' },
+      { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_critique', to: 'stage3_anatomy_critique', label: 'if person or animal is present', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_anatomy_critique', to: 'stage3_prompt_upgrade', label: 'include anatomy fixes', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'otherwise go straight to prompt upgrade', fromPort: 'bottom', toPort: 'left' },
+      { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
+      { from: 'quality_gate', to: 'stage4_background', label: 'pass -> keep winner', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'completed_fail', label: 'fail after max attempts', type: 'branch', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage4_background', to: 'variant_requested', label: 'base winner is ready', fromPort: 'right', toPort: 'left' },
+      { from: 'variant_requested', to: 'completed_pass', label: 'no variants selected', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_requested', to: 'stage4_variant_generate', label: 'yes -> create selected variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_variant_generate', to: 'stage81_variant_critique', label: 'review clothing/styling', fromPort: 'right', toPort: 'left' },
+      { from: 'stage81_variant_critique', to: 'stage82_variant_correction', label: 'only if fixes are needed', fromPort: 'right', toPort: 'left' },
+      { from: 'stage81_variant_critique', to: 'stage5_variant_white_bg', label: 'skip correction when clean', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage82_variant_correction', to: 'stage5_variant_white_bg', label: 'corrected final -> white BG', fromPort: 'right', toPort: 'left' },
+      { from: 'stage5_variant_white_bg', to: 'completed_pass', label: 'done', fromPort: 'right', toPort: 'left' },
+    ],
+    [],
+  )
+
+  const nodes = mode === 'legacy' ? legacyNodes : csvDagNodes
+  const edges = mode === 'legacy' ? legacyEdges : csvDagEdges
+  const canvasWidth = mode === 'legacy' ? 4260 : 4560
+  const canvasHeight = mode === 'legacy' ? 360 : 560
 
   const selectedBase = STAGE_DETAILS[selectedNodeId] || STAGE_DETAILS.stage1_prompt
   const selected = useMemo(() => {
@@ -719,26 +809,48 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         <strong>Image output settings:</strong> aspect ratio {config?.image_aspect_ratio || '1:1'} | resolution {config?.image_resolution || '1K'}
       </p>
       <p className="algo-assistant-name">
-        <strong>How to read this:</strong> follow the top row from left to right for the base image pipeline. After Stage 4, the top-row decision nodes explain whether we reuse inventory, which dependency baseline is needed, and which profile-specific branch runs next.
+        <strong>Mode:</strong> {mode === 'legacy' ? 'Legacy fallback runs' : 'Parallel CSV DAG'}
       </p>
-      <p className="algo-assistant-name">
-        <strong>Base track:</strong> Stage 1 decides the first prompt -> Stage 2 makes the draft -> Stage 3.1 critiques concept clarity -> Stage 3.15 checks anatomy only for person/animal scenes -> Stage 3.2 upgrades the prompt -> Stage 3.3 regenerates the image -> Quality Gate loops back until pass or max attempts -> Stage 4 creates the base white-background winner.
-      </p>
-      <p className="algo-assistant-name">
-        <strong>Variant track:</strong> After Stage 4, the system first checks whether the exact requested profile already exists in inventory. If yes and override is off, it reuses it. Otherwise it follows the dependency table: white male kid base -> male age expansion, white female kid seed, female age expansion, and race expansion from the matching white age+gender baseline. Then it runs Step 8.1 critique, optional Step 8.2 correction, and Step 9 white background.
-      </p>
-      <p className="algo-assistant-name">
-        <strong>Dependency examples:</strong> requesting <code>male:kid:asian</code> reuses <code>male:kid:asian</code> if it already exists; otherwise it looks for <code>male:kid:white</code> and creates that dependency first if needed. Requesting <code>female:teenager:brown</code> can require the chain <code>male:kid:white -> female:kid:white -> female:teenager:white -> female:teenager:brown</code>.
-      </p>
-      <p className="algo-assistant-name">
-        <strong>Variant staging in code:</strong> Steps 5-8 run inside backend stage <code>stage4_variant_generate</code>, Step 8.1 is recorded as <code>stage4_variant_critique</code>, Step 8.2 is recorded as <code>stage4_variant_correction</code>, and Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, or if the exact profile is reused from inventory, the run completes without new variant generation.
-      </p>
+      {mode === 'legacy' ? (
+        <>
+          <p className="algo-assistant-name">
+            <strong>How to read this:</strong> this tab shows the simpler per-run fallback flow. Each imported row becomes its own legacy run, and the run works left-to-right without the CSV inventory dependency planner.
+          </p>
+          <p className="algo-assistant-name">
+            <strong>Base track:</strong> Stage 1 decides the first prompt -> Stage 2 makes the draft -> Stage 3.1 critiques concept clarity -> Stage 3.15 checks anatomy only for person/animal scenes -> Stage 3.2 upgrades the prompt -> Stage 3.3 regenerates the image -> Quality Gate loops back until pass or max attempts -> Stage 4 creates the base white-background winner.
+          </p>
+          <p className="algo-assistant-name">
+            <strong>Legacy variant track:</strong> after Stage 4, the run optionally creates the selected person variants directly from the current run winner, then runs Step 8.1 critique, optional Step 8.2 correction, and Stage 9 white background.
+          </p>
+          <p className="algo-assistant-name">
+            <strong>What is different here:</strong> there is no per-word inventory reuse planner or dependency chain lookup on this path. The work stays inside the current legacy run.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="algo-assistant-name">
+            <strong>How to read this:</strong> follow the top row from left to right for the base image pipeline. After Stage 4, the top-row decision nodes explain whether we reuse inventory, which dependency baseline is needed, and which profile-specific branch runs next.
+          </p>
+          <p className="algo-assistant-name">
+            <strong>Base track:</strong> Stage 1 decides the first prompt -> Stage 2 makes the draft -> Stage 3.1 critiques concept clarity -> Stage 3.15 checks anatomy only for person/animal scenes -> Stage 3.2 upgrades the prompt -> Stage 3.3 regenerates the image -> Quality Gate loops back until pass or max attempts -> Stage 4 creates the base white-background winner.
+          </p>
+          <p className="algo-assistant-name">
+            <strong>Variant track:</strong> After Stage 4, the system first checks whether the exact requested profile already exists in inventory. If yes and override is off, it reuses it. Otherwise it follows the dependency table: white male kid base -> male age expansion, white female kid seed, female age expansion, and race expansion from the matching white age+gender baseline. Then it runs Step 8.1 critique, optional Step 8.2 correction, and Step 9 white background.
+          </p>
+          <p className="algo-assistant-name">
+            <strong>Dependency examples:</strong> requesting <code>male:kid:asian</code> reuses <code>male:kid:asian</code> if it already exists; otherwise it looks for <code>male:kid:white</code> and creates that dependency first if needed. Requesting <code>female:teenager:brown</code> can require the chain <code>male:kid:white -&gt; female:kid:white -&gt; female:teenager:white -&gt; female:teenager:brown</code>.
+          </p>
+          <p className="algo-assistant-name">
+            <strong>Variant staging in code:</strong> Steps 5-8 run inside backend stage <code>stage4_variant_generate</code>, Step 8.1 is recorded as <code>stage4_variant_critique</code>, Step 8.2 is recorded as <code>stage4_variant_correction</code>, and Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, or if the exact profile is reused from inventory, the run completes without new variant generation.
+          </p>
+        </>
+      )}
 
       <WorkflowCanvas
         nodes={nodes}
         edges={edges}
-        width={4560}
-        height={560}
+        width={canvasWidth}
+        height={canvasHeight}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
       />

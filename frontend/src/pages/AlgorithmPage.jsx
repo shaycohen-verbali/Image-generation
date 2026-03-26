@@ -5,6 +5,7 @@ import { getConfig } from '../lib/api'
 export default function AlgorithmPage() {
   const [assistantName, setAssistantName] = useState('')
   const [config, setConfig] = useState(null)
+  const [diagramMode, setDiagramMode] = useState('csv_dag')
 
   useEffect(() => {
     let mounted = true
@@ -29,7 +30,23 @@ export default function AlgorithmPage() {
 
   return (
     <section className="runs-page-stack">
-      <AlgorithmStaticMap assistantName={assistantName} config={config} />
+      <div className="tab-row">
+        <button
+          type="button"
+          className={diagramMode === 'csv_dag' ? 'tab active' : 'tab'}
+          onClick={() => setDiagramMode('csv_dag')}
+        >
+          Parallel CSV DAG
+        </button>
+        <button
+          type="button"
+          className={diagramMode === 'legacy' ? 'tab active' : 'tab'}
+          onClick={() => setDiagramMode('legacy')}
+        >
+          Legacy fallback runs
+        </button>
+      </div>
+      <AlgorithmStaticMap assistantName={assistantName} config={config} mode={diagramMode} />
     </section>
   )
 }
