@@ -231,13 +231,6 @@ class CsvDagService:
                 and inventory_service.slot_path_for_entry_profile(entry, p, background="white_bg")
             )
 
-        profiles_to_process = list(requested_profiles)
-
-        # Profiles whose regular image already exists in inventory are immediately available
-        available_regular: set[str] = {
-            profile_key(p) for p in profiles_to_process if inventory_regular_available(p)
-        }
-
         def _create_spec(p: dict[str, str], source_p: dict[str, str] | None, dep_task_key: str | None) -> str:
             step_name = "step1_base" if source_p is None else "step2_variant"
             tk = _row_task_key(item.id, step_name, p)
@@ -268,48 +261,39 @@ class CsvDagService:
             created_specs.append(spec)
             return tk
 
-        def _dep_depth(p: dict[str, str]) -> int:
-            depth = 0
-            current = p
-            visited: set[str] = set()
-            while True:
-                pk = profile_key(current)
-                if pk in visited:
-                    break
-                visited.add(pk)
-                dep = _dependency_profile_for(current)
-                if dep is None:
-                    break
-                depth += 1
-                current = dep
-            return depth
+        def _ensure_profile_ready(p: dict[str, str], *, requested: bool) -> str | None:
+            pk = profile_key(p)
+            existing_spec = spec_by_profile_key.get(pk)
+            if existing_spec is not None:
+                return existing_spec["task_key"]
 
-        # Process profiles shallowest-dependency-first so intermediates are scheduled before dependents
-        for prof in sorted(profiles_to_process, key=_dep_depth):
-            pk = profile_key(prof)
+            # Requested targets can be skipped only when the full pair already exists and we are
+            # not forcing regeneration. Intermediate dependencies only need the regular asset.
+            if requested and not override and inventory_pair_available(p):
+                return None
+            if not requested and inventory_regular_available(p):
+                return None
 
-            if pk in spec_by_profile_key:
-                continue  # already scheduled
-
-            # Already fully done in inventory and not overriding – mark available and skip
-            if not override and inventory_pair_available(prof):
-                available_regular.add(pk)
-                continue
-
-            dep = _dependency_profile_for(prof)
-
+            dep = _dependency_profile_for(p)
             if dep is None:
-                # Base profile – always create, no dependency needed
-                _create_spec(prof, None, None)
-                available_regular.add(pk)
-                continue
+                return _create_spec(p, None, None)
 
-            dep_pk = profile_key(dep)
-            dep_spec = spec_by_profile_key.get(dep_pk)
+            dep_task_key: str | None = None
+            if inventory_regular_available(dep):
+                dep_task_key = None
+            else:
+                dep_task_key = _ensure_profile_ready(dep, requested=False)
 
-            dep_task_key = dep_spec["task_key"] if dep_spec else None
-            _create_spec(prof, dep, dep_task_key)
-            available_regular.add(pk)
+            if dep_task_key is None and not inventory_regular_available(dep):
+                skipped_notes.append(
+                    f"Skipped {pk}: dependency profile '{profile_key(dep)}' is not available"
+                )
+                return None
+
+            return _create_spec(p, dep, dep_task_key)
+
+        for prof in requested_profiles:
+            _ensure_profile_ready(prof, requested=True)
 
         # Wire dependency task IDs into each node's JSON field
         for spec in created_specs:
@@ -910,16 +894,17 @@ class CsvDagService:
                 def _cannot_complete(reason: str) -> CsvTaskNode:
                     self.repo.update_csv_task(
                         task,
-                        status="completed",
+                        status="failed",
                         error_summary=reason,
                         finished_at=datetime.utcnow(),
                     )
                     self.repo.add_csv_task_attempt(
                         csv_task_node_id=task.id,
                         attempt_number=attempt_number,
-                        status="completed",
+                        status="failed",
                         request_json={"step_name": task.step_name},
-                        response_json={"skipped": True, "reason": reason},
+                        response_json={"failed": True, "reason": reason},
+                        error_detail=reason,
                         finished_at=datetime.utcnow(),
                     )
                     return self.repo.get_csv_task(task.id) or task
