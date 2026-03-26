@@ -154,8 +154,8 @@ export default function WorkflowCanvas({
                 key={node.id}
                 className={
                   node.id === selectedNodeId
-                    ? `workflow-node selected status-${node.status || 'queued'}`
-                    : `workflow-node status-${node.status || 'queued'}`
+                    ? `workflow-node workflow-node-${node.kind || 'stage'} selected status-${node.status || 'queued'}`
+                    : `workflow-node workflow-node-${node.kind || 'stage'} status-${node.status || 'queued'}`
                 }
                 style={{ left: `${node.x}px`, top: `${node.y}px`, width: `${NODE_WIDTH}px`, minHeight: `${NODE_HEIGHT}px` }}
                 onClick={() => onSelectNode?.(node.id)}

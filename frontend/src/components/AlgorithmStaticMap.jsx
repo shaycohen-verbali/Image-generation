@@ -420,6 +420,51 @@ const STAGE_DETAILS = {
     instruction: 'No AI instruction. System updates run.status=completed_fail_threshold.',
     requestExample: { status: 'completed_fail_threshold' },
   },
+  variant_requested: {
+    apiCall: 'decision node',
+    provider: 'system',
+    model: 'N/A',
+    inputs: ['requested profile list'],
+    outputs: ['continue variant DAG or finish after Stage 4'],
+    instruction: 'If no extra profiles are requested, the pipeline stops after Stage 4. If one or more non-base profiles are requested, the variant DAG starts.',
+    requestExample: { requested_profiles: ['male:kid:black'] },
+  },
+  variant_inventory_check: {
+    apiCall: 'inventory lookup',
+    provider: 'system + inventory table',
+    model: 'N/A',
+    inputs: ['word/part_of_sentence/category entry', 'requested profile key', 'override_existing_variants flag'],
+    outputs: ['reuse exact requested profile or continue dependency planning'],
+    instruction: 'Check word_inventory for the exact requested profile. If it already exists and override is false, reuse it and skip generation for that profile.',
+    requestExample: { requested_profile: 'male:kid:black', override_existing_variants: false },
+  },
+  variant_family_router: {
+    apiCall: 'dependency planner',
+    provider: 'system',
+    model: 'N/A',
+    inputs: ['requested profile'],
+    outputs: ['one of the profile-family branches'],
+    instruction: 'Route the requested profile into the correct branch: white male kid base, male age branch, white female kid seed, female age branch, or race branch from a matching white age+gender baseline.',
+    requestExample: { requested_profile: 'female:teenager:brown' },
+  },
+  variant_dependency_check: {
+    apiCall: 'inventory lookup + recursive planner',
+    provider: 'system + inventory table',
+    model: 'N/A',
+    inputs: ['dependency profile key', 'inventory row'],
+    outputs: ['reuse dependency or create it first'],
+    instruction: 'If the dependency profile already exists in inventory, reuse it. Otherwise create the dependency profile first, then continue into the requested target profile.',
+    requestExample: { dependency_profile: 'female:kid:white', action: 'create first if missing' },
+  },
+  variant_reuse_complete: {
+    apiCall: 'decision result',
+    provider: 'system',
+    model: 'N/A',
+    inputs: ['existing exact inventory profile'],
+    outputs: ['completed path by reuse'],
+    instruction: 'No new image generation is needed for this profile. Reuse the inventory assets and continue to completion/export readiness.',
+    requestExample: { reused_profile: 'male:kid:black' },
+  },
 }
 
 function promptEngineerModeLabel(config) {
@@ -454,13 +499,58 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1840, y: 72 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'base winner white BG', status: 'queued', x: 2140, y: 72 },
       {
+        id: 'variant_requested',
+        label: 'IF more profiles are requested',
+        subtitle: 'No -> finish after Stage 4. Yes -> open the variant DAG.',
+        kind: 'decision',
+        status: 'queued',
+        x: 2440,
+        y: 72,
+      },
+      {
+        id: 'variant_inventory_check',
+        label: 'THEN check exact profile in inventory',
+        subtitle: 'Reuse exact requested profile if it already exists and override is off.',
+        kind: 'decision',
+        status: 'queued',
+        x: 2740,
+        y: 72,
+      },
+      {
+        id: 'variant_reuse_complete',
+        label: 'Reuse Existing Inventory Variant',
+        subtitle: 'No new generation for that exact profile.',
+        kind: 'decision',
+        status: 'ok',
+        x: 3040,
+        y: 72,
+      },
+      {
+        id: 'variant_family_router',
+        label: 'THEN choose profile path',
+        subtitle: 'male age / female seed / female age / race branch',
+        kind: 'decision',
+        status: 'queued',
+        x: 3340,
+        y: 72,
+      },
+      {
+        id: 'variant_dependency_check',
+        label: 'IF dependency baseline is missing',
+        subtitle: 'Reuse it from inventory when present; otherwise create it first.',
+        kind: 'decision',
+        status: 'queued',
+        x: 3640,
+        y: 72,
+      },
+      {
         id: 'stage5_male_age',
         label: 'Step 5 Male Age Expansion',
-        subtitle: 'Start the variant branch from the base winner.',
+        subtitle: 'White male kid -> requested male ages for the same race.',
         badge: 'backend: stage4_variant_generate',
         meta: [
-          'Input: Stage 3 winner + requested male ages',
-          'Output: white male kid/tween/teen baselines',
+          'Input: matching male kid baseline',
+          'Output: requested male tween/teen baselines',
         ],
         status: 'queued',
         x: 2140,
@@ -469,10 +559,10 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       {
         id: 'stage6_female_seed',
         label: 'Step 6 Female Seed',
-        subtitle: 'Create the white female kid baseline.',
+        subtitle: 'White male kid -> white female kid seed.',
         badge: 'backend: stage4_variant_generate',
         meta: [
-          'Input: Stage 3 winner',
+          'Input: white male kid baseline',
           'Output: white female kid baseline',
         ],
         status: 'queued',
@@ -482,11 +572,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       {
         id: 'stage7_female_age',
         label: 'Step 7 Female Age Expansion',
-        subtitle: 'Expand the female baseline into requested ages.',
+        subtitle: 'White female kid -> requested female ages for the same race.',
         badge: 'backend: stage4_variant_generate',
         meta: [
-          'Input: white female kid seed + requested female ages',
-          'Output: white female kid/tween/teen baselines',
+          'Input: matching female kid baseline',
+          'Output: requested female tween/teen baselines',
         ],
         status: 'queued',
         x: 2740,
@@ -495,11 +585,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       {
         id: 'stage8_race_expand',
         label: 'Step 8 Race Expansion',
-        subtitle: 'Create race variants from matching white baselines.',
+        subtitle: 'Use matching white age+gender baseline -> requested race.',
         badge: 'backend: stage4_variant_generate',
         meta: [
-          'Input: matching white gender+age baselines + requested races',
-          'Output: Black / Asian / Brown (Indian origin) variants',
+          'Example: white male kid -> black/asian/brown male kid',
+          'Example: white female teenager -> black/asian/brown female teenager',
         ],
         status: 'queued',
         x: 3040,
@@ -542,10 +632,20 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
       { from: 'quality_gate', to: 'stage4_background', label: 'pass -> keep winner', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'completed_fail', label: 'fail after max attempts', type: 'branch', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage4_background', to: 'stage5_male_age', label: 'continue into requested variants', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage5_male_age', to: 'stage6_female_seed', label: 'then create female seed', fromPort: 'right', toPort: 'left' },
-      { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'expand female ages', fromPort: 'right', toPort: 'left' },
-      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'then create race variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage4_background', to: 'variant_requested', label: 'base winner is ready', fromPort: 'right', toPort: 'left' },
+      { from: 'variant_requested', to: 'completed_pass', label: 'no extra profiles requested', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_requested', to: 'variant_inventory_check', label: 'yes -> inspect requested profile(s)', fromPort: 'right', toPort: 'left' },
+      { from: 'variant_inventory_check', to: 'variant_reuse_complete', label: 'exact profile already exists + override off', fromPort: 'right', toPort: 'left' },
+      { from: 'variant_reuse_complete', to: 'completed_pass', label: 'reuse existing assets', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_inventory_check', to: 'variant_family_router', label: 'exact profile missing or override on', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_family_router', to: 'variant_dependency_check', label: 'look up dependency baseline', fromPort: 'right', toPort: 'left' },
+      { from: 'variant_dependency_check', to: 'stage5_male_age', label: 'male age path', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_dependency_check', to: 'stage6_female_seed', label: 'white female kid seed path', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_dependency_check', to: 'stage7_female_age', label: 'female age path', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_dependency_check', to: 'stage8_race_expand', label: 'race path from matching white baseline', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage5_male_age', to: 'stage81_variant_critique', label: 'gender same, age changed', fromPort: 'right', toPort: 'left' },
+      { from: 'stage6_female_seed', to: 'stage81_variant_critique', label: 'gender changed', fromPort: 'right', toPort: 'left' },
+      { from: 'stage7_female_age', to: 'stage81_variant_critique', label: 'gender/age path complete', fromPort: 'right', toPort: 'left' },
       { from: 'stage8_race_expand', to: 'stage81_variant_critique', label: 'review clothing/styling', fromPort: 'right', toPort: 'left' },
       { from: 'stage81_variant_critique', to: 'stage82_variant_correction', label: 'only if fixes are needed', fromPort: 'right', toPort: 'left' },
       { from: 'stage81_variant_critique', to: 'stage9_variant_white_bg', label: 'skip correction when clean', fromPort: 'right', toPort: 'left' },
@@ -619,16 +719,19 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         <strong>Image output settings:</strong> aspect ratio {config?.image_aspect_ratio || '1:1'} | resolution {config?.image_resolution || '1K'}
       </p>
       <p className="algo-assistant-name">
-        <strong>How to read this:</strong> follow the top row from left to right for the base image pipeline. If the base image passes, drop to the bottom row to follow the optional variant pipeline from left to right.
+        <strong>How to read this:</strong> follow the top row from left to right for the base image pipeline. After Stage 4, the top-row decision nodes explain whether we reuse inventory, which dependency baseline is needed, and which profile-specific branch runs next.
       </p>
       <p className="algo-assistant-name">
         <strong>Base track:</strong> Stage 1 decides the first prompt -> Stage 2 makes the draft -> Stage 3.1 critiques concept clarity -> Stage 3.15 checks anatomy only for person/animal scenes -> Stage 3.2 upgrades the prompt -> Stage 3.3 regenerates the image -> Quality Gate loops back until pass or max attempts -> Stage 4 creates the base white-background winner.
       </p>
       <p className="algo-assistant-name">
-        <strong>Variant track:</strong> After Stage 4, the pipeline creates the requested profile variants, then reviews age/gender clothing consistency in Step 8.1, applies one minimal correction in Step 8.2 only when needed, and finishes with white-background versions in Step 9.
+        <strong>Variant track:</strong> After Stage 4, the system first checks whether the exact requested profile already exists in inventory. If yes and override is off, it reuses it. Otherwise it follows the dependency table: white male kid base -> male age expansion, white female kid seed, female age expansion, and race expansion from the matching white age+gender baseline. Then it runs Step 8.1 critique, optional Step 8.2 correction, and Step 9 white background.
       </p>
       <p className="algo-assistant-name">
-        <strong>Variant staging in code:</strong> Steps 5-8 run inside backend stage <code>stage4_variant_generate</code>, Step 8.1 is recorded as <code>stage4_variant_critique</code>, Step 8.2 is recorded as <code>stage4_variant_correction</code>, and Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, the run completes after Stage 4.
+        <strong>Dependency examples:</strong> requesting <code>male:kid:asian</code> reuses <code>male:kid:asian</code> if it already exists; otherwise it looks for <code>male:kid:white</code> and creates that dependency first if needed. Requesting <code>female:teenager:brown</code> can require the chain <code>male:kid:white -> female:kid:white -> female:teenager:white -> female:teenager:brown</code>.
+      </p>
+      <p className="algo-assistant-name">
+        <strong>Variant staging in code:</strong> Steps 5-8 run inside backend stage <code>stage4_variant_generate</code>, Step 8.1 is recorded as <code>stage4_variant_critique</code>, Step 8.2 is recorded as <code>stage4_variant_correction</code>, and Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, or if the exact profile is reused from inventory, the run completes without new variant generation.
       </p>
 
       <WorkflowCanvas

@@ -1110,6 +1110,21 @@ pre {
   box-shadow: 0 6px 14px rgba(31, 42, 56, 0.12);
 }
 
+.workflow-node-decision {
+  border-style: dashed;
+  border-color: #8b6935;
+  background: linear-gradient(180deg, #fff8e9 0%, #fffefb 100%);
+}
+
+.workflow-node-decision .workflow-node-title {
+  font-size: 0.9rem;
+}
+
+.workflow-node-decision .workflow-node-subtitle {
+  color: #654b1f;
+  font-weight: 700;
+}
+
 .workflow-node.selected {
   outline: 3px solid #b3e5dc;
 }
