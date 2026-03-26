@@ -5,7 +5,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-PromptEngineerModel = Literal["gpt-4o-mini", "gpt-4.1-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
+PromptEngineerModel = Literal[
+    "gpt-4o-mini",
+    "gpt-4.1-mini",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gemini-3-flash",
+    "gemini-3-pro",
+]
 ImageAspectRatio = Literal["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
 ImageResolution = Literal["1K", "2K", "4K"]
 ImageFormat = Literal["image/png", "image/jpeg", "image/webp"]
@@ -432,12 +440,12 @@ class RuntimeConfigOut(BaseModel):
     stage1_prompt_template: str
     stage3_prompt_template: str
     openai_model_vision: str
-    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
-    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
+    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"]
+    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"]
+    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     image_aspect_ratio: ImageAspectRatio
     image_resolution: ImageResolution
     image_format: ImageFormat
@@ -464,12 +472,12 @@ class RuntimeConfigUpdate(BaseModel):
     stage1_prompt_template: str | None = None
     stage3_prompt_template: str | None = None
     openai_model_vision: str | None = None
-    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"] | None = None
-    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"] | None = None
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
+    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gemini-3-flash", "gemini-3-pro"] | None = None
+    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    quality_gate_model: Literal["gpt-4o-mini", "gemini-3-flash", "gemini-3-pro"] | None = None
+    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     image_aspect_ratio: ImageAspectRatio | None = None
     image_resolution: ImageResolution | None = None
     image_format: ImageFormat | None = None

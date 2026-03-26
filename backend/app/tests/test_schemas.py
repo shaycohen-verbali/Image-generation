@@ -78,6 +78,21 @@ def test_runtime_config_update_accepts_gpt54_for_stage3_critique() -> None:
     assert config.variant_critique_model == "gpt-5.4"
 
 
+def test_runtime_config_update_accepts_new_gpt54_mini_and_nano_models() -> None:
+    config = RuntimeConfigUpdate(
+        responses_prompt_engineer_model="gpt-5.4-mini",
+        stage3_critique_model="gpt-5.4-mini",
+        stage3_anatomy_critique_model="gpt-5.4-nano",
+        variant_critique_model="gpt-5.4-mini",
+        quality_gate_model="gpt-5.4-nano",
+    )
+    assert config.responses_prompt_engineer_model == "gpt-5.4-mini"
+    assert config.stage3_critique_model == "gpt-5.4-mini"
+    assert config.stage3_anatomy_critique_model == "gpt-5.4-nano"
+    assert config.variant_critique_model == "gpt-5.4-mini"
+    assert config.quality_gate_model == "gpt-5.4-nano"
+
+
 def test_runtime_config_update_accepts_variant_correction_model() -> None:
     config = RuntimeConfigUpdate(variant_correction_model="nano-banana-2")
     assert config.variant_correction_model == "nano-banana-2"

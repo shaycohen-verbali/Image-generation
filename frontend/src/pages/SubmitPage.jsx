@@ -663,6 +663,8 @@ export default function SubmitPage() {
               >
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3-flash">Gemini-3-flash</option>
                 <option value="gemini-3-pro">Gemini-3-pro</option>
               </select>
@@ -680,6 +682,8 @@ export default function SubmitPage() {
               >
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3-flash">Gemini-3-flash</option>
                 <option value="gemini-3-pro">Gemini-3-pro</option>
               </select>
@@ -716,6 +720,8 @@ export default function SubmitPage() {
               >
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3-flash">Gemini-3-flash</option>
                 <option value="gemini-3-pro">Gemini-3-pro</option>
               </select>
@@ -751,6 +757,8 @@ export default function SubmitPage() {
                 }}
               >
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3-flash">Gemini-3-flash</option>
                 <option value="gemini-3-pro">Gemini-3-pro</option>
               </select>
@@ -797,6 +805,8 @@ export default function SubmitPage() {
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-4.1-mini">gpt-4.1-mini</option>
                 <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3-flash">Gemini-3-flash</option>
                 <option value="gemini-3-pro">Gemini-3-pro</option>
               </select>
