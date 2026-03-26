@@ -411,6 +411,7 @@ class RecordingPipelineRunner(PipelineRunner):
         request_json: dict[str, object],
         response_json: dict[str, object],
         error_detail: str = "",
+        idempotency_key: str | None = None,
     ) -> None:
         self.recorded_stage_payloads.append(
             {
@@ -431,6 +432,7 @@ class RecordingPipelineRunner(PipelineRunner):
             request_json=request_json,
             response_json=response_json,
             error_detail=error_detail,
+            idempotency_key=idempotency_key,
         )
 
 

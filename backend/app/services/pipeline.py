@@ -76,13 +76,14 @@ class PipelineRunner:
         request_json: dict[str, Any],
         response_json: dict[str, Any],
         error_detail: str = "",
+        idempotency_key: str | None = None,
     ) -> None:
         self.repo.add_stage_result(
             run_id=run_id,
             stage_name=stage_name,
             attempt=attempt,
             status=status,
-            idempotency_key=f"{run_id}:{stage_name}:{attempt}",
+            idempotency_key=idempotency_key or f"{run_id}:{stage_name}:{attempt}",
             request_json=request_json,
             response_json=response_json,
             error_detail=error_detail,
