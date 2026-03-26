@@ -1242,13 +1242,29 @@ class Repository:
             ).scalars()
         )
         count = 0
+        affected_item_ids: set[str] = set()
         for task in tasks:
+            affected_item_ids.add(task.csv_job_item_id)
             task.status = "queued"
             task.error_summary = ""
             task.finished_at = None
             self.db.add(task)
             count += 1
         if count:
+            self.db.commit()
+            for item_id in affected_item_ids:
+                item = self.get_csv_job_item(item_id)
+                if item is None:
+                    continue
+                item_tasks = [task for task in self.list_csv_tasks(csv_job_id) if task.csv_job_item_id == item.id]
+                base_failed = any(task.step_name == "step1_base" for task in item_tasks)
+                if base_failed:
+                    item.shadow_run_id = None
+                    item.base_regular_asset_id = None
+                    item.base_white_bg_asset_id = None
+                item.status = "queued"
+                item.error_detail = ""
+                self.db.add(item)
             self.db.commit()
             job = self.get_csv_job(csv_job_id)
             if job is not None:
