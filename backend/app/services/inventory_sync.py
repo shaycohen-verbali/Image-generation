@@ -190,6 +190,7 @@ class InventorySyncService:
             if column.name.endswith("_prompt")
         }
         failures: list[dict[str, str]] = []
+        existing_row = self.latest_entry_inventory_row(entry) or {}
 
         if item.base_regular_asset_id:
             asset = self.repo.get_asset(item.base_regular_asset_id)
@@ -243,6 +244,21 @@ class InventorySyncService:
                     }
                 )
 
+        # Keep previously created inventory slots/prompts unless the current sync has a newer value
+        # for that exact slot. This lets Submit/CSV planning reuse older variants correctly.
+        for key, value in list(slot_values.items()):
+            if str(value or "").strip():
+                continue
+            prior_value = str(existing_row.get(key) or "").strip()
+            if prior_value:
+                slot_values[key] = prior_value
+        for key, value in list(prompt_values.items()):
+            if str(value or "").strip():
+                continue
+            prior_value = str(existing_row.get(key) or "").strip()
+            if prior_value:
+                prompt_values[key] = prior_value
+
         expected_slots = self._expected_slot_names(job)
         missing_slots = [slot for slot in expected_slots if not str(slot_values.get(slot) or "").strip()]
         now = datetime.utcnow()
@@ -266,8 +282,7 @@ class InventorySyncService:
                 if prompt_need in {"yes", "no"}:
                     has_person_value = prompt_need
         if has_person_value not in {"yes", "no"}:
-            existing_row = self.latest_entry_inventory_row(entry)
-            prior_value = str((existing_row or {}).get("has_person") or "").strip().lower()
+            prior_value = str(existing_row.get("has_person") or "").strip().lower()
             if prior_value in {"yes", "no"}:
                 has_person_value = prior_value
         return {
