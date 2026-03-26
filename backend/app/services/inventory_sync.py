@@ -341,6 +341,51 @@ class InventorySyncService:
             rows.append(export_row)
         return rows
 
+    def _sync_single_item(
+        self,
+        *,
+        conn,
+        job: CsvJob,
+        item: CsvJobItem,
+        tasks: list[CsvTaskNode],
+    ) -> int:
+        entry = self.repo.get_entry(item.entry_id)
+        if entry is None:
+            return 0
+        payload = self._row_payload(job=job, item=item, entry=entry, tasks=tasks)
+        existing = conn.execute(
+            select(word_inventory.c.id, word_inventory.c.created_at)
+            .where(word_inventory.c.source_entry_id == entry.id)
+            .order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at))
+            .limit(1)
+        ).first()
+        if existing:
+            payload["id"] = existing.id
+            payload["created_at"] = existing.created_at
+            conn.execute(
+                update(word_inventory)
+                .where(word_inventory.c.id == existing.id)
+                .values(**payload)
+            )
+        else:
+            payload["id"] = f"inv_{uuid4().hex[:24]}"
+            payload["created_at"] = payload["updated_at"]
+            conn.execute(word_inventory.insert().values(**payload))
+        return 1
+
+    def sync_csv_job_item(self, csv_job_id: str, csv_job_item_id: str) -> int:
+        if inventory_engine is None:
+            return 0
+        job = self.repo.get_csv_job(csv_job_id)
+        if job is None:
+            return 0
+        item = self.repo.get_csv_job_item(csv_job_item_id)
+        if item is None or item.csv_job_id != csv_job_id:
+            return 0
+        tasks = [task for task in self.repo.list_csv_tasks(csv_job_id) if task.csv_job_item_id == csv_job_item_id]
+        with inventory_engine.begin() as conn:
+            return self._sync_single_item(conn=conn, job=job, item=item, tasks=tasks)
+
     def sync_csv_job(self, csv_job_id: str) -> int:
         if inventory_engine is None:
             return 0
@@ -357,27 +402,10 @@ class InventorySyncService:
         synced = 0
         with inventory_engine.begin() as conn:
             for item in items:
-                entry = self.repo.get_entry(item.entry_id)
-                if entry is None:
-                    continue
-                payload = self._row_payload(job=job, item=item, entry=entry, tasks=tasks_by_item.get(item.id, []))
-                existing = conn.execute(
-                    select(word_inventory.c.id, word_inventory.c.created_at)
-                    .where(word_inventory.c.source_entry_id == entry.id)
-                    .order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at))
-                    .limit(1)
-                ).first()
-                if existing:
-                    payload["id"] = existing.id
-                    payload["created_at"] = existing.created_at
-                    conn.execute(
-                        update(word_inventory)
-                        .where(word_inventory.c.id == existing.id)
-                        .values(**payload)
-                    )
-                else:
-                    payload["id"] = f"inv_{uuid4().hex[:24]}"
-                    payload["created_at"] = payload["updated_at"]
-                    conn.execute(word_inventory.insert().values(**payload))
-                synced += 1
+                synced += self._sync_single_item(
+                    conn=conn,
+                    job=job,
+                    item=item,
+                    tasks=tasks_by_item.get(item.id, []),
+                )
         return synced

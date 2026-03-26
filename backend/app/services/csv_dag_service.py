@@ -1007,7 +1007,7 @@ class CsvDagService:
         self._update_item_status(item)
         finalized_job = self.repo.finalize_csv_job_status(job.id)
         self._backfill_has_person_for_job(job.id)
-        InventorySyncService(self.db).sync_csv_job(job.id)
+        InventorySyncService(self.db).sync_csv_job_item(job.id, item.id)
         return self.repo.get_csv_task(task.id) or finished_task
 
     def _serialize_job(self, job: CsvJob, overview: dict[str, Any]) -> dict[str, Any]:
