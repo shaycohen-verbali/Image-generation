@@ -1243,8 +1243,21 @@ class Repository:
         )
         count = 0
         affected_item_ids: set[str] = set()
+        current_tasks = self.list_csv_tasks(csv_job_id)
+        task_id_by_key = {
+            str(existing.task_key or "").strip(): existing.id
+            for existing in current_tasks
+            if str(existing.task_key or "").strip() and str(existing.id or "").strip()
+        }
         for task in tasks:
             affected_item_ids.add(task.csv_job_item_id)
+            dependency_keys = [str(value) for value in _loads_list(task.dependency_keys_json) if str(value)]
+            repaired_dependency_ids = [
+                str(task_id_by_key[key])
+                for key in dependency_keys
+                if key in task_id_by_key
+            ]
+            task.dependency_task_ids_json = _dumps(repaired_dependency_ids)
             task.status = "queued"
             task.error_summary = ""
             task.finished_at = None

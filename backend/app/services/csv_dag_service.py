@@ -296,6 +296,7 @@ class CsvDagService:
             _ensure_profile_ready(prof, requested=True)
 
         # Wire dependency task IDs into each node's JSON field
+        self.db.flush()
         for spec in created_specs:
             dep_ids = [
                 spec_by_task_key[k]["node"].id
