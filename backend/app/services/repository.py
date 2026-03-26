@@ -1356,6 +1356,57 @@ class Repository:
             return None
         items = self.list_csv_job_items(csv_job_id)
         tasks = self.list_csv_tasks(csv_job_id)
+        changed_blocked_tasks = False
+        for task in tasks:
+            if task.status != "queued":
+                continue
+            blocked, reason = self._queued_csv_task_is_blocked(task)
+            if not blocked:
+                continue
+            next_status = "canceled" if "canceled dependency" in str(reason or "").lower() else "failed"
+            task.status = next_status
+            task.error_summary = reason or (
+                "Blocked by canceled dependency chain"
+                if next_status == "canceled"
+                else "Blocked by failed dependency chain"
+            )
+            task.finished_at = datetime.utcnow()
+            self.db.add(task)
+            changed_blocked_tasks = True
+        if changed_blocked_tasks:
+            self.db.commit()
+            items = self.list_csv_job_items(csv_job_id)
+            tasks = self.list_csv_tasks(csv_job_id)
+            affected_item_ids = {task.csv_job_item_id for task in tasks if str(task.csv_job_item_id or "").strip()}
+            for item_id in affected_item_ids:
+                item = self.get_csv_job_item(item_id)
+                if item is None:
+                    continue
+                item_tasks = [task for task in tasks if task.csv_job_item_id == item.id]
+                statuses = [task.status for task in item_tasks]
+                if not statuses:
+                    continue
+                if any(status == "running" for status in statuses):
+                    item.status = "running"
+                    item.error_detail = ""
+                elif any(status == "failed" for status in statuses):
+                    first_failure = next((task for task in item_tasks if task.status == "failed"), None)
+                    item.status = "failed"
+                    item.error_detail = first_failure.error_summary if first_failure else "Task failed"
+                elif any(status == "queued" for status in statuses):
+                    item.status = "queued"
+                    item.error_detail = ""
+                elif any(status == "pending" for status in statuses):
+                    item.status = "pending"
+                    item.error_detail = ""
+                elif any(status == "canceled" for status in statuses):
+                    item.status = "canceled"
+                    item.error_detail = "Canceled by user"
+                else:
+                    item.status = "completed"
+                    item.error_detail = ""
+                self.db.add(item)
+            self.db.commit()
         if items:
             item_statuses = [str(item.status or "").lower() for item in items]
             if all(status in {"completed", "failed", "canceled"} for status in item_statuses):
