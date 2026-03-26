@@ -445,74 +445,74 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
 
   const nodes = useMemo(
     () => [
-      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: `${promptEngineerLabel} + initial person guess`, status: 'queued', x: 40, y: 235 },
-      { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 380, y: 235 },
-      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini + person/animal validation', status: 'queued', x: 760, y: 20 },
-      { id: 'stage3_anatomy_critique', label: 'Stage 3.15 Anatomy Critique', subtitle: 'limbs + body integrity check', status: 'queued', x: 760, y: 170 },
-      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: `${promptEngineerLabel} + resolved style`, status: 'queued', x: 760, y: 320 },
-      { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 470 },
-      { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
-      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'base winner white BG', status: 'queued', x: 1540, y: 235 },
+      { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: `${promptEngineerLabel} + initial person guess`, status: 'queued', x: 40, y: 72 },
+      { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 340, y: 72 },
+      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini + person/animal validation', status: 'queued', x: 640, y: 72 },
+      { id: 'stage3_anatomy_critique', label: 'Stage 3.15 Anatomy Critique', subtitle: 'limbs + body integrity check', status: 'queued', x: 940, y: 72 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: `${promptEngineerLabel} + resolved style`, status: 'queued', x: 1240, y: 72 },
+      { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 1540, y: 72 },
+      { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1840, y: 72 },
+      { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'base winner white BG', status: 'queued', x: 2140, y: 72 },
       {
         id: 'stage5_male_age',
         label: 'Step 5 Male Age Expansion',
-        subtitle: 'Create white male age variants from the Stage 3 winner.',
+        subtitle: 'Start the variant branch from the base winner.',
         badge: 'backend: stage4_variant_generate',
         meta: [
           'Input: Stage 3 winner + requested male ages',
           'Output: white male kid/tween/teen baselines',
         ],
         status: 'queued',
-        x: 1910,
-        y: 60,
+        x: 2140,
+        y: 356,
       },
       {
         id: 'stage6_female_seed',
         label: 'Step 6 Female Seed',
-        subtitle: 'Create one white female kid seed from the Stage 3 winner.',
+        subtitle: 'Create the white female kid baseline.',
         badge: 'backend: stage4_variant_generate',
         meta: [
           'Input: Stage 3 winner',
           'Output: white female kid baseline',
         ],
         status: 'queued',
-        x: 1910,
-        y: 250,
+        x: 2440,
+        y: 356,
       },
       {
         id: 'stage7_female_age',
         label: 'Step 7 Female Age Expansion',
-        subtitle: 'Expand the white female seed into requested female ages.',
+        subtitle: 'Expand the female baseline into requested ages.',
         badge: 'backend: stage4_variant_generate',
         meta: [
           'Input: white female kid seed + requested female ages',
           'Output: white female kid/tween/teen baselines',
         ],
         status: 'queued',
-        x: 1910,
-        y: 440,
+        x: 2740,
+        y: 356,
       },
       {
         id: 'stage8_race_expand',
         label: 'Step 8 Race Expansion',
-        subtitle: 'Create race variants from the matching white baseline for each gender+age.',
+        subtitle: 'Create race variants from matching white baselines.',
         badge: 'backend: stage4_variant_generate',
         meta: [
           'Input: matching white gender+age baselines + requested races',
           'Output: Black / Asian / Brown (Indian origin) variants',
         ],
         status: 'queued',
-        x: 2280,
-        y: 120,
+        x: 3040,
+        y: 356,
       },
       {
         id: 'stage81_variant_critique',
         label: 'Step 8.1 Variant Critique',
-        subtitle: 'Check clothing/styling for gender or age changes.',
+        subtitle: 'Review clothing/styling for age or gender changes.',
         badge: 'backend: stage4_variant_critique',
         status: 'queued',
-        x: 2280,
-        y: 250,
+        x: 3340,
+        y: 356,
       },
       {
         id: 'stage82_variant_correction',
@@ -520,12 +520,12 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         subtitle: 'One minimal correction pass only when needed.',
         badge: 'backend: stage4_variant_correction',
         status: 'queued',
-        x: 2280,
-        y: 380,
+        x: 3640,
+        y: 356,
       },
-      { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', badge: 'backend: stage5_variant_white_bg', status: 'queued', x: 2650, y: 250 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 3010, y: 250 },
-      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 1540, y: 395 },
+      { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', badge: 'backend: stage5_variant_white_bg', status: 'queued', x: 3940, y: 356 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 4240, y: 356 },
+      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 2140, y: 204 },
     ],
     [promptEngineerLabel],
   )
@@ -534,25 +534,23 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
     () => [
       { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1 + initial style hypothesis', fromPort: 'right', toPort: 'left' },
       { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
-      { from: 'stage3_critique', to: 'stage3_anatomy_critique', label: 'run only for person/animal scenes', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'no anatomy review needed', fromPort: 'right', toPort: 'left' },
-      { from: 'stage3_anatomy_critique', to: 'stage3_prompt_upgrade', label: 'critique + anatomy fixes', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage3_critique', to: 'stage3_anatomy_critique', label: 'if person or animal is present', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_anatomy_critique', to: 'stage3_prompt_upgrade', label: 'include anatomy fixes', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'otherwise go straight to prompt upgrade', fromPort: 'bottom', toPort: 'left' },
+      { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
-      { from: 'quality_gate', to: 'stage4_background', label: 'after final scoring: winner selected', fromPort: 'top', toPort: 'left' },
-      { from: 'stage4_background', to: 'stage5_male_age', label: 'male ages', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_background', to: 'stage6_female_seed', label: 'female seed', fromPort: 'right', toPort: 'left' },
-      { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'female ages', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'male baselines', fromPort: 'right', toPort: 'left' },
-      { from: 'stage6_female_seed', to: 'stage8_race_expand', label: 'female kid baseline', fromPort: 'right', toPort: 'left' },
-      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'female baselines', fromPort: 'right', toPort: 'left' },
-      { from: 'stage8_race_expand', to: 'stage81_variant_critique', label: 'review gender/age changes', fromPort: 'bottom', toPort: 'top' },
-      { from: 'stage81_variant_critique', to: 'stage82_variant_correction', label: 'only if corrections needed', fromPort: 'bottom', toPort: 'top' },
+      { from: 'quality_gate', to: 'stage4_background', label: 'pass -> keep winner', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'completed_fail', label: 'fail after max attempts', type: 'branch', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage4_background', to: 'stage5_male_age', label: 'continue into requested variants', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage5_male_age', to: 'stage6_female_seed', label: 'then create female seed', fromPort: 'right', toPort: 'left' },
+      { from: 'stage6_female_seed', to: 'stage7_female_age', label: 'expand female ages', fromPort: 'right', toPort: 'left' },
+      { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'then create race variants', fromPort: 'right', toPort: 'left' },
+      { from: 'stage8_race_expand', to: 'stage81_variant_critique', label: 'review clothing/styling', fromPort: 'right', toPort: 'left' },
+      { from: 'stage81_variant_critique', to: 'stage82_variant_correction', label: 'only if fixes are needed', fromPort: 'right', toPort: 'left' },
       { from: 'stage81_variant_critique', to: 'stage9_variant_white_bg', label: 'skip correction when clean', fromPort: 'right', toPort: 'left' },
       { from: 'stage82_variant_correction', to: 'stage9_variant_white_bg', label: 'corrected final -> white BG', fromPort: 'right', toPort: 'left' },
       { from: 'stage9_variant_white_bg', to: 'completed_pass', label: 'done', fromPort: 'right', toPort: 'left' },
-      { from: 'stage4_background', to: 'completed_fail', label: 'score below threshold', type: 'branch', fromPort: 'bottom', toPort: 'left' },
     ],
     [],
   )
@@ -621,7 +619,13 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         <strong>Image output settings:</strong> aspect ratio {config?.image_aspect_ratio || '1:1'} | resolution {config?.image_resolution || '1K'}
       </p>
       <p className="algo-assistant-name">
-        <strong>Loop logic:</strong> Stage 1 makes an initial guess about whether a person is needed -> Stage 2 creates the draft -> Stage 3.1 critique decides whether a person is needed and whether an animal is present -> Stage 3.15 checks limb/body integrity for person-or-animal scenes -> Stage 3.2 prompt engineer uses the critique plus any anatomy fixes -> Stage 3.3 generates the upgraded image -> Quality Gate -> loop back to Stage 3.1 until pass or attempts exhausted -> Stage 4 creates the base white-background winner -> Stage 5 expands the white male kid baseline to requested male ages from the Stage 3 winner -> Stage 6 creates a white female kid seed from the Stage 3 winner -> Stage 7 expands that white female kid seed to requested female ages -> Stage 8 creates race variants from the matching white age/gender baselines -> Step 8.1 critiques clothing/styling for gender or age changes -> Step 8.2 applies one minimal correction pass only if needed -> Step 9 makes white-background versions for every final variant.
+        <strong>How to read this:</strong> follow the top row from left to right for the base image pipeline. If the base image passes, drop to the bottom row to follow the optional variant pipeline from left to right.
+      </p>
+      <p className="algo-assistant-name">
+        <strong>Base track:</strong> Stage 1 decides the first prompt -> Stage 2 makes the draft -> Stage 3.1 critiques concept clarity -> Stage 3.15 checks anatomy only for person/animal scenes -> Stage 3.2 upgrades the prompt -> Stage 3.3 regenerates the image -> Quality Gate loops back until pass or max attempts -> Stage 4 creates the base white-background winner.
+      </p>
+      <p className="algo-assistant-name">
+        <strong>Variant track:</strong> After Stage 4, the pipeline creates the requested profile variants, then reviews age/gender clothing consistency in Step 8.1, applies one minimal correction in Step 8.2 only when needed, and finishes with white-background versions in Step 9.
       </p>
       <p className="algo-assistant-name">
         <strong>Variant staging in code:</strong> Steps 5-8 run inside backend stage <code>stage4_variant_generate</code>, Step 8.1 is recorded as <code>stage4_variant_critique</code>, Step 8.2 is recorded as <code>stage4_variant_correction</code>, and Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, the run completes after Stage 4.
@@ -630,8 +634,8 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       <WorkflowCanvas
         nodes={nodes}
         edges={edges}
-        width={3320}
-        height={640}
+        width={4560}
+        height={560}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
       />
