@@ -24,11 +24,17 @@ class MockOpenAI:
         return {"first prompt": "simple concept image", "need a person": "no"}, {"raw_text": "ok"}
 
     def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str, **_kwargs):
-        return {"challenges": "too generic", "recommendations": "increase clarity"}, {"raw_text": "ok"}
+        return {"challenges": "too generic", "recommendations": "increase clarity", "animal_present": "no"}, {"raw_text": "ok"}
+
+    def analyze_image_anatomy(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str, **_kwargs):
+        return {"anatomy_ok": "yes", "issues": "", "correction_recommendations": "", "body_integrity_problem": "none"}, {"raw_text": "ok"}
 
     def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         self._upgrade_idx += 1
         return {"upgraded prompt": f"upgraded prompt {self._upgrade_idx}"}, {"raw_text": "ok"}
+
+    def critique_variant_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, target_profile: str, source_profile: str, model: str):
+        return {"correction_needed": "no", "issues": "", "correction_prompt": "", "reason": "looks good"}, {"raw_text": "ok"}
 
     def score_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, threshold: int, model: str, **_kwargs):
         score = self._scores[min(self._score_idx, len(self._scores) - 1)]
@@ -87,12 +93,35 @@ class PersonVariantOpenAI(MockOpenAI):
                 "person_needed_for_clarity": "yes",
                 "person_presence_problem": "none",
                 "person_decision_reasoning": "The verb needs a visible person for AAC clarity.",
+                "animal_present": "no",
             },
             {"raw_text": "ok"},
         )
 
     def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         return {"upgraded prompt": "upgraded person-centered action image"}, {"raw_text": "ok"}
+
+
+class AnatomyAndCorrectionOpenAI(PersonVariantOpenAI):
+    def analyze_image(self, image_path: Path, word: str, part_of_sentence: str, category: str, model: str, **_kwargs):
+        parsed, raw = super().analyze_image(image_path, word, part_of_sentence, category, model, **_kwargs)
+        return {**parsed, "animal_present": "yes"}, raw
+
+    def analyze_image_anatomy(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str, **_kwargs):
+        return {
+            "anatomy_ok": "no",
+            "issues": "extra limb",
+            "correction_recommendations": "fix the anatomy and remove the extra limb",
+            "body_integrity_problem": "extra_limbs",
+        }, {"raw_text": "ok"}
+
+    def critique_variant_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, target_profile: str, source_profile: str, model: str):
+        return {
+            "correction_needed": "yes",
+            "issues": "clothing still reads like the source profile",
+            "correction_prompt": "Adjust only the outfit so it matches the target profile naturally in this same scene.",
+            "reason": "The clothing should be updated for the new target profile.",
+        }, {"raw_text": "ok"}
 
 
 class MockReplicate:
@@ -292,9 +321,10 @@ class MockGoogleImageClient:
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
     ) -> dict[str, object]:
         return {
-            "model": "nano-banana-2",
+            "model": model_choice,
             "provider_model": "gemini-3.1-flash-image-preview",
             "prompt": f"{edit_instruction} variant prompt for {profile_description}".strip(),
             "source_image_path": image_path.as_posix(),
@@ -315,6 +345,7 @@ class MockGoogleImageClient:
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
     ) -> dict[str, object]:
         self._variant_idx += 1
         prediction_id = f"google_variant_{self._variant_idx}"
@@ -324,6 +355,7 @@ class MockGoogleImageClient:
                 "source_path": image_path.as_posix(),
                 "profile_description": profile_description,
                 "white_background": white_background,
+                "model_choice": model_choice,
             }
         )
         self._variant_predictions[prediction_id] = {
@@ -627,6 +659,57 @@ def test_responses_api_prompt_engineer_mode_is_recorded(db_session):
 
     stage1_prompt = next(prompt for prompt in prompts if prompt.stage_name == "stage1_prompt")
     assert stage1_prompt.source == "responses_api"
+
+
+def test_stage3_anatomy_critique_runs_when_person_or_animal_is_present(db_session):
+    run = _create_variant_run(db_session)
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=AnatomyAndCorrectionOpenAI(scores=[98]),
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    repo = Repository(db_session)
+    _, stages, prompts, _, _ = repo.run_details(run.id)
+    anatomy_stage = next(stage for stage in stages if stage.stage_name == "stage3_anatomy_critique")
+    anatomy_response = json.loads(anatomy_stage.response_json)
+    stage3_prompt = next(prompt for prompt in prompts if prompt.stage_name == "stage3_upgrade")
+    stage3_prompt_raw = json.loads(stage3_prompt.raw_response_json)
+
+    assert anatomy_stage.status == "ok"
+    assert anatomy_response["analysis"]["body_integrity_problem"] == "extra_limbs"
+    assert stage3_prompt_raw["anatomy_analysis"]["body_integrity_problem"] == "extra_limbs"
+
+
+def test_variant_critique_and_single_correction_are_recorded(db_session):
+    run = _create_variant_run(db_session)
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=AnatomyAndCorrectionOpenAI(scores=[98]),
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    repo = Repository(db_session)
+    _, stages, prompts, _, _ = repo.run_details(run.id)
+    critique_stage = next(stage for stage in stages if stage.stage_name == "stage4_variant_critique")
+    correction_stage = next(stage for stage in stages if stage.stage_name == "stage4_variant_correction")
+    critique_response = json.loads(critique_stage.response_json)
+    correction_response = json.loads(correction_stage.response_json)
+
+    assert critique_stage.status == "ok"
+    assert correction_stage.status == "ok"
+    assert any(item["critique"]["correction_needed"] == "yes" for item in critique_response["profiles"])
+    assert any(not item.get("skipped") for item in correction_response["profiles"])
+    assert any(prompt.stage_name == "stage4_variant_critique" for prompt in prompts)
+    assert any(prompt.stage_name == "stage4_variant_correction" for prompt in prompts)
 
 
 def test_variant_stages_record_progress_and_completed_profiles(db_session):

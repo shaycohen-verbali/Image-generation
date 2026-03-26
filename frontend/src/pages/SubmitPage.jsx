@@ -49,7 +49,10 @@ export default function SubmitPage() {
   const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
   const [promptEngineerModel, setPromptEngineerModel] = useState('gpt-5.4')
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-5.4')
+  const [stage3AnatomyCritiqueModel, setStage3AnatomyCritiqueModel] = useState('gpt-5.4')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
+  const [variantCritiqueModel, setVariantCritiqueModel] = useState('gpt-5.4')
+  const [variantCorrectionModel, setVariantCorrectionModel] = useState('nano-banana-2')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
   const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
   const [imageResolution, setImageResolution] = useState('1K')
@@ -106,8 +109,17 @@ export default function SubmitPage() {
         if (mounted && (config?.stage3_critique_model || config?.openai_model_vision)) {
           setStage3CritiqueModel(config.stage3_critique_model || config.openai_model_vision)
         }
+        if (mounted && (config?.stage3_anatomy_critique_model || config?.stage3_critique_model || config?.openai_model_vision)) {
+          setStage3AnatomyCritiqueModel(config.stage3_anatomy_critique_model || config.stage3_critique_model || config.openai_model_vision)
+        }
         if (mounted && config?.stage3_generate_model) {
           setStage3GenerateModel(config.stage3_generate_model)
+        }
+        if (mounted && (config?.variant_critique_model || config?.stage3_critique_model || config?.openai_model_vision)) {
+          setVariantCritiqueModel(config.variant_critique_model || config.stage3_critique_model || config.openai_model_vision)
+        }
+        if (mounted && (config?.variant_correction_model || config?.stage3_generate_model)) {
+          setVariantCorrectionModel(config.variant_correction_model || config.stage3_generate_model)
         }
         if (mounted && (config?.quality_gate_model || config?.openai_model_vision)) {
           setQualityGateModel(config.quality_gate_model || config.openai_model_vision)
@@ -285,7 +297,10 @@ export default function SubmitPage() {
     try {
       const updated = await updateConfig(updates)
       if (updated.stage3_critique_model) setStage3CritiqueModel(updated.stage3_critique_model)
+      if (updated.stage3_anatomy_critique_model) setStage3AnatomyCritiqueModel(updated.stage3_anatomy_critique_model)
       if (updated.stage3_generate_model) setStage3GenerateModel(updated.stage3_generate_model)
+      if (updated.variant_critique_model) setVariantCritiqueModel(updated.variant_critique_model)
+      if (updated.variant_correction_model) setVariantCorrectionModel(updated.variant_correction_model)
       if (updated.quality_gate_model) setQualityGateModel(updated.quality_gate_model)
       setMessage(successMessage)
     } catch (error) {
@@ -633,7 +648,7 @@ export default function SubmitPage() {
 
         <article className="card">
           <h2>Model Selection</h2>
-          <p>Choose models for Stage 3 critique, Stage 3 upgraded image, and Quality Gate scoring. Changes are saved automatically.</p>
+          <p>Choose models for Stage 3 critique, Stage 3.15 anatomy critique, Stage 3 upgraded image, the new variant review/correction steps, and Quality Gate scoring. Changes are saved automatically.</p>
           <div className="form-grid submit-compact-form">
             <label>
               Stage 3.1 Vision Critique
@@ -653,6 +668,23 @@ export default function SubmitPage() {
               </select>
             </label>
             <label>
+              Stage 3.15 Anatomy Critique
+              <select
+                value={stage3AnatomyCritiqueModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setStage3AnatomyCritiqueModel(value)
+                  setMessage('Saving Stage 3 anatomy critique model...')
+                  saveModelConfig({ stage3_anatomy_critique_model: value }, `Saved Stage 3 anatomy critique model: ${value}`)
+                }}
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gemini-3-flash">Gemini-3-flash</option>
+                <option value="gemini-3-pro">Gemini-3-pro</option>
+              </select>
+            </label>
+            <label>
               Stage 3.3 Upgraded Image
               <select
                 value={stage3GenerateModel}
@@ -661,6 +693,42 @@ export default function SubmitPage() {
                   setStage3GenerateModel(value)
                   setMessage('Saving Stage 3 upgraded image model...')
                   saveModelConfig({ stage3_generate_model: value }, `Saved Stage 3 upgraded image model: ${value}`)
+                }}
+              >
+                <option value="flux-1.1-pro">Flux 1.1 Pro</option>
+                <option value="imagen-3">Imagen 3</option>
+                <option value="imagen-4">Imagen 4</option>
+                <option value="nano-banana">Nano Banana</option>
+                <option value="nano-banana-2">Nano Banana 2</option>
+                <option value="nano-banana-pro">Nano Banana Pro</option>
+              </select>
+            </label>
+            <label>
+              Step 8.1 Variant Critique
+              <select
+                value={variantCritiqueModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setVariantCritiqueModel(value)
+                  setMessage('Saving variant critique model...')
+                  saveModelConfig({ variant_critique_model: value }, `Saved variant critique model: ${value}`)
+                }}
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gemini-3-flash">Gemini-3-flash</option>
+                <option value="gemini-3-pro">Gemini-3-pro</option>
+              </select>
+            </label>
+            <label>
+              Step 8.2 Variant Correction
+              <select
+                value={variantCorrectionModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setVariantCorrectionModel(value)
+                  setMessage('Saving variant correction model...')
+                  saveModelConfig({ variant_correction_model: value }, `Saved variant correction model: ${value}`)
                 }}
               >
                 <option value="flux-1.1-pro">Flux 1.1 Pro</option>

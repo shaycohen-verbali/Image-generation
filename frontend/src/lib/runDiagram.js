@@ -25,7 +25,15 @@ const STAGE_DEFINITIONS = [
     label: 'Stage 3.1 Critique',
     provider: 'OpenAI Vision',
     inputs: ['previous image', 'word/POS/category'],
-    expected: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning'],
+    expected: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning', 'animal_present'],
+    retryPolicy: 'API retry + stage retry',
+  },
+  {
+    id: 'stage3_anatomy_critique',
+    label: 'Stage 3.15 Anatomy Critique',
+    provider: 'OpenAI Vision',
+    inputs: ['previous image', 'person/animal presence signal'],
+    expected: ['anatomy_ok', 'issues', 'correction_recommendations', 'body_integrity_problem'],
     retryPolicy: 'API retry + stage retry',
   },
   {
@@ -69,6 +77,22 @@ const STAGE_DEFINITIONS = [
     retryPolicy: 'API retry + resumable stage retry',
   },
   {
+    id: 'stage4_variant_critique',
+    label: 'Step 8.1 Variant Critique',
+    provider: 'OpenAI Vision',
+    inputs: ['generated variant image', 'target profile'],
+    expected: ['correction_needed', 'issues', 'correction_prompt', 'reason'],
+    retryPolicy: 'API retry + resumable stage retry',
+  },
+  {
+    id: 'stage4_variant_correction',
+    label: 'Step 8.2 Variant Correction',
+    provider: 'Selected image edit model',
+    inputs: ['variant image', 'step 8.1 correction prompt'],
+    expected: ['corrected variant image when needed'],
+    retryPolicy: 'API retry + resumable stage retry',
+  },
+  {
     id: 'stage5_variant_white_bg',
     label: 'Stage 9 Variant White BG',
     provider: 'Google API: nano-banana-2',
@@ -89,14 +113,19 @@ const STAGE_DEFINITIONS = [
 const FLOW_EDGES = [
   { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt + initial style guess', fromPort: 'right', toPort: 'left' },
   { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
-  { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique + person validation', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_critique', to: 'stage3_anatomy_critique', label: 'person/animal scenes', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'skip anatomy review', fromPort: 'right', toPort: 'left' },
+  { from: 'stage3_anatomy_critique', to: 'stage3_prompt_upgrade', label: 'add anatomy fixes', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt + resolved style', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
   { from: 'quality_gate', to: 'stage4_background', label: 'winner selected', fromPort: 'top', toPort: 'left' },
   { from: 'stage4_background', to: 'completed', label: 'base ready / no extra variants', fromPort: 'right', toPort: 'left' },
   { from: 'stage4_background', to: 'stage4_variant_generate', label: 'use stage3 winner as the variant baseline', fromPort: 'right', toPort: 'left' },
-  { from: 'stage4_variant_generate', to: 'stage5_variant_white_bg', label: 'white background for every final variant', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage4_variant_generate', to: 'stage4_variant_critique', label: 'review gender/age changes', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage4_variant_critique', to: 'stage4_variant_correction', label: 'correct if needed', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage4_variant_critique', to: 'stage5_variant_white_bg', label: 'skip when clean', fromPort: 'right', toPort: 'left' },
+  { from: 'stage4_variant_correction', to: 'stage5_variant_white_bg', label: 'corrected final -> white BG', fromPort: 'right', toPort: 'left' },
   { from: 'stage4_variant_generate', to: 'completed', label: 'variant finals ready', fromPort: 'right', toPort: 'left' },
   { from: 'stage5_variant_white_bg', to: 'completed', label: 'variant white-bg ready', fromPort: 'right', toPort: 'left' },
 ]
@@ -173,10 +202,17 @@ function mapAssetsByAttemptAndStage(items, stageField, attemptField) {
 }
 
 function firstVariantAsset(responsePayload, assetList) {
-  if (assetList[0]) return assetList[0]
+  if (assetList.length > 0) {
+    return [...assetList]
+      .sort((left, right) => {
+        const leftTime = Date.parse(left?.created_at || '') || 0
+        const rightTime = Date.parse(right?.created_at || '') || 0
+        return rightTime - leftTime
+      })[0]
+  }
   const response = safeObject(responsePayload)
   const variants = safeArray(response.variants)
-  const fromResponse = variants.find((item) => safeObject(item.asset).id)?.asset
+  const fromResponse = [...variants].reverse().find((item) => safeObject(item.asset).id)?.asset
   if (fromResponse && typeof fromResponse === 'object') return fromResponse
   return null
 }
@@ -227,7 +263,7 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
     return asStageStatus(stageResult?.status)
   }
 
-  if (stageId === 'stage3_critique' || stageId === 'stage3_prompt_upgrade' || stageId === 'stage3_generate') {
+  if (stageId === 'stage3_critique' || stageId === 'stage3_anatomy_critique' || stageId === 'stage3_prompt_upgrade' || stageId === 'stage3_generate') {
     if (run.status === 'running' && run.current_stage === 'stage3_upgrade' && attempt === currentAttempt && !stageResult) {
       return 'running'
     }
@@ -244,7 +280,7 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
     return 'queued'
   }
 
-  if (stageId === 'stage4_variant_generate' || stageId === 'stage5_variant_white_bg') {
+  if (stageId === 'stage4_variant_generate' || stageId === 'stage4_variant_critique' || stageId === 'stage4_variant_correction' || stageId === 'stage5_variant_white_bg') {
     const winnerAttempt = Number(run.optimization_attempt || 0)
     const isCompleted = String(run.status || '').startsWith('completed_')
     if (isCompleted && winnerAttempt > 0 && attempt !== winnerAttempt && !stageResult) return 'skipped'
@@ -278,6 +314,8 @@ function nodeSubtitle(stageId, run, score, attempt) {
     return `Score ${score.score_0_100}${score.pass_fail ? ' (pass)' : ' (fail)'}`
   }
   if (stageId === 'stage4_variant_generate') return 'Final variants'
+  if (stageId === 'stage4_variant_critique') return 'Variant critique'
+  if (stageId === 'stage4_variant_correction') return 'Variant correction'
   if (stageId === 'stage5_variant_white_bg') return 'White-bg variants'
   return ''
 }
@@ -328,7 +366,23 @@ function critiqueTemplate(ctx) {
   return (
     'You are an expert AAC visual designer for children. ' +
     'Analyze the image for concept clarity. Return STRICT JSON with keys ' +
-    '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"..."}. ' +
+    '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"...", "animal_present":"yes|no"}. ' +
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+  )
+}
+
+function anatomyCritiqueTemplate(ctx) {
+  return (
+    'You are an expert children\'s image anatomy reviewer. Return STRICT JSON with keys ' +
+    '{"anatomy_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "body_integrity_problem":"none|extra_limbs|missing_limbs|detached_body_parts|half_body|animal_anatomy_error"}. ' +
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+  )
+}
+
+function variantCritiqueTemplate(ctx) {
+  return (
+    'Critique the generated variant image for target-profile clothing/styling correctness. Return STRICT JSON with keys ' +
+    '{"correction_needed":"yes|no", "issues":"...", "correction_prompt":"...", "reason":"..."}. ' +
     `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
   )
 }
@@ -359,9 +413,12 @@ function aiInstructionForStage({
   stage3Result,
   stage4Result,
   stage4VariantResult,
+  stage4VariantCritiqueResult,
+  stage4VariantCorrectionResult,
   stage5VariantResult,
   stage1Prompt,
   stage3Prompt,
+  stage4VariantCorrectionPrompt,
   stage3UpgradeRequest,
 }) {
   if (stageId === 'stage1_prompt') {
@@ -388,6 +445,13 @@ function aiInstructionForStage({
     return {
       text: critiqueTemplate(stage1Context),
       source: 'backend prompt template (OpenAIClient.analyze_image)',
+    }
+  }
+
+  if (stageId === 'stage3_anatomy_critique') {
+    return {
+      text: anatomyCritiqueTemplate(stage1Context),
+      source: 'backend prompt template (OpenAIClient.analyze_image_anatomy)',
     }
   }
 
@@ -477,6 +541,21 @@ function aiInstructionForStage({
     }
   }
 
+  if (stageId === 'stage4_variant_critique') {
+    return {
+      text: variantCritiqueTemplate(stage1Context),
+      source: 'backend prompt template (OpenAIClient.critique_variant_image)',
+    }
+  }
+
+  if (stageId === 'stage4_variant_correction') {
+    const prompt = safeText(stage4VariantCorrectionPrompt?.prompt_text)
+    return {
+      text: prompt || 'Using the provided variant image as the base, make only the smallest clothing/styling fixes needed for the target profile while preserving the same scene.',
+      source: prompt ? 'stored prompt record' : 'backend prompt template (variant correction)',
+    }
+  }
+
   if (stageId === 'stage5_variant_white_bg') {
     const stage5Request = safeObject(stage5VariantResult?.request_json)
     const payload = {
@@ -547,13 +626,17 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage1Result = stageIndex.get(makeKey('stage1_prompt', 0))
   const stage2Result = stageIndex.get(makeKey('stage2_draft', 0))
   const stage3Result = stageIndex.get(makeKey('stage3_upgrade', attempt))
+  const stage3AnatomyResult = stageIndex.get(makeKey('stage3_anatomy_critique', attempt))
   const qualityResult = stageIndex.get(makeKey('quality_gate', attempt))
   const stage4Result = stageIndex.get(makeKey('stage4_background', attempt))
   const stage4VariantResult = stageIndex.get(makeKey('stage4_variant_generate', attempt))
+  const stage4VariantCritiqueResult = stageIndex.get(makeKey('stage4_variant_critique', attempt))
+  const stage4VariantCorrectionResult = stageIndex.get(makeKey('stage4_variant_correction', attempt))
   const stage5VariantResult = stageIndex.get(makeKey('stage5_variant_white_bg', attempt))
 
   const stage1Prompt = promptIndex.get(makeKey('stage1_prompt', 0))
   const stage3Prompt = promptIndex.get(makeKey('stage3_upgrade', attempt))
+  const stage4VariantCorrectionPrompt = promptIndex.get(makeKey('stage4_variant_correction', attempt))
 
   const stage2Assets = assetIndex.get(makeKey('stage2_draft', 0)) || []
   const stage3Assets = assetIndex.get(makeKey('stage3_upgraded', attempt)) || []
@@ -627,6 +710,17 @@ export function buildRunDiagram(detail, selectedAttempt) {
       attempt,
     },
     {
+      id: 'stage3_anatomy_critique',
+      stageResult: stage3AnatomyResult,
+      promptRecord: null,
+      requestPayload: safeObject(stage3AnatomyResult?.request_json),
+      responsePayload: safeObject(stage3AnatomyResult?.response_json),
+      asset: stage2Asset || null,
+      model: safeText(safeObject(stage3AnatomyResult?.request_json).anatomy_critique_model_selected) || 'gpt-5.4',
+      score: null,
+      attempt,
+    },
+    {
       id: 'stage3_prompt_upgrade',
       stageResult: stage3Result,
       promptRecord: stage3Prompt || null,
@@ -683,6 +777,30 @@ export function buildRunDiagram(detail, selectedAttempt) {
       attempt,
     },
     {
+      id: 'stage4_variant_critique',
+      stageResult: stage4VariantCritiqueResult,
+      promptRecord: null,
+      requestPayload: safeObject(stage4VariantCritiqueResult?.request_json),
+      responsePayload: safeObject(stage4VariantCritiqueResult?.response_json),
+      asset: stage4VariantAsset || null,
+      assets: stage4VariantAssets,
+      model: safeText(safeObject(stage4VariantCritiqueResult?.request_json).model_selected) || 'gpt-5.4',
+      score: score || null,
+      attempt,
+    },
+    {
+      id: 'stage4_variant_correction',
+      stageResult: stage4VariantCorrectionResult,
+      promptRecord: stage4VariantCorrectionPrompt || null,
+      requestPayload: safeObject(stage4VariantCorrectionResult?.request_json),
+      responsePayload: safeObject(stage4VariantCorrectionResult?.response_json),
+      asset: stage4VariantAsset || null,
+      assets: stage4VariantAssets,
+      model: safeText(safeObject(stage4VariantCorrectionResult?.request_json).model_selected) || 'nano-banana-2',
+      score: score || null,
+      attempt,
+    },
+    {
       id: 'stage5_variant_white_bg',
       stageResult: stage5VariantResult,
       promptRecord: stage3Prompt || null,
@@ -726,9 +844,12 @@ export function buildRunDiagram(detail, selectedAttempt) {
       stage3Result,
       stage4Result,
       stage4VariantResult,
+      stage4VariantCritiqueResult,
+      stage4VariantCorrectionResult,
       stage5VariantResult,
       stage1Prompt,
       stage3Prompt,
+      stage4VariantCorrectionPrompt,
       stage3UpgradeRequest,
     })
 

@@ -61,7 +61,16 @@ def init_db() -> None:
                     stage1_prompt_template=settings.stage1_prompt_template or DEFAULT_STAGE1_PROMPT_TEMPLATE,
                     stage3_prompt_template=settings.stage3_prompt_template or DEFAULT_STAGE3_PROMPT_TEMPLATE,
                     stage3_critique_model=normalize_vision_model(settings.stage3_critique_model or settings.openai_model_vision),
+                    stage3_anatomy_critique_model=normalize_vision_model(
+                        settings.stage3_anatomy_critique_model or settings.stage3_critique_model or settings.openai_model_vision
+                    ),
                     stage3_generate_model=normalize_stage3_generation_model(settings.stage3_generate_model),
+                    variant_critique_model=normalize_vision_model(
+                        settings.variant_critique_model or settings.stage3_critique_model or settings.openai_model_vision
+                    ),
+                    variant_correction_model=normalize_stage3_generation_model(
+                        settings.variant_correction_model or settings.stage3_generate_model
+                    ),
                     quality_gate_model=normalize_vision_model(settings.quality_gate_model or settings.openai_model_vision),
                     image_aspect_ratio=normalize_image_aspect_ratio(settings.image_aspect_ratio),
                     image_resolution=normalize_image_resolution(settings.image_resolution),
@@ -108,6 +117,15 @@ def init_db() -> None:
             existing.visual_style_prompt_block = existing.visual_style_prompt_block or settings.visual_style_prompt_block or DEFAULT_VISUAL_STYLE_PROMPT_BLOCK
             existing.stage1_prompt_template = existing.stage1_prompt_template or DEFAULT_STAGE1_PROMPT_TEMPLATE
             existing.stage3_prompt_template = existing.stage3_prompt_template or DEFAULT_STAGE3_PROMPT_TEMPLATE
+            existing.stage3_anatomy_critique_model = normalize_vision_model(
+                getattr(existing, "stage3_anatomy_critique_model", existing.stage3_critique_model) or existing.stage3_critique_model
+            )
+            existing.variant_critique_model = normalize_vision_model(
+                getattr(existing, "variant_critique_model", existing.stage3_critique_model) or existing.stage3_critique_model
+            )
+            existing.variant_correction_model = normalize_stage3_generation_model(
+                getattr(existing, "variant_correction_model", existing.stage3_generate_model) or existing.stage3_generate_model
+            )
             existing.openai_model_vision = normalize_vision_model(existing.openai_model_vision)
             if existing.openai_model_vision == "gpt-4o-mini" and existing.stage3_critique_model == "gpt-5.4":
                 existing.openai_model_vision = "gpt-5.4"
@@ -126,8 +144,14 @@ def _ensure_runtime_config_columns() -> None:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 2"))
             if "stage3_critique_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "stage3_anatomy_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "stage3_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            if "variant_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "variant_correction_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_correction_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
             if "quality_gate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
             if "image_aspect_ratio" not in existing:
@@ -158,7 +182,10 @@ def _ensure_runtime_config_columns() -> None:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS max_variant_workers INTEGER NOT NULL DEFAULT 2"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS variant_correction_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_resolution TEXT NOT NULL DEFAULT '1K'"))

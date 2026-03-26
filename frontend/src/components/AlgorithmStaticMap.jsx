@@ -31,7 +31,10 @@ const STAGE1_PROMPT_TEMPLATE = [
 ].join('\n')
 
 const STAGE3_CRITIQUE_PROMPT_TEMPLATE =
-  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"..."}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Current system hypothesis: person needed = <decision.initial_need_person>. Current render style = <decision.render_style_mode>.'
+  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"...", "animal_present":"yes|no"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Current system hypothesis: person needed = <decision.initial_need_person>. Current render style = <decision.render_style_mode>.'
+
+const STAGE3_ANATOMY_CRITIQUE_PROMPT_TEMPLATE =
+  'You are an expert children\'s image anatomy reviewer. Analyze the image for anatomy/body-integrity problems. Return STRICT JSON with keys {"anatomy_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "body_integrity_problem":"none|extra_limbs|missing_limbs|detached_body_parts|half_body|animal_anatomy_error"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Person expected or present: <yes|no>. Animal expected or present: <yes|no>.'
 
 const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
   'Create an upgraded image prompt for the given word. Return STRICT JSON:',
@@ -86,6 +89,12 @@ const VARIANT_STEP7_PROMPT_TEMPLATE =
 const VARIANT_STEP8_PROMPT_TEMPLATE =
   'Create race variants from the matching white age+gender baseline for each requested profile. Preserve the same AAC concept, pose, props, framing, and style.'
 
+const VARIANT_STEP81_PROMPT_TEMPLATE =
+  'Critique the generated variant image. Check whether the clothing and visible styling make sense for the target gender/age in this exact same scene. Return STRICT JSON with keys {"correction_needed":"yes|no", "issues":"...", "correction_prompt":"...", "reason":"..."}. Make requested changes minimal and do not change the scene.'
+
+const VARIANT_STEP82_PROMPT_TEMPLATE =
+  'Using the provided variant image as the base, make only the smallest clothing/styling fixes needed for the target profile. Keep the exact same scene, action, props, framing, lighting, and composition.'
+
 const STAGE_DETAILS = {
   stage1_prompt: {
     apiCall: 'OpenAI Assistants v2 or model API',
@@ -128,11 +137,25 @@ const STAGE_DETAILS = {
     provider: 'OpenAI Vision / Google Gemini',
     model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash | gemini-3-pro',
     inputs: ['stage2/stage3 source image', 'word', 'part_of_sentence', 'category'],
-    outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning'],
+    outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning', 'animal_present'],
     instruction: STAGE3_CRITIQUE_PROMPT_TEMPLATE,
     requestExample: {
       content: [
         { type: 'text', text: STAGE3_CRITIQUE_PROMPT_TEMPLATE },
+        { type: 'image_url', image_url: { url: '<data:image/...>' } },
+      ],
+    },
+  },
+  stage3_anatomy_critique: {
+    apiCall: 'OpenAI or Gemini Vision',
+    provider: 'OpenAI Vision / Google Gemini',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash | gemini-3-pro',
+    inputs: ['stage2/stage3 source image', 'stage 3.1 person/animal signal'],
+    outputs: ['anatomy_ok', 'issues', 'correction_recommendations', 'body_integrity_problem'],
+    instruction: STAGE3_ANATOMY_CRITIQUE_PROMPT_TEMPLATE,
+    requestExample: {
+      content: [
+        { type: 'text', text: STAGE3_ANATOMY_CRITIQUE_PROMPT_TEMPLATE },
         { type: 'image_url', image_url: { url: '<data:image/...>' } },
       ],
     },
@@ -312,6 +335,37 @@ const STAGE_DETAILS = {
       branch_rule: 'create race variants from matching white age+gender baselines',
     },
   },
+  stage81_variant_critique: {
+    apiCall: 'OpenAI or Gemini Vision',
+    provider: 'OpenAI Vision / Google Gemini',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash | gemini-3-pro',
+    inputs: ['generated variant image', 'target gender/age profile'],
+    outputs: ['correction_needed', 'issues', 'correction_prompt', 'reason'],
+    instruction: VARIANT_STEP81_PROMPT_TEMPLATE,
+    requestExample: {
+      content: [
+        { type: 'text', text: VARIANT_STEP81_PROMPT_TEMPLATE },
+        { type: 'image_url', image_url: { url: '<variant image data URI>' } },
+      ],
+    },
+  },
+  stage82_variant_correction: {
+    apiCall: 'Selected image edit model',
+    provider: 'Google image-edit path with selected/fallback runtime model',
+    model: 'flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-2 | nano-banana-pro',
+    inputs: ['variant image', 'step 8.1 correction prompt'],
+    outputs: ['corrected variant image when needed'],
+    instruction: VARIANT_STEP82_PROMPT_TEMPLATE,
+    requestExample: {
+      input: {
+        prompt: VARIANT_STEP82_PROMPT_TEMPLATE,
+        image_input: ['<variant image data URI>'],
+        aspect_ratio: '<config.image_aspect_ratio>',
+        image_size: '<config.image_resolution>',
+        output_format: 'jpg',
+      },
+    },
+  },
   stage9_variant_white_bg: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
@@ -393,9 +447,10 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
     () => [
       { id: 'stage1_prompt', label: 'Stage 1 Prompt Generation', subtitle: `${promptEngineerLabel} + initial person guess`, status: 'queued', x: 40, y: 235 },
       { id: 'stage2_draft', label: 'Stage 2 Draft Image', subtitle: 'flux-schnell', status: 'queued', x: 380, y: 235 },
-      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini + person validation', status: 'queued', x: 760, y: 45 },
-      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: `${promptEngineerLabel} + resolved style`, status: 'queued', x: 760, y: 235 },
-      { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 425 },
+      { id: 'stage3_critique', label: 'Stage 3.1 Vision Critique', subtitle: 'OpenAI/Gemini + person/animal validation', status: 'queued', x: 760, y: 20 },
+      { id: 'stage3_anatomy_critique', label: 'Stage 3.15 Anatomy Critique', subtitle: 'limbs + body integrity check', status: 'queued', x: 760, y: 170 },
+      { id: 'stage3_prompt_upgrade', label: 'Stage 3.2 Prompt Upgrade', subtitle: `${promptEngineerLabel} + resolved style`, status: 'queued', x: 760, y: 320 },
+      { id: 'stage3_generate', label: 'Stage 3.3 Upgraded Image', subtitle: 'selected model', status: 'queued', x: 760, y: 470 },
       { id: 'quality_gate', label: 'Quality Gate', subtitle: 'OpenAI/Gemini score', status: 'queued', x: 1160, y: 235 },
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'base winner white BG', status: 'queued', x: 1540, y: 235 },
       {
@@ -448,7 +503,25 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         ],
         status: 'queued',
         x: 2280,
+        y: 120,
+      },
+      {
+        id: 'stage81_variant_critique',
+        label: 'Step 8.1 Variant Critique',
+        subtitle: 'Check clothing/styling for gender or age changes.',
+        badge: 'backend: stage4_variant_critique',
+        status: 'queued',
+        x: 2280,
         y: 250,
+      },
+      {
+        id: 'stage82_variant_correction',
+        label: 'Step 8.2 Variant Correction',
+        subtitle: 'One minimal correction pass only when needed.',
+        badge: 'backend: stage4_variant_correction',
+        status: 'queued',
+        x: 2280,
+        y: 380,
       },
       { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', badge: 'backend: stage5_variant_white_bg', status: 'queued', x: 2650, y: 250 },
       { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 3010, y: 250 },
@@ -461,7 +534,9 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
     () => [
       { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt 1 + initial style hypothesis', fromPort: 'right', toPort: 'left' },
       { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
-      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'critique + person validation', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage3_critique', to: 'stage3_anatomy_critique', label: 'run only for person/animal scenes', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'no anatomy review needed', fromPort: 'right', toPort: 'left' },
+      { from: 'stage3_anatomy_critique', to: 'stage3_prompt_upgrade', label: 'critique + anatomy fixes', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
@@ -472,7 +547,10 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
       { from: 'stage5_male_age', to: 'stage8_race_expand', label: 'male baselines', fromPort: 'right', toPort: 'left' },
       { from: 'stage6_female_seed', to: 'stage8_race_expand', label: 'female kid baseline', fromPort: 'right', toPort: 'left' },
       { from: 'stage7_female_age', to: 'stage8_race_expand', label: 'female baselines', fromPort: 'right', toPort: 'left' },
-      { from: 'stage8_race_expand', to: 'stage9_variant_white_bg', label: 'all finals -> white BG', fromPort: 'right', toPort: 'left' },
+      { from: 'stage8_race_expand', to: 'stage81_variant_critique', label: 'review gender/age changes', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage81_variant_critique', to: 'stage82_variant_correction', label: 'only if corrections needed', fromPort: 'bottom', toPort: 'top' },
+      { from: 'stage81_variant_critique', to: 'stage9_variant_white_bg', label: 'skip correction when clean', fromPort: 'right', toPort: 'left' },
+      { from: 'stage82_variant_correction', to: 'stage9_variant_white_bg', label: 'corrected final -> white BG', fromPort: 'right', toPort: 'left' },
       { from: 'stage9_variant_white_bg', to: 'completed_pass', label: 'done', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_background', to: 'completed_fail', label: 'score below threshold', type: 'branch', fromPort: 'bottom', toPort: 'left' },
     ],
@@ -543,10 +621,10 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null }
         <strong>Image output settings:</strong> aspect ratio {config?.image_aspect_ratio || '1:1'} | resolution {config?.image_resolution || '1K'}
       </p>
       <p className="algo-assistant-name">
-        <strong>Loop logic:</strong> Stage 1 makes an initial guess about whether a person is needed -> Stage 2 creates the draft -> Stage 3.1 critique decides whether a person is actually needed for clarity -> Stage 3.2 prompt engineer uses that Stage 3.1 decision -> Stage 3.3 generates the upgraded image -> Quality Gate -> loop back to Stage 3.1 until pass or attempts exhausted -> Stage 4 creates the base white-background winner -> Stage 5 expands the white male kid baseline to requested male ages from the Stage 3 winner -> Stage 6 creates a white female kid seed from the Stage 3 winner -> Stage 7 expands that white female kid seed to requested female ages -> Stage 8 creates race variants from the matching white age/gender baselines -> Stage 9 makes white-background versions for every final variant.
+        <strong>Loop logic:</strong> Stage 1 makes an initial guess about whether a person is needed -> Stage 2 creates the draft -> Stage 3.1 critique decides whether a person is needed and whether an animal is present -> Stage 3.15 checks limb/body integrity for person-or-animal scenes -> Stage 3.2 prompt engineer uses the critique plus any anatomy fixes -> Stage 3.3 generates the upgraded image -> Quality Gate -> loop back to Stage 3.1 until pass or attempts exhausted -> Stage 4 creates the base white-background winner -> Stage 5 expands the white male kid baseline to requested male ages from the Stage 3 winner -> Stage 6 creates a white female kid seed from the Stage 3 winner -> Stage 7 expands that white female kid seed to requested female ages -> Stage 8 creates race variants from the matching white age/gender baselines -> Step 8.1 critiques clothing/styling for gender or age changes -> Step 8.2 applies one minimal correction pass only if needed -> Step 9 makes white-background versions for every final variant.
       </p>
       <p className="algo-assistant-name">
-        <strong>Variant staging in code:</strong> Steps 5-8 all run inside backend stage <code>stage4_variant_generate</code>. Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, the run completes after Stage 4.
+        <strong>Variant staging in code:</strong> Steps 5-8 run inside backend stage <code>stage4_variant_generate</code>, Step 8.1 is recorded as <code>stage4_variant_critique</code>, Step 8.2 is recorded as <code>stage4_variant_correction</code>, and Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, the run completes after Stage 4.
       </p>
 
       <WorkflowCanvas

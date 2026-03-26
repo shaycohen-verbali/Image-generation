@@ -11,6 +11,7 @@ import requests
 
 from app.core.config import get_settings
 from app.services.model_catalog import is_gemini_model, normalize_prompt_engineer_model, normalize_vision_model
+from app.services.prompt_templates import build_stage3_anatomy_critique_prompt, build_variant_critique_prompt
 from app.services.retry import with_backoff
 from app.services.utils import parse_json_relaxed
 
@@ -390,7 +391,7 @@ class OpenAIClient:
             "Analyze the image for concept clarity. Return STRICT JSON with keys "
             '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", '
             '"person_presence_problem":"missing_person|unnecessary_person|none", '
-            '"person_decision_reasoning":"..."}. '
+            '"person_decision_reasoning":"...", "animal_present":"yes|no"}. '
             f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
             f"Current system hypothesis: person needed = {initial_need_person}. "
             f"Current render style = {current_render_style_mode}. "
@@ -398,9 +399,50 @@ class OpenAIClient:
             "person_presence_problem=missing_person when the image lacks the needed person. "
             "If a person is distracting or unnecessary, return person_needed_for_clarity=no and "
             "person_presence_problem=unnecessary_person. Otherwise return person_presence_problem=none. "
-            "In person_decision_reasoning, explain in one short sentence why a person is or is not needed for clarity."
+            "In person_decision_reasoning, explain in one short sentence why a person is or is not needed for clarity. "
+            "Set animal_present=yes when the image contains or is meant to contain an animal that should be checked for anatomy."
         )
         return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.2)
+
+    def analyze_image_anatomy(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        part_of_sentence: str,
+        category: str,
+        model: str,
+        contains_person: bool = False,
+        contains_animal: bool = False,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        prompt = build_stage3_anatomy_critique_prompt(
+            word=word,
+            part_of_sentence=part_of_sentence,
+            category=category,
+            contains_person=contains_person,
+            contains_animal=contains_animal,
+        )
+        return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.1)
+
+    def critique_variant_image(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        part_of_sentence: str,
+        category: str,
+        target_profile: str,
+        source_profile: str,
+        model: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        prompt = build_variant_critique_prompt(
+            word=word,
+            part_of_sentence=part_of_sentence,
+            category=category,
+            target_profile=target_profile,
+            source_profile=source_profile,
+        )
+        return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.1)
 
     def score_image(
         self,

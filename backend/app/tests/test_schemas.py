@@ -47,6 +47,24 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
         assert True
 
     try:
+        RuntimeConfigUpdate(stage3_anatomy_critique_model="unknown-model")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
+        RuntimeConfigUpdate(variant_critique_model="unknown-model")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
+        RuntimeConfigUpdate(variant_correction_model="not-a-model")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
         RuntimeConfigUpdate(prompt_engineer_mode="bad-mode")
         assert False, "expected ValidationError"
     except ValidationError:
@@ -55,6 +73,14 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
 def test_runtime_config_update_accepts_gpt54_for_stage3_critique() -> None:
     config = RuntimeConfigUpdate(stage3_critique_model="gpt-5.4")
     assert config.stage3_critique_model == "gpt-5.4"
+    config = RuntimeConfigUpdate(stage3_anatomy_critique_model="gpt-5.4", variant_critique_model="gpt-5.4")
+    assert config.stage3_anatomy_critique_model == "gpt-5.4"
+    assert config.variant_critique_model == "gpt-5.4"
+
+
+def test_runtime_config_update_accepts_variant_correction_model() -> None:
+    config = RuntimeConfigUpdate(variant_correction_model="nano-banana-2")
+    assert config.variant_correction_model == "nano-banana-2"
 
 
 def test_runtime_config_update_accepts_large_worker_counts() -> None:

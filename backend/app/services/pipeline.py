@@ -12,13 +12,17 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Prompt, Run, StageResult
 from app.services.google_image_client import GoogleImageClient
-from app.services.model_catalog import is_google_image_generation_model
+from app.services.model_catalog import is_google_image_generation_model, normalize_stage3_generation_model
 from app.services.openai_client import AssistantRunFailedError, OpenAIClient
 from app.services.person_profiles import profile_edit_instruction, profile_key, profile_prompt_fragment, variant_branch_plan
 from app.services.prompt_templates import (
     apply_render_decision_to_prompt,
+    build_stage3_anatomy_critique_prompt,
+    build_stage3_anatomy_recommendations,
     build_stage1_prompt,
     build_stage3_prompt,
+    build_variant_critique_prompt,
+    build_variant_correction_prompt,
     default_person_profile_for_prompt,
     normalize_need_person,
     resolve_person_decision,
@@ -213,6 +217,20 @@ class PipelineRunner:
             .limit(1)
         ).scalar_one_or_none()
 
+    @staticmethod
+    def _animal_present_flag(value: Any) -> str:
+        return "yes" if str(value or "").strip().lower() == "yes" else "no"
+
+    @staticmethod
+    def _should_run_variant_review(profile: dict[str, str], source_profile: dict[str, str] | None) -> bool:
+        if not source_profile:
+            return False
+        source_gender = str(source_profile.get("gender") or "").strip().lower()
+        target_gender = str(profile.get("gender") or "").strip().lower()
+        source_age = str(source_profile.get("age") or "").strip().lower()
+        target_age = str(profile.get("age") or "").strip().lower()
+        return source_gender != target_gender or source_age != target_age
+
     def _save_asset(
         self,
         *,
@@ -284,6 +302,191 @@ class PipelineRunner:
             "max_api_retries": resolved_retries,
             "variant_worker_limit": resolved_workers,
             "nano_banana_safety_level": resolved_safety,
+        }
+
+    def _review_variant_asset(
+        self,
+        *,
+        run_id: str,
+        entry: Entry,
+        attempt: int,
+        image_asset: Asset,
+        profile: dict[str, str],
+        source_profile: dict[str, str] | None,
+        runtime_config: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if not self._should_run_variant_review(profile, source_profile):
+            self._record_event(
+                run_id=run_id,
+                stage_name="stage4_variant_critique",
+                attempt=attempt,
+                event_type="stage_skipped",
+                status="skipped",
+                message="Variant clothing critique skipped",
+                payload={"profile": profile, "source_profile": source_profile or {}, "reason": "skin-color-only-or-no-source"},
+            )
+            return (
+                {
+                    "correction_needed": "no",
+                    "issues": "",
+                    "correction_prompt": "",
+                    "reason": "Skipped because only skin color changed or there is no source profile.",
+                    "review_skipped": True,
+                },
+                {},
+            )
+
+        critique_prompt_text = build_variant_critique_prompt(
+            word=entry.word,
+            part_of_sentence=entry.part_of_sentence,
+            category=entry.category,
+            target_profile=profile_prompt_fragment(profile),
+            source_profile=profile_prompt_fragment(source_profile or profile),
+        )
+        self._record_event(
+            run_id=run_id,
+            stage_name="stage4_variant_critique",
+            attempt=attempt,
+            event_type="stage_started",
+            status="running",
+            message="Variant clothing critique started",
+            payload={"profile": profile, "source_profile": source_profile or {}, "model": runtime_config.variant_critique_model},
+        )
+        critique, critique_raw = self.openai.critique_variant_image(
+            self._local_asset_path(image_asset),
+            word=entry.word,
+            part_of_sentence=entry.part_of_sentence,
+            category=entry.category,
+            target_profile=profile_prompt_fragment(profile),
+            source_profile=profile_prompt_fragment(source_profile or profile),
+            model=runtime_config.variant_critique_model,
+        )
+        self.repo.add_prompt(
+            run_id=run_id,
+            stage_name="stage4_variant_critique",
+            attempt=attempt,
+            prompt_text=critique_prompt_text,
+            needs_person="yes",
+            source="variant_critique",
+            raw_response_json={
+                "critique": critique,
+                "critique_raw": critique_raw,
+                "target_profile": profile,
+                "source_profile": source_profile or {},
+            },
+        )
+        self._record_event(
+            run_id=run_id,
+            stage_name="stage4_variant_critique",
+            attempt=attempt,
+            event_type="stage_completed",
+            status="ok",
+            message="Variant clothing critique completed",
+            payload={"profile": profile, "source_profile": source_profile or {}, "correction_needed": critique.get("correction_needed", "no")},
+        )
+        return critique, critique_raw
+
+    def _correct_variant_asset(
+        self,
+        *,
+        run_id: str,
+        entry: Entry,
+        attempt: int,
+        image_asset: Asset,
+        profile: dict[str, str],
+        runtime_config: Any,
+        aspect_ratio: str | None,
+        image_size: str | None,
+        image_format: str | None,
+        correction_prompt: str,
+    ) -> tuple[Asset, dict[str, Any]]:
+        prompt_text = build_variant_correction_prompt(
+            word=entry.word,
+            part_of_sentence=entry.part_of_sentence,
+            category=entry.category,
+            target_profile=profile_prompt_fragment(profile),
+            correction_prompt=correction_prompt,
+        )
+        selected_model = normalize_stage3_generation_model(runtime_config.variant_correction_model)
+        effective_model = selected_model if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"} else "nano-banana-2"
+
+        self.repo.add_prompt(
+            run_id=run_id,
+            stage_name="stage4_variant_correction",
+            attempt=attempt,
+            prompt_text=prompt_text,
+            needs_person="yes",
+            source="variant_correction",
+            raw_response_json={
+                "selected_model": selected_model,
+                "effective_model": effective_model,
+                "target_profile": profile,
+            },
+        )
+        self._record_event(
+            run_id=run_id,
+            stage_name="stage4_variant_correction",
+            attempt=attempt,
+            event_type="stage_started",
+            status="running",
+            message="Variant correction started",
+            payload={"profile": profile, "model_selected": selected_model, "effective_model": effective_model},
+        )
+
+        submitted = self._submit_profile_variant_prediction(
+            self._local_asset_path(image_asset),
+            entry.word,
+            run_id,
+            profile,
+            False,
+            source_profile=profile,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+            model_choice=effective_model,
+            edit_instruction_override=prompt_text,
+        )
+        request_summary = self._json_dict(submitted.get("request_summary"))
+        created = self._json_dict(submitted.get("created"))
+        prediction_id = str(created.get("id") or "")
+        if not prediction_id:
+            self._raise_with_context(
+                "variant correction submission returned no prediction id",
+                request_json=request_summary,
+                response_json=created,
+            )
+        prediction_result, status_transitions = self._poll_prediction_result(prediction_id)
+        payload = self._materialize_profile_variant_payload(
+            prediction_result,
+            profile=profile,
+            profile_description=profile_prompt_fragment(profile),
+            white_background=False,
+        )
+        corrected_asset = self._save_asset(
+            run_id=run_id,
+            stage_name="stage4_variant_generate",
+            attempt=attempt,
+            filename=self._variant_filename("stage4_variant_generate", entry, profile, attempt),
+            image_bytes=payload["image_bytes"],
+            origin_url=payload["origin_url"],
+            model_name=payload["model_name"],
+            output_mime_type=image_format,
+        )
+        self._record_event(
+            run_id=run_id,
+            stage_name="stage4_variant_correction",
+            attempt=attempt,
+            event_type="stage_completed",
+            status="ok",
+            message="Variant correction completed",
+            payload={"profile": profile, "prediction_id": prediction_id, "effective_model": effective_model, "saved_asset_path": corrected_asset.abs_path},
+        )
+        return corrected_asset, {
+            "prediction_id": prediction_id,
+            "status_transitions": status_transitions,
+            "request_json": request_summary,
+            "response_json": self._json_dict(prediction_result.get("response_json")),
+            "selected_model": selected_model,
+            "effective_model": effective_model,
         }
 
     def _set_failed_technical(self, run: Run, stage_name: str, detail: str) -> None:
@@ -958,7 +1161,8 @@ class PipelineRunner:
         previous_storage_prefix = self._asset_storage_prefix
         self._asset_storage_prefix = storage_prefix
         try:
-            self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
+            configured = self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
+            runtime_config = configured["runtime_config"]
             local_source = self._local_asset_path(source_asset)
             submitted = self._submit_profile_variant_prediction(
                 local_source,
@@ -969,6 +1173,7 @@ class PipelineRunner:
                 source_profile=source_profile,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
+                model_choice="nano-banana-2",
             )
             request_summary = self._json_dict(submitted.get("request_summary"))
             if request_summary.get("prompt"):
@@ -1006,6 +1211,34 @@ class PipelineRunner:
                 model_name=payload["model_name"],
                 output_mime_type=image_format,
             )
+            critique, critique_raw = self._review_variant_asset(
+                run_id=owner_run_id,
+                entry=entry,
+                attempt=winner_attempt,
+                image_asset=regular_asset,
+                profile=profile,
+                source_profile=source_profile,
+                runtime_config=runtime_config,
+            )
+            correction_result = {
+                "skipped": True,
+                "reason": "No correction required",
+                "selected_model": runtime_config.variant_correction_model,
+                "effective_model": "",
+            }
+            if str(critique.get("correction_needed") or "").strip().lower() == "yes":
+                regular_asset, correction_result = self._correct_variant_asset(
+                    run_id=owner_run_id,
+                    entry=entry,
+                    attempt=winner_attempt,
+                    image_asset=regular_asset,
+                    profile=profile,
+                    runtime_config=runtime_config,
+                    aspect_ratio=aspect_ratio,
+                    image_size=image_size,
+                    image_format=image_format,
+                    correction_prompt=str(critique.get("correction_prompt") or ""),
+                )
 
             self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
             white_bg_request = self.google_images.white_bg_request_summary(
@@ -1063,6 +1296,9 @@ class PipelineRunner:
                 "status_transitions": status_transitions,
                 "request_json": self._json_dict(submitted.get("request_summary")),
                 "response_json": self._json_dict(prediction_result.get("response_json")),
+                "variant_critique": critique,
+                "variant_critique_raw": critique_raw,
+                "variant_correction": correction_result,
                 "white_bg_response_json": self._json_dict(white_bg_result.get("response_json")),
             }
         finally:
@@ -1083,6 +1319,7 @@ class PipelineRunner:
         critique_path = self._local_asset_path(critique_source_asset)
         runtime_config = self.repo.get_runtime_config()
         critique_model = runtime_config.stage3_critique_model
+        anatomy_critique_model = runtime_config.stage3_anatomy_critique_model
         stage1_prompt = self._latest_prompt(run.id, "stage1_prompt")
         latest_stage3 = self._latest_stage_result(run.id, "stage3_upgrade")
         latest_stage3_response = json.loads(latest_stage3.response_json) if latest_stage3 and latest_stage3.response_json else {}
@@ -1099,6 +1336,7 @@ class PipelineRunner:
             payload={
                 "source_asset": critique_source_asset.abs_path,
                 "critique_model": critique_model,
+                "anatomy_critique_model": anatomy_critique_model,
                 "initial_need_person": current_need_person,
                 "current_render_style_mode": current_render_style_mode,
             },
@@ -1114,6 +1352,59 @@ class PipelineRunner:
             initial_need_person=current_need_person,
             current_render_style_mode=current_render_style_mode,
         )
+        animal_present = self._animal_present_flag(analysis.get("animal_present"))
+        contains_person = (
+            normalize_need_person(current_need_person) == "yes"
+            or normalize_need_person(str(analysis.get("person_needed_for_clarity", ""))) == "yes"
+        )
+        anatomy_analysis: dict[str, Any] = {}
+        anatomy_analysis_raw: dict[str, Any] = {}
+        if contains_person or animal_present == "yes":
+            anatomy_prompt_text = build_stage3_anatomy_critique_prompt(
+                word=entry.word,
+                part_of_sentence=entry.part_of_sentence,
+                category=entry.category,
+                contains_person=contains_person,
+                contains_animal=animal_present == "yes",
+            )
+            anatomy_analysis, anatomy_analysis_raw = self.openai.analyze_image_anatomy(
+                critique_path,
+                word=entry.word,
+                part_of_sentence=entry.part_of_sentence,
+                category=entry.category,
+                model=anatomy_critique_model,
+                contains_person=contains_person,
+                contains_animal=animal_present == "yes",
+            )
+            self.repo.add_prompt(
+                run_id=run.id,
+                stage_name="stage3_anatomy_critique",
+                attempt=attempt,
+                prompt_text=anatomy_prompt_text,
+                needs_person="yes" if contains_person else "no",
+                source="anatomy_critique",
+                raw_response_json={
+                    "analysis": anatomy_analysis,
+                    "analysis_raw": anatomy_analysis_raw,
+                },
+            )
+            self._record_stage(
+                run_id=run.id,
+                stage_name="stage3_anatomy_critique",
+                attempt=attempt,
+                status="ok",
+                request_json={
+                    "source_asset": critique_source_asset.abs_path,
+                    "anatomy_critique_model_selected": anatomy_critique_model,
+                    "contains_person": "yes" if contains_person else "no",
+                    "animal_present": animal_present,
+                },
+                response_json={
+                    "analysis": anatomy_analysis,
+                    "analysis_raw": anatomy_analysis_raw,
+                },
+                idempotency_key=f"{run.id}:stage3_anatomy_critique:{attempt}",
+            )
 
         previous_prompt = self._latest_prompt(run.id, "stage3_upgrade") or self._latest_prompt(run.id, "stage1_prompt")
         if previous_prompt is None:
@@ -1130,6 +1421,9 @@ class PipelineRunner:
         )
 
         recommendations = str(analysis.get("recommendations", ""))
+        anatomy_recommendations = build_stage3_anatomy_recommendations(anatomy_analysis)
+        if anatomy_recommendations:
+            recommendations = f"{recommendations}\n{anatomy_recommendations}".strip()
         if previous_score_explanation:
             recommendations = f"{recommendations}\nPrevious score feedback: {previous_score_explanation}"
 
@@ -1161,11 +1455,14 @@ class PipelineRunner:
             exc.request_json = {
                 "upgrade_prompt_request": upgrade_request,
                 "critique_model_selected": critique_model,
+                "anatomy_critique_model_selected": anatomy_critique_model,
                 **(exc.request_json or {}),
             }
             exc.response_json = {
                 "analysis": analysis,
                 "analysis_raw": analysis_raw,
+                "anatomy_analysis": anatomy_analysis,
+                "anatomy_analysis_raw": anatomy_analysis_raw,
                 **(exc.response_json or {}),
             }
             raise
@@ -1207,6 +1504,8 @@ class PipelineRunner:
                 "raw": raw,
                 "analysis": analysis,
                 "analysis_raw": analysis_raw,
+                "anatomy_analysis": anatomy_analysis,
+                "anatomy_analysis_raw": anatomy_analysis_raw,
                 "decision": enforced_decision,
                 "original_prompt_text": upgraded_prompt,
                 "enforced_prompt_text": enforced_upgraded_prompt,
@@ -1325,10 +1624,12 @@ class PipelineRunner:
                 "visual_style_name": runtime_config.visual_style_name,
                 "visual_style_prompt_block": runtime_config.visual_style_prompt_block,
                 "critique_model_selected": critique_model,
+                "anatomy_critique_model_selected": anatomy_critique_model,
                 "generation_model_selected": selected_stage3_model,
                 "generation_client": generation_client,
                 "initial_need_person": current_need_person,
                 "current_render_style_mode": current_render_style_mode,
+                "animal_present": animal_present,
                 "resolved_need_person": enforced_decision["resolved_need_person"],
                 "resolved_need_person_reasoning": enforced_decision["resolved_need_person_reasoning"],
                 "render_style_mode": enforced_decision["render_style_mode"],
@@ -1337,6 +1638,8 @@ class PipelineRunner:
             response_json={
                 "analysis": analysis,
                 "analysis_raw": analysis_raw,
+                "anatomy_analysis": anatomy_analysis,
+                "anatomy_analysis_raw": anatomy_analysis_raw,
                 "prompt_engineer": {"parsed": parsed, "raw": raw, "mode": runtime_config.prompt_engineer_mode},
                 "generation": flux_result,
                 "generation_model": model_name,
@@ -1361,6 +1664,7 @@ class PipelineRunner:
                 "generation_client": generation_client,
                 "saved_file": saved_asset.file_name,
                 "output_url": output_url,
+                "animal_present": animal_present,
             },
         )
 
@@ -1371,6 +1675,7 @@ class PipelineRunner:
                 "attempt": attempt,
                 "stage3": {
                     "analysis": analysis,
+                    "anatomy_analysis": anatomy_analysis,
                     "prompt_engineer": {"parsed": parsed, "raw": raw, "mode": runtime_config.prompt_engineer_mode},
                     "generation": flux_result,
                     "generation_model": model_name,
@@ -1442,6 +1747,8 @@ class PipelineRunner:
             profile_key(branch_plan["base_profile"]): asset_snapshot(upgraded_asset)
         }
         generated_final_profiles: list[dict[str, Any]] = []
+        variant_critique_results: list[dict[str, Any]] = []
+        variant_correction_results: list[dict[str, Any]] = []
 
         def stage_source_asset(stage_name: str) -> str:
             if stage_name == "stage4_variant_generate":
@@ -1891,6 +2198,58 @@ class PipelineRunner:
                 origin_url=payload["origin_url"],
                 model_name=payload["model_name"],
             )
+            if stage_name == "stage4_variant_generate":
+                critique, critique_raw = self._review_variant_asset(
+                    run_id=run.id,
+                    entry=entry,
+                    attempt=winner_attempt,
+                    image_asset=variant_asset,
+                    profile=profile,
+                    source_profile=source_profile,
+                    runtime_config=runtime_config,
+                )
+                variant_critique_results.append(
+                    {
+                        "profile": profile,
+                        "branch_role": branch_role,
+                        "source_profile": source_profile or {},
+                        "critique": critique,
+                        "critique_raw": critique_raw,
+                    }
+                )
+                if str(critique.get("correction_needed") or "").strip().lower() == "yes":
+                    variant_asset, correction_result = self._correct_variant_asset(
+                        run_id=run.id,
+                        entry=entry,
+                        attempt=winner_attempt,
+                        image_asset=variant_asset,
+                        profile=profile,
+                        runtime_config=runtime_config,
+                        aspect_ratio=aspect_ratio,
+                        image_size=image_size,
+                        image_format=None,
+                        correction_prompt=str(critique.get("correction_prompt") or ""),
+                    )
+                    variant_correction_results.append(
+                        {
+                            "profile": profile,
+                            "branch_role": branch_role,
+                            "source_profile": source_profile or {},
+                            **correction_result,
+                        }
+                    )
+                elif self._should_run_variant_review(profile, source_profile):
+                    variant_correction_results.append(
+                        {
+                            "profile": profile,
+                            "branch_role": branch_role,
+                            "source_profile": source_profile or {},
+                            "skipped": True,
+                            "reason": "No correction required",
+                            "selected_model": runtime_config.variant_correction_model,
+                            "effective_model": "",
+                        }
+                    )
             append_variant_item(
                 stage_name,
                 self._variant_stage_item(
@@ -2144,6 +2503,36 @@ class PipelineRunner:
                 "failed_count": len(stage_failures("stage4_variant_generate")),
             },
         )
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage4_variant_critique",
+            attempt=winner_attempt,
+            status="ok" if not any(str(item.get("critique", {}).get("correction_needed", "")).lower() == "yes" for item in variant_critique_results if not item.get("critique", {}).get("review_skipped")) else "ok",
+            request_json={
+                "model_selected": runtime_config.variant_critique_model,
+                "review_scope": "gender_or_age_change_only",
+                "reviewed_count": len(variant_critique_results),
+            },
+            response_json={
+                "profiles": variant_critique_results,
+            },
+            idempotency_key=f"{run.id}:stage4_variant_critique:{winner_attempt}",
+        )
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage4_variant_correction",
+            attempt=winner_attempt,
+            status="ok",
+            request_json={
+                "model_selected": runtime_config.variant_correction_model,
+                "single_pass_only": True,
+                "corrected_count": len([item for item in variant_correction_results if not item.get("skipped")]),
+            },
+            response_json={
+                "profiles": variant_correction_results,
+            },
+            idempotency_key=f"{run.id}:stage4_variant_correction:{winner_attempt}",
+        )
 
         if stage_failures("stage4_variant_generate"):
             self.repo.update_run(run, current_stage="stage4_variant_generate")
@@ -2236,9 +2625,11 @@ class PipelineRunner:
         source_profile: dict[str, str] | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
+        model_choice: str = "nano-banana-2",
+        edit_instruction_override: str = "",
     ) -> dict[str, Any]:
         profile_description = profile_prompt_fragment(profile)
-        edit_instruction = profile_edit_instruction(profile, source_profile)
+        edit_instruction = edit_instruction_override or profile_edit_instruction(profile, source_profile)
         request_summary = self.google_images.profile_variant_request_summary(
             image_path,
             word=word,
@@ -2247,6 +2638,7 @@ class PipelineRunner:
             aspect_ratio=aspect_ratio,
             image_size=image_size,
             edit_instruction=edit_instruction,
+            model_choice=model_choice,
         )
         try:
             created = self.google_images.submit_nano_banana_profile_variant(
@@ -2258,6 +2650,7 @@ class PipelineRunner:
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
                 edit_instruction=edit_instruction,
+                model_choice=model_choice,
             )
         except Exception as exc:  # noqa: BLE001
             self._merge_error_context(exc, request_json=request_summary)

@@ -121,7 +121,16 @@ class Repository:
         config.stage1_prompt_template = str(config.stage1_prompt_template or DEFAULT_STAGE1_PROMPT_TEMPLATE)
         config.stage3_prompt_template = str(config.stage3_prompt_template or DEFAULT_STAGE3_PROMPT_TEMPLATE)
         config.stage3_critique_model = normalize_vision_model(config.stage3_critique_model)
+        config.stage3_anatomy_critique_model = normalize_vision_model(
+            getattr(config, "stage3_anatomy_critique_model", config.stage3_critique_model)
+        )
         config.stage3_generate_model = normalize_stage3_generation_model(config.stage3_generate_model)
+        config.variant_critique_model = normalize_vision_model(
+            getattr(config, "variant_critique_model", config.stage3_critique_model)
+        )
+        config.variant_correction_model = normalize_stage3_generation_model(
+            getattr(config, "variant_correction_model", config.stage3_generate_model)
+        )
         config.quality_gate_model = normalize_vision_model(config.quality_gate_model)
         config.image_aspect_ratio = normalize_image_aspect_ratio(getattr(config, "image_aspect_ratio", "1:1"))
         config.image_resolution = normalize_image_resolution(getattr(config, "image_resolution", "1K"))

@@ -390,5 +390,81 @@ def build_stage3_prompt(
     )
 
 
+def build_stage3_anatomy_recommendations(anatomy_analysis: dict[str, str] | None) -> str:
+    analysis = anatomy_analysis or {}
+    issues = str(analysis.get("issues") or "").strip()
+    recommendations = str(analysis.get("correction_recommendations") or "").strip()
+    problem = str(analysis.get("body_integrity_problem") or "").strip()
+    if not any([issues, recommendations, problem]):
+        return ""
+    parts = []
+    if problem and problem != "none":
+        parts.append(f"Anatomy issue: {problem}.")
+    if issues:
+        parts.append(f"Observed anatomy problems: {issues}.")
+    if recommendations:
+        parts.append(f"Anatomy fixes: {recommendations}.")
+    return " ".join(parts).strip()
+
+
+def build_stage3_anatomy_critique_prompt(
+    *,
+    word: str,
+    part_of_sentence: str,
+    category: str,
+    contains_person: bool,
+    contains_animal: bool,
+) -> str:
+    return (
+        "You are an expert children's image anatomy reviewer. Analyze the image for anatomy/body-integrity problems. "
+        'Return STRICT JSON with keys {"anatomy_ok":"yes|no", "issues":"...", "correction_recommendations":"...", '
+        '"body_integrity_problem":"none|extra_limbs|missing_limbs|detached_body_parts|half_body|animal_anatomy_error"}. '
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        f"Person expected or present: {'yes' if contains_person else 'no'}. "
+        f"Animal expected or present: {'yes' if contains_animal else 'no'}. "
+        "Focus on extra limbs, missing limbs, detached or stray body parts, half bodies, random legs or arms, and comparable anatomy errors for animals. "
+        "If the image is anatomically clean, return anatomy_ok=yes and body_integrity_problem=none. "
+        "Keep the recommendations short and actionable."
+    )
+
+
+def build_variant_critique_prompt(
+    *,
+    word: str,
+    part_of_sentence: str,
+    category: str,
+    target_profile: str,
+    source_profile: str,
+) -> str:
+    return (
+        "You are an expert children's image continuity and wardrobe reviewer. Analyze the edited variant image. "
+        'Return STRICT JSON with keys {"correction_needed":"yes|no", "issues":"...", "correction_prompt":"...", "reason":"..."}. '
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        f"Source profile: {source_profile}. Target profile: {target_profile}. "
+        "Check only whether the clothing and visible styling make sense for the target age/gender while preserving the same scene, pose, action, props, and composition. "
+        "Do not ask for scene changes. If changes are needed, make them minimal and local. "
+        "If the image already works, return correction_needed=no and an empty correction_prompt."
+    )
+
+
+def build_variant_correction_prompt(
+    *,
+    word: str,
+    part_of_sentence: str,
+    category: str,
+    target_profile: str,
+    correction_prompt: str,
+) -> str:
+    return (
+        "Using the provided image as the base, keep the exact same AAC concept, scene, action, composition, props, framing, and lighting. "
+        f"Target profile: {target_profile}. "
+        f'Concept word: "{word}". Part of sentence: {part_of_sentence}. Category: {category}. '
+        "Make only the smallest changes needed so the clothing and visible styling fit the target profile naturally in this same scene. "
+        "Do not change the scene, pose, camera angle, or background. "
+        "Do not add extra people, extra limbs, or extra props. "
+        f"Correction request: {correction_prompt}"
+    ).strip()
+
+
 def default_person_profile_for_prompt(entry: Entry) -> str:
     return profile_prompt_fragment(entry_default_profile(entry))

@@ -363,7 +363,10 @@ class GoogleImageClient:
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
     ) -> dict[str, Any]:
+        selected_model = normalize_stage3_generation_model(model_choice)
+        provider_model = google_image_model_name(selected_model) if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"} else google_image_model_name("nano-banana-2")
         if white_background:
             prompt = (
                 "Using the provided image as the base, keep the exact same AAC concept, exact same avatar identity, exact same age, gender, skin tone, face, hairstyle, expression, pose, clothing, soccer ball position, and framing. "
@@ -392,8 +395,8 @@ class GoogleImageClient:
                 "Do not add text, watermark, or extra people."
             )
         return {
-            "model": "nano-banana-2",
-            "provider_model": google_image_model_name("nano-banana-2"),
+            "model": selected_model,
+            "provider_model": provider_model,
             "prompt": prompt,
             "source_image_path": image_path.as_posix(),
             "white_background": white_background,
@@ -413,9 +416,11 @@ class GoogleImageClient:
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
     ) -> dict[str, Any]:
         prediction_id = f"google_pred_{uuid.uuid4().hex}"
-        model_name = google_image_model_name("nano-banana-2")
+        selected_model = normalize_stage3_generation_model(model_choice)
+        model_name = google_image_model_name(selected_model) if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"} else google_image_model_name("nano-banana-2")
         future = self._prediction_executor.submit(
             self._run_generation,
             run_id=run_id,
@@ -429,6 +434,7 @@ class GoogleImageClient:
                     aspect_ratio=aspect_ratio,
                     image_size=image_size,
                     edit_instruction=edit_instruction,
+                    model_choice=model_choice,
                 )["prompt"]
             ),
             image_paths=[image_path],

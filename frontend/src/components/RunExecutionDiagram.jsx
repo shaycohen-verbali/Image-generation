@@ -45,9 +45,12 @@ function prettyStage(stage) {
   if (stage === 'stage1_prompt') return 'Stage 1: First prompt'
   if (stage === 'stage2_draft') return 'Stage 2: Draft image'
   if (stage === 'stage3_upgrade') return 'Stage 3: Improve + generate'
+  if (stage === 'stage3_anatomy_critique') return 'Stage 3.15: Anatomy critique'
   if (stage === 'quality_gate') return 'Quality check'
   if (stage === 'stage4_background') return 'Stage 4: White background'
   if (stage === 'stage4_variant_generate') return 'Stage 5-8: Variant finals'
+  if (stage === 'stage4_variant_critique') return 'Step 8.1: Variant critique'
+  if (stage === 'stage4_variant_correction') return 'Step 8.2: Variant correction'
   if (stage === 'stage5_variant_white_bg') return 'Stage 9: Variant white background'
   if (stage === 'completed') return 'Completed'
   return stage || '-'
@@ -1250,23 +1253,29 @@ export default function RunExecutionDiagram({
     const position = {
       stage1_prompt: { x: 40, y: 235 },
       stage2_draft: { x: 380, y: 235 },
-      stage3_critique: { x: 760, y: 45 },
-      stage3_prompt_upgrade: { x: 760, y: 235 },
-      stage3_generate: { x: 760, y: 425 },
+      stage3_critique: { x: 760, y: 20 },
+      stage3_anatomy_critique: { x: 760, y: 170 },
+      stage3_prompt_upgrade: { x: 760, y: 320 },
+      stage3_generate: { x: 760, y: 470 },
       quality_gate: { x: 1160, y: 235 },
       stage4_background: { x: 1540, y: 120 },
       stage4_variant_generate: { x: 1910, y: 40 },
-      stage5_variant_white_bg: { x: 1910, y: 280 },
-      completed: { x: 2280, y: 160 },
+      stage4_variant_critique: { x: 1910, y: 230 },
+      stage4_variant_correction: { x: 1910, y: 390 },
+      stage5_variant_white_bg: { x: 2280, y: 230 },
+      completed: { x: 2640, y: 230 },
     }[node.id] || { x: 40, y: 185 }
 
     const badge =
       node.id === 'stage3_critique' ||
+      node.id === 'stage3_anatomy_critique' ||
       node.id === 'stage3_prompt_upgrade' ||
       node.id === 'stage3_generate' ||
       node.id === 'quality_gate' ||
       node.id === 'stage4_background' ||
       node.id === 'stage4_variant_generate' ||
+      node.id === 'stage4_variant_critique' ||
+      node.id === 'stage4_variant_correction' ||
       node.id === 'stage5_variant_white_bg'
         ? `Attempt ${selectedAttempt}`
         : ''

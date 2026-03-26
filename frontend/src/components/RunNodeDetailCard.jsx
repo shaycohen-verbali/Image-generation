@@ -43,9 +43,20 @@ function summarizeNode(node) {
     return [
       ['Person needed for clarity', analysis.person_needed_for_clarity || '-'],
       ['Presence issue', analysis.person_presence_problem || '-'],
+      ['Animal present', analysis.animal_present || '-'],
       ['Why', analysis.person_decision_reasoning || '-'],
       ['Challenges', analysis.challenges || '-'],
       ['Recommendations', analysis.recommendations || '-'],
+    ]
+  }
+
+  if (node.id === 'stage3_anatomy_critique') {
+    const analysis = response.analysis || response
+    return [
+      ['Anatomy OK', analysis.anatomy_ok || '-'],
+      ['Problem type', analysis.body_integrity_problem || '-'],
+      ['Issues', analysis.issues || '-'],
+      ['Correction recommendations', analysis.correction_recommendations || '-'],
     ]
   }
 
@@ -96,6 +107,14 @@ function summarizeNode(node) {
       ['Failed', progress.failed_count ?? 0],
       ['Completed profiles', completedProfiles.length > 0 ? completedProfiles.map(profileStateLabel).join(', ') : '-'],
       ['Failed profiles', failedProfiles.length > 0 ? failedProfiles.map(profileStateLabel).join(', ') : '-'],
+    ]
+  }
+
+  if (node.id === 'stage4_variant_critique' || node.id === 'stage4_variant_correction') {
+    const profiles = Array.isArray(response.profiles) ? response.profiles : []
+    return [
+      ['Profile count', profiles.length],
+      ['Profiles', profiles.length > 0 ? profiles.map((item) => profileStateLabel(item)).join(', ') : '-'],
     ]
   }
 
