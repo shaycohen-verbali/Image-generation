@@ -891,6 +891,16 @@ class CsvDagService:
                 dependency_ids = [str(value) for value in json.loads(task.dependency_task_ids_json or "[]") if str(value)]
                 target_profile = _parse_profile_key(task.profile_key)
                 source_profile = _parse_profile_key(task.source_profile_key) if task.source_profile_key else None
+
+                def _default_base_source_asset() -> Asset | None:
+                    if not source_profile:
+                        return None
+                    if profile_key(source_profile) != f"{DEFAULT_GENDER}:{DEFAULT_AGE}:{DEFAULT_SKIN_COLOR}":
+                        return None
+                    if not item.base_regular_asset_id:
+                        return None
+                    return self.repo.get_asset(item.base_regular_asset_id)
+
                 def _cannot_complete(reason: str) -> CsvTaskNode:
                     self.repo.update_csv_task(
                         task,
@@ -911,10 +921,11 @@ class CsvDagService:
 
                 if dependency_ids:
                     source_task = self.repo.get_csv_task(dependency_ids[0])
-                    if source_task is None or not source_task.regular_asset_id:
-                        dep_label = profile_key(source_profile) if source_profile else dependency_ids[0]
-                        return _cannot_complete(f"Cannot complete: dependency image for '{dep_label}' is not yet available")
-                    source_asset: Asset | str | None = self.repo.get_asset(source_task.regular_asset_id)
+                    source_asset: Asset | str | None = None
+                    if source_task is not None and source_task.regular_asset_id:
+                        source_asset = self.repo.get_asset(source_task.regular_asset_id)
+                    if source_asset is None:
+                        source_asset = _default_base_source_asset()
                     if source_asset is None:
                         dep_label = profile_key(source_profile) if source_profile else dependency_ids[0]
                         return _cannot_complete(f"Cannot complete: dependency image for '{dep_label}' is not yet available")
