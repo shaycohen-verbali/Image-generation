@@ -42,6 +42,10 @@ export default function SubmitPage() {
   const [lastEntryId, setLastEntryId] = useState('')
   const [message, setMessage] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
+  const [selectedCsvFile, setSelectedCsvFile] = useState(null)
+  const [csvActivity, setCsvActivity] = useState({ active: false, label: '', hint: '' })
+  const [csvActivityStartedAt, setCsvActivityStartedAt] = useState(null)
+  const [csvActivityElapsedSeconds, setCsvActivityElapsedSeconds] = useState(0)
   const [csvExecutionMode, setCsvExecutionMode] = useState('csv_dag')
   const [overrideExistingVariants, setOverrideExistingVariants] = useState(false)
   const [runWorkerCount, setRunWorkerCount] = useState(1)
@@ -146,6 +150,44 @@ export default function SubmitPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!csvActivityStartedAt) {
+      setCsvActivityElapsedSeconds(0)
+      return undefined
+    }
+    const updateElapsed = () => {
+      setCsvActivityElapsedSeconds(Math.max(0, Math.floor((Date.now() - csvActivityStartedAt) / 1000)))
+    }
+    updateElapsed()
+    const timer = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(timer)
+  }, [csvActivityStartedAt])
+
+  const beginCsvActivity = (label, hint = 'Large CSV files can take a bit longer. The page is still working while this timer moves.') => {
+    setCsvActivity({ active: true, label, hint })
+    setCsvActivityStartedAt(Date.now())
+  }
+
+  const endCsvActivity = () => {
+    setCsvActivity((current) => ({ ...current, active: false }))
+    setCsvActivityStartedAt(null)
+  }
+
+  const formatElapsed = (totalSeconds) => {
+    if (!totalSeconds) return '0s'
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    if (!minutes) return `${seconds}s`
+    return `${minutes}m ${seconds}s`
+  }
+
+  const formatFileSize = (sizeBytes) => {
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return '0 B'
+    if (sizeBytes < 1024) return `${sizeBytes} B`
+    if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`
+    return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`
+  }
+
   const onSubmit = async (event) => {
     event.preventDefault()
     setMessage('Saving entry...')
@@ -174,13 +216,16 @@ export default function SubmitPage() {
     }
   }
 
-  const onCsvUpload = async (event) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setMessage('Uploading CSV...')
+  const uploadCsvFile = async (file, { sample = false } = {}) => {
+    if (!file) {
+      setMessage('Choose a CSV file first')
+      return
+    }
+    if (csvExecutionMode === 'csv_dag' && !validateCsvDagSelections()) return
+    beginCsvActivity(sample ? 'Importing sample CSV...' : `Uploading ${file.name}...`)
+    setMessage(sample ? 'Loading and importing sample CSV...' : `Uploading ${file.name}...`)
     try {
       if (csvExecutionMode === 'csv_dag') {
-        if (!validateCsvDagSelections()) return
         const result = await importCsvJob(file, {
           execution_mode: 'csv_dag',
           person_gender_options: form.person_gender_options,
@@ -189,22 +234,50 @@ export default function SubmitPage() {
           override_existing_variants: overrideExistingVariants,
         })
         setUploadResult({ ...result, mode: 'csv_dag' })
-        setMessage(`Imported ${result.imported_count} rows into DAG job ${result.batch_id}`)
+        setSelectedCsvFile(null)
+        endCsvActivity()
+        setMessage(
+          sample
+            ? `Imported sample CSV into DAG job ${result.batch_id}`
+            : `Imported ${result.imported_count} rows into DAG job ${result.batch_id}`
+        )
       } else {
         const result = await importCsv(file)
         setUploadResult({ ...result, mode: 'legacy' })
+        setSelectedCsvFile(null)
+        endCsvActivity()
         setMessage(
-          result.batch_id
-            ? `Imported ${result.imported_count} rows into job ${result.batch_id}`
-            : `Imported ${result.imported_count} rows`
+          sample
+            ? (
+                result.batch_id
+                  ? `Imported sample CSV into job ${result.batch_id}`
+                  : 'Imported sample CSV'
+              )
+            : (
+                result.batch_id
+                  ? `Imported ${result.imported_count} rows into job ${result.batch_id}`
+                  : `Imported ${result.imported_count} rows`
+              )
         )
       }
     } catch (error) {
+      endCsvActivity()
       setMessage(`Error: ${error.message}`)
     }
   }
 
+  const onCsvFileSelected = (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setSelectedCsvFile(file)
+    setUploadResult(null)
+    setMessage(`Selected ${file.name}. Click Upload CSV to start importing.`)
+    event.target.value = ''
+  }
+
   const onUseSampleCsv = async () => {
+    if (csvExecutionMode === 'csv_dag' && !validateCsvDagSelections()) return
+    beginCsvActivity('Loading sample CSV...')
     setMessage('Loading sample CSV...')
     try {
       const response = await fetch(SAMPLE_CSV_URL)
@@ -213,27 +286,9 @@ export default function SubmitPage() {
       }
       const blob = await response.blob()
       const file = new File([blob], SAMPLE_CSV_NAME, { type: 'text/csv' })
-      if (csvExecutionMode === 'csv_dag') {
-        if (!validateCsvDagSelections()) return
-        const result = await importCsvJob(file, {
-          execution_mode: 'csv_dag',
-          person_gender_options: form.person_gender_options,
-          person_age_options: form.person_age_options,
-          person_skin_color_options: form.person_skin_color_options,
-          override_existing_variants: overrideExistingVariants,
-        })
-        setUploadResult({ ...result, mode: 'csv_dag' })
-        setMessage(`Imported sample CSV into DAG job ${result.batch_id}`)
-      } else {
-        const result = await importCsv(file)
-        setUploadResult({ ...result, mode: 'legacy' })
-        setMessage(
-          result.batch_id
-            ? `Imported sample CSV into job ${result.batch_id}`
-            : 'Imported sample CSV'
-        )
-      }
+      await uploadCsvFile(file, { sample: true })
     } catch (error) {
+      endCsvActivity()
       setMessage(`Error: ${error.message}`)
     }
   }
@@ -241,12 +296,15 @@ export default function SubmitPage() {
   const onQueueImported = async () => {
     if (!uploadResult) return
     if (uploadResult.mode === 'csv_dag') {
+      beginCsvActivity('Starting CSV DAG job...', 'We are queueing the imported words now. This can take a little longer right after a large import.')
       setMessage('Starting CSV DAG job...')
       try {
         const result = await startCsvJob(uploadResult.job_id)
         setUploadResult((current) => (current ? { ...current, status: result.status } : current))
+        endCsvActivity()
         setMessage(`Started CSV DAG job ${result.job_id}`)
       } catch (error) {
+        endCsvActivity()
         setMessage(`Error: ${error.message}`)
       }
       return
@@ -256,6 +314,7 @@ export default function SubmitPage() {
       setMessage('No valid rows to queue')
       return
     }
+    beginCsvActivity('Queueing imported rows...', 'We are applying the selected profile settings and creating runs for the imported rows.')
     setMessage('Applying current person variants and queueing imported entries...')
     try {
       await applyEntryProfileOptions({
@@ -265,8 +324,10 @@ export default function SubmitPage() {
         person_skin_color_options: form.person_skin_color_options,
       })
       const runs = await createRuns({ entry_ids: entryIds })
+      endCsvActivity()
       setMessage(`Queued ${runs.length} runs with the current person variant settings`)
     } catch (error) {
+      endCsvActivity()
       setMessage(`Error: ${error.message}`)
     }
   }
@@ -595,14 +656,36 @@ export default function SubmitPage() {
             </label>
             <label>
               CSV file
-              <input type="file" accept=".csv" onChange={onCsvUpload} />
+              <input type="file" accept=".csv,text/csv" onChange={onCsvFileSelected} />
             </label>
           </div>
+          <div className="csv-upload-actions">
+            <button type="button" onClick={() => uploadCsvFile(selectedCsvFile)} disabled={!selectedCsvFile || csvActivity.active}>
+              {csvActivity.active ? 'Uploading...' : 'Upload CSV'}
+            </button>
+            {selectedCsvFile ? (
+              <p className="csv-upload-selected">
+                Selected file: <strong>{selectedCsvFile.name}</strong> ({formatFileSize(selectedCsvFile.size)})
+              </p>
+            ) : (
+              <p className="csv-upload-selected">Choose a local CSV first, then click Upload CSV to start importing it.</p>
+            )}
+          </div>
           <div className="inline-fields">
-            <button type="button" onClick={onUseSampleCsv}>Use Sample CSV</button>
+            <button type="button" onClick={onUseSampleCsv} disabled={csvActivity.active}>Use Sample CSV</button>
             <a href={SAMPLE_CSV_URL} download={SAMPLE_CSV_NAME}>Download sample CSV</a>
           </div>
-          <button onClick={onQueueImported} disabled={!uploadResult}>
+          {csvActivity.active ? (
+            <div className="csv-upload-progress" role="status" aria-live="polite">
+              <div className="csv-upload-progress-header">
+                <span className="csv-upload-spinner" aria-hidden="true" />
+                <strong>{csvActivity.label}</strong>
+                <span>{formatElapsed(csvActivityElapsedSeconds)} elapsed</span>
+              </div>
+              <p>{csvActivity.hint}</p>
+            </div>
+          ) : null}
+          <button onClick={onQueueImported} disabled={!uploadResult || csvActivity.active}>
             {uploadResult?.mode === 'csv_dag' ? 'Start CSV DAG Job' : 'Queue Runs For Imported Rows'}
           </button>
           {uploadResult && (
