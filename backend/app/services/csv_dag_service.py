@@ -1049,6 +1049,13 @@ class CsvDagService:
             if self.repo.get_csv_job(job_id) is None:
                 return None
             raise
+        if self._reconcile_terminal_shadow_runs(job_id):
+            try:
+                self.repo.finalize_csv_job_status(job_id)
+            except Exception:
+                if self.repo.get_csv_job(job_id) is None:
+                    return None
+                raise
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             return None
@@ -1135,6 +1142,58 @@ class CsvDagService:
             "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }
+
+    def _reconcile_terminal_shadow_runs(self, job_id: str) -> bool:
+        overview = self.repo.csv_job_overview(job_id)
+        if overview is None:
+            return False
+        runs_by_id = self.repo.get_runs_by_ids(
+            [item.shadow_run_id for item in overview["items"] if str(item.shadow_run_id or "").strip()]
+        )
+        changed = False
+        now = datetime.utcnow()
+        for item in overview["items"]:
+            if not item.shadow_run_id:
+                continue
+            shadow_run = runs_by_id.get(item.shadow_run_id)
+            if shadow_run is None:
+                continue
+            shadow_status = str(shadow_run.status or "")
+            if shadow_status not in {"failed_technical", "completed_fail_threshold", "canceled"}:
+                continue
+            active_tasks = [
+                task for task in overview["tasks"]
+                if task.csv_job_item_id == item.id and task.status in {"pending", "queued", "running"}
+            ]
+            if not active_tasks:
+                continue
+            if shadow_status == "canceled":
+                task_status = "canceled"
+                item_status = "canceled"
+                summary = str(shadow_run.error_detail or "Shadow run was canceled")
+            else:
+                task_status = "failed"
+                item_status = "failed"
+                summary = f"Shadow run ended with status {shadow_status}"
+                detail = str(shadow_run.error_detail or "").strip()
+                if detail:
+                    summary = f"{summary}: {detail}"
+                elif shadow_run.current_stage:
+                    summary = f"{summary} at {shadow_run.current_stage}"
+            for task in active_tasks:
+                self.repo.update_csv_task(
+                    task,
+                    status=task_status,
+                    error_summary=summary,
+                    finished_at=now,
+                )
+            self.repo.update_csv_job_item(
+                item,
+                status=item_status,
+                error_detail=summary,
+            )
+            changed = True
+        return changed
 
     def export_job(self, job_id: str) -> dict[str, Any]:
         inventory_service = InventorySyncService(self.db)
