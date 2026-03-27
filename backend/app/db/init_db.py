@@ -28,6 +28,21 @@ MIN_VARIANT_WORKERS = 1
 DEFAULT_VARIANT_WORKERS = 2
 
 
+def _postgres_existing_columns(conn, table_name: str) -> set[str]:
+    rows = conn.execute(
+        text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = :table_name
+            """
+        ),
+        {"table_name": table_name},
+    ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     init_inventory_db()
@@ -192,27 +207,49 @@ def _ensure_runtime_config_columns() -> None:
             if "stage3_prompt_template" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
         else:
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS max_variant_workers INTEGER NOT NULL DEFAULT 2"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS variant_correction_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_resolution TEXT NOT NULL DEFAULT '1K'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS image_format TEXT NOT NULL DEFAULT 'image/jpeg'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS nano_banana_safety_level TEXT NOT NULL DEFAULT 'default'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS visual_style_id TEXT NOT NULL DEFAULT 'warm_watercolor_storybook_kids_v3'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS visual_style_name TEXT NOT NULL DEFAULT 'Warm Watercolor Storybook Kids Style v3'"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS visual_style_prompt_block TEXT NOT NULL DEFAULT ''"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage1_prompt_template TEXT NOT NULL DEFAULT ''"))
-            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
+            existing = _postgres_existing_columns(conn, "runtime_config")
+            if "max_parallel_runs" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
+            if "max_variant_workers" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 2"))
+            if "stage3_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "stage3_anatomy_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "stage3_accessibility_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "stage3_generate_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            if "variant_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "variant_correction_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_correction_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            if "quality_gate_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+            if "image_aspect_ratio" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_aspect_ratio TEXT NOT NULL DEFAULT '1:1'"))
+            if "image_resolution" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_resolution TEXT NOT NULL DEFAULT '1K'"))
+            if "image_format" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_format TEXT NOT NULL DEFAULT 'image/jpeg'"))
+            if "nano_banana_safety_level" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN nano_banana_safety_level TEXT NOT NULL DEFAULT 'default'"))
+            if "prompt_engineer_mode" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
+            if "responses_prompt_engineer_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "responses_vector_store_id" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
+            if "visual_style_id" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_id TEXT NOT NULL DEFAULT 'warm_watercolor_storybook_kids_v3'"))
+            if "visual_style_name" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_name TEXT NOT NULL DEFAULT 'Warm Watercolor Storybook Kids Style v3'"))
+            if "visual_style_prompt_block" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN visual_style_prompt_block TEXT NOT NULL DEFAULT ''"))
+            if "stage1_prompt_template" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage1_prompt_template TEXT NOT NULL DEFAULT ''"))
+            if "stage3_prompt_template" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_prompt_template TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_inventory_columns() -> None:
@@ -238,15 +275,20 @@ def _ensure_inventory_columns() -> None:
                             if column_name not in existing:
                                 conn.execute(text(f"ALTER TABLE word_inventory ADD COLUMN {column_name} TEXT NOT NULL DEFAULT ''"))
         else:
-            conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS has_person TEXT NOT NULL DEFAULT ''"))
-            conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS image_score DOUBLE PRECISION"))
-            conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS needs_person_attention BOOLEAN NOT NULL DEFAULT FALSE"))
+            existing = _postgres_existing_columns(conn, "word_inventory")
+            if "has_person" not in existing:
+                conn.execute(text("ALTER TABLE word_inventory ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+            if "image_score" not in existing:
+                conn.execute(text("ALTER TABLE word_inventory ADD COLUMN image_score DOUBLE PRECISION"))
+            if "needs_person_attention" not in existing:
+                conn.execute(text("ALTER TABLE word_inventory ADD COLUMN needs_person_attention BOOLEAN NOT NULL DEFAULT FALSE"))
             for age in AGE_VALUES:
                 for gender in GENDER_VALUES:
                     for skin_color in SKIN_VALUES:
                         for background in BACKGROUND_VALUES:
                             column_name = inventory_prompt_column_name(age, gender, skin_color, background)
-                            conn.execute(text(f"ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS {column_name} TEXT NOT NULL DEFAULT ''"))
+                            if column_name not in existing:
+                                conn.execute(text(f"ALTER TABLE word_inventory ADD COLUMN {column_name} TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_entry_columns() -> None:
@@ -263,7 +305,9 @@ def _ensure_entry_columns() -> None:
             if "has_person" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
         else:
-            conn.execute(text("ALTER TABLE entries ADD COLUMN IF NOT EXISTS has_person TEXT NOT NULL DEFAULT ''"))
+            existing = _postgres_existing_columns(conn, "entries")
+            if "has_person" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_run_columns() -> None:
@@ -274,7 +318,9 @@ def _ensure_run_columns() -> None:
             if "execution_mode" not in existing:
                 conn.execute(text("ALTER TABLE runs ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
         else:
-            conn.execute(text("ALTER TABLE runs ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
+            existing = _postgres_existing_columns(conn, "runs")
+            if "execution_mode" not in existing:
+                conn.execute(text("ALTER TABLE runs ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
 
 
 if __name__ == "__main__":
