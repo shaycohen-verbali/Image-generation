@@ -5,7 +5,7 @@ from collections import Counter
 from typing import Any
 
 
-# Official pricing references checked on 2026-03-09:
+# Official pricing references checked on 2026-03-27:
 # - OpenAI: https://openai.com/api/pricing/ and https://platform.openai.com/pricing
 # - Gemini API: https://ai.google.dev/gemini-api/docs/pricing
 # - Vertex AI Imagen: https://cloud.google.com/vertex-ai/generative-ai/pricing#imagen-models
@@ -14,6 +14,8 @@ OPENAI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-5.4": (2.50, 15.00),
+    "gpt-5.4-mini": (0.25, 2.00),
+    "gpt-5.4-nano": (0.05, 0.40),
 }
 
 GEMINI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
@@ -163,6 +165,8 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
 
     if stage_name == "stage3_upgrade":
         analysis_raw = _json_dict(response_json.get("analysis_raw"))
+        anatomy_analysis_raw = _json_dict(response_json.get("anatomy_analysis_raw"))
+        accessibility_analysis_raw = _json_dict(response_json.get("accessibility_analysis_raw"))
         prompt_engineer = _json_dict(response_json.get("prompt_engineer"))
         prompt_engineer_raw = _json_dict(prompt_engineer.get("raw"))
         generation = _json_dict(response_json.get("generation"))
@@ -176,8 +180,6 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
         analysis_input_tokens, analysis_output_tokens = (
             _extract_gemini_usage(analysis_raw) if analysis_provider == "google" else _extract_openai_usage(analysis_raw)
         )
-        critique_cost = _token_cost_usd(analysis_model, analysis_input_tokens, analysis_output_tokens)
-
         prompt_model = _first_text(
             prompt_engineer_raw.get("model"),
             _nested(prompt_engineer_raw, "run_payload", "model"),
@@ -187,40 +189,91 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
         prompt_input_tokens, prompt_output_tokens = (
             _extract_gemini_usage(prompt_engineer_raw) if prompt_provider == "google" else _extract_openai_usage({"raw": prompt_engineer_raw})
         )
-        prompt_cost = _token_cost_usd(prompt_model, prompt_input_tokens, prompt_output_tokens)
-
         generation_model = _first_text(response_json.get("generation_model"), generation.get("model"), response_json.get("generation_model_selected"))
-        generation_cost = REPLICATE_IMAGE_RATES_USD.get(generation_model, 0.0)
         generation_provider = "google" if generation_model.startswith("gemini-") else "replicate"
-        return [
+
+        entries = [
             _cost_entry(
                 stage_name="stage3_critique",
                 stage_label="Stage 3.1 Critique",
                 attempt=attempt,
                 provider=analysis_provider,
                 model=analysis_model,
-                estimated_cost_usd=critique_cost,
+                estimated_cost_usd=_token_cost_usd(analysis_model, analysis_input_tokens, analysis_output_tokens),
                 estimate_basis="official token pricing",
-            ),
-            _cost_entry(
-                stage_name="stage3_prompt_engineer",
-                stage_label="Stage 3.2 Prompt Engineer",
-                attempt=attempt,
-                provider=prompt_provider,
-                model=prompt_model,
-                estimated_cost_usd=prompt_cost,
-                estimate_basis="official token pricing",
-            ),
-            _cost_entry(
-                stage_name="stage3_generate",
-                stage_label="Stage 3.3 Image Generation",
-                attempt=attempt,
-                provider=generation_provider,
-                model=generation_model,
-                estimated_cost_usd=generation_cost,
-                estimate_basis="provider image-price estimate",
-            ),
+            )
         ]
+
+        if anatomy_analysis_raw:
+            anatomy_model = _first_text(
+                anatomy_analysis_raw.get("model"),
+                _nested(anatomy_analysis_raw, "raw_response", "model"),
+                request_json.get("anatomy_critique_model_selected"),
+            )
+            anatomy_provider = _first_text(anatomy_analysis_raw.get("provider"), "google" if str(anatomy_model).startswith("gemini-") else "openai")
+            anatomy_input_tokens, anatomy_output_tokens = (
+                _extract_gemini_usage(anatomy_analysis_raw)
+                if anatomy_provider == "google"
+                else _extract_openai_usage(anatomy_analysis_raw)
+            )
+            entries.append(
+                _cost_entry(
+                    stage_name="stage3_anatomy_critique",
+                    stage_label="Stage 3.15 Anatomy Critique",
+                    attempt=attempt,
+                    provider=anatomy_provider,
+                    model=anatomy_model,
+                    estimated_cost_usd=_token_cost_usd(anatomy_model, anatomy_input_tokens, anatomy_output_tokens),
+                    estimate_basis="official token pricing",
+                )
+            )
+
+        accessibility_model = _first_text(
+            accessibility_analysis_raw.get("model"),
+            _nested(accessibility_analysis_raw, "raw_response", "model"),
+            request_json.get("accessibility_critique_model_selected"),
+        )
+        accessibility_provider = _first_text(
+            accessibility_analysis_raw.get("provider"),
+            "google" if str(accessibility_model).startswith("gemini-") else "openai",
+        )
+        accessibility_input_tokens, accessibility_output_tokens = (
+            _extract_gemini_usage(accessibility_analysis_raw)
+            if accessibility_provider == "google"
+            else _extract_openai_usage(accessibility_analysis_raw)
+        )
+        entries.extend(
+            [
+                _cost_entry(
+                    stage_name="stage3_accessibility_critique",
+                    stage_label="Stage 3.16 Accessibility Critique",
+                    attempt=attempt,
+                    provider=accessibility_provider,
+                    model=accessibility_model,
+                    estimated_cost_usd=_token_cost_usd(accessibility_model, accessibility_input_tokens, accessibility_output_tokens),
+                    estimate_basis="official token pricing",
+                ),
+                _cost_entry(
+                    stage_name="stage3_prompt_engineer",
+                    stage_label="Stage 3.2 Prompt Engineer",
+                    attempt=attempt,
+                    provider=prompt_provider,
+                    model=prompt_model,
+                    estimated_cost_usd=_token_cost_usd(prompt_model, prompt_input_tokens, prompt_output_tokens),
+                    estimate_basis="official token pricing",
+                ),
+                _cost_entry(
+                    stage_name="stage3_generate",
+                    stage_label="Stage 3.3 Image Generation",
+                    attempt=attempt,
+                    provider=generation_provider,
+                    model=generation_model,
+                    estimated_cost_usd=REPLICATE_IMAGE_RATES_USD.get(generation_model, 0.0),
+                    estimate_basis="provider image-price estimate",
+                ),
+            ]
+        )
+        return entries
 
     if stage_name == "quality_gate":
         raw = _json_dict(response_json.get("analysis_raw") if stage_name == "stage3_upgrade" else response_json.get("raw"))
@@ -283,6 +336,76 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
                 estimated_cost_usd=estimated_cost_usd,
                 estimate_basis="provider image-price estimate",
                 unit_count=variant_count,
+            )
+        ]
+
+    if stage_name == "stage4_variant_critique":
+        profiles = response_json.get("profiles")
+        if not isinstance(profiles, list):
+            return []
+        total_cost = 0.0
+        model_name = _first_text(request_json.get("model_selected"))
+        provider_name = "google" if model_name.startswith("gemini-") else "openai"
+        reviewed_count = 0
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                continue
+            critique = profile.get("critique") or {}
+            if isinstance(critique, dict) and critique.get("review_skipped"):
+                continue
+            critique_raw = _json_dict(profile.get("critique_raw"))
+            row_model = _first_text(
+                critique_raw.get("model"),
+                _nested(critique_raw, "raw_response", "model"),
+                model_name,
+            )
+            row_provider = _first_text(
+                critique_raw.get("provider"),
+                "google" if str(row_model).startswith("gemini-") else "openai",
+            )
+            input_tokens, output_tokens = (
+                _extract_gemini_usage(critique_raw)
+                if row_provider == "google"
+                else _extract_openai_usage(critique_raw)
+            )
+            total_cost += _token_cost_usd(row_model, input_tokens, output_tokens)
+            if row_model:
+                model_name = row_model
+            provider_name = row_provider
+            reviewed_count += 1
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label="Step 8.1 Variant Critique",
+                attempt=attempt,
+                provider=provider_name,
+                model=model_name,
+                estimated_cost_usd=total_cost,
+                estimate_basis="official token pricing",
+                unit_count=reviewed_count,
+            )
+        ] if reviewed_count > 0 else []
+
+    if stage_name == "stage4_variant_correction":
+        profiles = response_json.get("profiles")
+        corrected_count = 0
+        if isinstance(profiles, list):
+            corrected_count = len([row for row in profiles if isinstance(row, dict) and not row.get("skipped")])
+        if corrected_count <= 0:
+            corrected_count = int(request_json.get("corrected_count") or 0)
+        model = _first_text(request_json.get("model_selected"), "nano-banana-2")
+        if corrected_count <= 0:
+            return []
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label="Step 8.2 Variant Correction",
+                attempt=attempt,
+                provider="google" if model.startswith("gemini-") else "replicate",
+                model=model,
+                estimated_cost_usd=REPLICATE_IMAGE_RATES_USD.get(model, 0.0) * corrected_count,
+                estimate_basis="provider image-price estimate",
+                unit_count=corrected_count,
             )
         ]
 

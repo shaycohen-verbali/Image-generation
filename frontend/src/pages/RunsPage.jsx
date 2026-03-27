@@ -108,6 +108,13 @@ function formatQualityScore(score) {
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1)
 }
 
+function formatUsd(value) {
+  if (value === undefined || value === null || value === '') return '-'
+  const numeric = Number(value)
+  if (Number.isNaN(numeric)) return '-'
+  return `$${numeric.toFixed(4)}`
+}
+
 function personAttentionLabel(needsAttention) {
   return needsAttention ? 'Needs review' : 'No'
 }
@@ -1163,6 +1170,7 @@ export default function RunsPage() {
                       <th>Profile</th>
                       <th>Status</th>
                       <th>Score</th>
+                      <th>Est. cost</th>
                       <th>Progress</th>
                       <th>Current step</th>
                       <th>Needs person attention?</th>
@@ -1190,6 +1198,7 @@ export default function RunsPage() {
                           </div>
                         </td>
                         <td>{formatQualityScore(item.quality_score)}</td>
+                        <td>{formatUsd(item.estimated_total_cost_usd)}</td>
                         <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
                         <td>{item.current_step || '-'}</td>
                         <td>{personAttentionLabel(Boolean(item.needs_person_attention))}</td>
@@ -1408,6 +1417,10 @@ export default function RunsPage() {
                 <div>
                   <strong>Rows</strong>
                   <p>{csvJobOverview.job.total_row_count}</p>
+                </div>
+                <div>
+                  <strong>Total cost</strong>
+                  <p>{formatUsd(csvJobOverview.estimated_total_cost_usd)}</p>
                 </div>
                 <div>
                   <strong>Started</strong>

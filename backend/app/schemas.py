@@ -295,6 +295,7 @@ class CsvJobOut(BaseModel):
     duration_seconds: float = 0
     requested_profiles: list[str] = Field(default_factory=list)
     continued_from_job_id: str | None = None
+    estimated_total_cost_usd: float | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -342,6 +343,10 @@ class CsvJobItemOut(BaseModel):
     shadow_run_status: str = ""
     shadow_run_current_stage: str = ""
     shadow_run_error_detail: str = ""
+    quality_score: float | None = None
+    quality_threshold: int | None = None
+    needs_person_attention: bool = False
+    estimated_total_cost_usd: float | None = None
     base_regular_asset_id: str | None = None
     base_white_bg_asset_id: str | None = None
     main_status: str = "pending"
@@ -366,6 +371,7 @@ class CsvJobOverviewOut(BaseModel):
     tasks: list[CsvJobTaskOut] = Field(default_factory=list)
     word_counts: dict[str, int] = Field(default_factory=dict)
     requested_profile_history: list[dict[str, Any]] = Field(default_factory=list)
+    estimated_total_cost_usd: float | None = None
     export_ready: bool = False
     export_id: str | None = None
 

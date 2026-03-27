@@ -335,6 +335,40 @@ class Repository:
         rows = list(self.db.execute(select(Run).where(Run.id.in_(normalized))).scalars())
         return {row.id: row for row in rows}
 
+    def get_run_snapshots_by_ids(self, run_ids: list[str]) -> dict[str, dict[str, Any]]:
+        normalized = [str(value or "").strip() for value in run_ids if str(value or "").strip()]
+        if not normalized:
+            return {}
+        stages = list(
+            self.db.execute(
+                select(StageResult)
+                .where(StageResult.run_id.in_(normalized))
+                .order_by(StageResult.created_at.asc())
+            ).scalars()
+        )
+        assets = list(
+            self.db.execute(
+                select(Asset)
+                .where(Asset.run_id.in_(normalized))
+                .order_by(Asset.created_at.asc())
+            ).scalars()
+        )
+        scores = list(
+            self.db.execute(
+                select(Score)
+                .where(Score.run_id.in_(normalized))
+                .order_by(Score.created_at.asc())
+            ).scalars()
+        )
+        grouped: dict[str, dict[str, Any]] = {run_id: {"stages": [], "assets": [], "scores": []} for run_id in normalized}
+        for stage in stages:
+            grouped.setdefault(stage.run_id, {"stages": [], "assets": [], "scores": []})["stages"].append(stage)
+        for asset in assets:
+            grouped.setdefault(asset.run_id, {"stages": [], "assets": [], "scores": []})["assets"].append(asset)
+        for score in scores:
+            grouped.setdefault(score.run_id, {"stages": [], "assets": [], "scores": []})["scores"].append(score)
+        return grouped
+
     def list_runs(
         self,
         *,

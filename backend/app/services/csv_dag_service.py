@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry, Run
 from app.schemas import ExecutionMode
+from app.services.cost_estimator import summarize_run_costs
 from app.services.csv_service import parse_entries_csv, validate_entry_row
 from app.services.inventory_sync import InventorySyncService
 from app.services.person_profiles import DEFAULT_AGE, DEFAULT_GENDER, DEFAULT_SKIN_COLOR, profile_key
@@ -30,6 +31,7 @@ IMPORT_COMMIT_CHUNK_SIZE = 25
 ALLOWED_GENDER_OPTIONS = ("male", "female")
 ALLOWED_AGE_OPTIONS = ("toddler", "kid", "tween", "teenager")
 ALLOWED_SKIN_OPTIONS = ("white", "black", "asian", "brown")
+TERMINAL_RUN_STATUSES = {"completed_pass", "completed_fail_threshold", "completed_base_assets", "failed_technical", "canceled"}
 
 
 def _json_default(value):
@@ -1065,13 +1067,34 @@ class CsvDagService:
         runs_by_id = self.repo.get_runs_by_ids(
             [item.shadow_run_id for item in overview["items"] if str(item.shadow_run_id or "").strip()]
         )
+        terminal_shadow_run_ids = [
+            run.id for run in runs_by_id.values() if str(run.status or "").strip().lower() in TERMINAL_RUN_STATUSES
+        ]
+        run_snapshots = self.repo.get_run_snapshots_by_ids(terminal_shadow_run_ids)
+        cost_summary_by_run_id = {
+            run_id: summarize_run_costs(snapshot.get("stages", []), snapshot.get("assets", []))
+            for run_id, snapshot in run_snapshots.items()
+        }
         available_profiles_by_entry = inventory_service.available_profiles_for_entries(list(entries_by_id.values()))
         items_payload: list[dict[str, Any]] = []
         word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0}
+        total_estimated_cost_usd = 0.0
         for item in overview["items"]:
             entry = entries_by_id.get(item.entry_id)
             shadow_run = runs_by_id.get(item.shadow_run_id) if item.shadow_run_id else None
             item_progress = self._item_progress_payload(item, tasks)
+            cost_summary = cost_summary_by_run_id.get(shadow_run.id, {}) if shadow_run else {}
+            estimated_item_cost = (
+                float(cost_summary.get("estimated_total_cost_usd") or 0.0)
+                if (
+                    shadow_run
+                    and str(shadow_run.status or "").strip().lower() in TERMINAL_RUN_STATUSES
+                    and item_progress["main_status"] == "completed"
+                )
+                else None
+            )
+            if estimated_item_cost is not None:
+                total_estimated_cost_usd += estimated_item_cost
             available_profiles = available_profiles_by_entry.get(item.entry_id, []) if entry else []
             word_counts[item_progress["main_status"]] += 1
             items_payload.append(
@@ -1096,6 +1119,7 @@ class CsvDagService:
                         and shadow_run.quality_threshold is not None
                         and float(shadow_run.quality_score) < float(shadow_run.quality_threshold)
                     ),
+                    "estimated_total_cost_usd": round(estimated_item_cost, 6) if estimated_item_cost is not None else None,
                     "base_regular_asset_id": item.base_regular_asset_id,
                     "base_white_bg_asset_id": item.base_white_bg_asset_id,
                     "main_status": item_progress["main_status"],
@@ -1144,6 +1168,7 @@ class CsvDagService:
             "tasks": tasks_payload,
             "word_counts": word_counts,
             "requested_profile_history": self._requested_profile_history(job),
+            "estimated_total_cost_usd": round(total_estimated_cost_usd, 6) if total_estimated_cost_usd > 0 else None,
             "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }
