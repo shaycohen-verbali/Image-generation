@@ -15,7 +15,14 @@ from app.services.repository import Repository
 # At higher CSV concurrency, a healthy base word can take several minutes end-to-end.
 # Keep a timeout guard, but leave enough room for legitimate stage3/stage4/quality latency.
 CSV_TASK_TIMEOUT_SECONDS = 420
-WORKER_EXECUTOR_MAX = 256
+# The image pipeline is heavy on both providers and the database. Keep a
+# reasonable upper bound so a burst of queued work does not create a second
+# spike inside the process itself.
+WORKER_EXECUTOR_MAX = 64
+WORKER_CLAIM_BURST_MAX = 2
+WORKER_CLAIM_SETTLE_SECONDS = 0.5
+WORKER_ERROR_BACKOFF_MAX_SECONDS = 15.0
+CSV_TASK_PARALLEL_HARD_CAP = 4
 
 
 def _process_single_run(run_id: str) -> None:
@@ -30,6 +37,13 @@ def _process_single_csv_task(task_id: str) -> None:
         service.execute_task(task_id)
 
 
+def _claim_budget(active_count: int, target_parallelism: int) -> int:
+    available = max(0, int(target_parallelism) - int(active_count))
+    if available <= 0:
+        return 0
+    return min(available, WORKER_CLAIM_BURST_MAX)
+
+
 def run_worker() -> None:
     settings = get_settings()
     configure_logging(settings.app_log_level)
@@ -40,6 +54,7 @@ def run_worker() -> None:
     active_runs: dict[Future, str] = {}
     active_csv_tasks: dict[Future, str] = {}
     idle_poll_seconds = settings.worker_poll_seconds or 2.0
+    error_backoff_seconds = idle_poll_seconds
 
     with ThreadPoolExecutor(max_workers=WORKER_EXECUTOR_MAX) as executor:
         while True:
@@ -48,7 +63,7 @@ def run_worker() -> None:
                     repo = Repository(db)
                     config = repo.get_runtime_config()
                     max_parallel_runs = max(1, int(config.max_parallel_runs or 1))
-                    max_parallel_csv_tasks = max_parallel_runs
+                    max_parallel_csv_tasks = max(1, min(max_parallel_runs, CSV_TASK_PARALLEL_HARD_CAP))
                     poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
                     timed_out_task_ids = repo.fail_stale_running_csv_tasks(timeout_seconds=CSV_TASK_TIMEOUT_SECONDS)
 
@@ -84,14 +99,14 @@ def run_worker() -> None:
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("csv task execution failed", extra={"csv_task_id": task_id, "error": str(exc)})
 
-                claimed_any = False
-                while len(active_runs) < max_parallel_runs:
+                claimed_count = 0
+                for _ in range(_claim_budget(len(active_runs), max_parallel_runs)):
                     with SessionLocal() as db:
                         repo = Repository(db)
                         run = repo.claim_next_queued_run()
                     if run is None:
                         break
-                    claimed_any = True
+                    claimed_count += 1
                     logger.info(
                         "run claimed",
                         extra={
@@ -104,13 +119,13 @@ def run_worker() -> None:
                     future = executor.submit(_process_single_run, run.id)
                     active_runs[future] = run.id
 
-                while len(active_csv_tasks) < max_parallel_csv_tasks:
+                for _ in range(_claim_budget(len(active_csv_tasks), max_parallel_csv_tasks)):
                     with SessionLocal() as db:
                         repo = Repository(db)
                         task = repo.claim_next_ready_csv_task()
                     if task is None:
                         break
-                    claimed_any = True
+                    claimed_count += 1
                     logger.info(
                         "csv task claimed",
                         extra={
@@ -123,13 +138,21 @@ def run_worker() -> None:
                     future = executor.submit(_process_single_csv_task, task.id)
                     active_csv_tasks[future] = task.id
 
-                if not claimed_any and not active_runs and not active_csv_tasks:
+                error_backoff_seconds = idle_poll_seconds
+
+                if claimed_count and (len(active_runs) < max_parallel_runs or len(active_csv_tasks) < max_parallel_csv_tasks):
+                    time.sleep(WORKER_CLAIM_SETTLE_SECONDS)
+                elif not claimed_count and not active_runs and not active_csv_tasks:
                     time.sleep(poll_seconds)
-                elif not claimed_any:
+                elif not claimed_count:
                     time.sleep(0.25)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("worker loop iteration failed", extra={"error": str(exc)})
-                time.sleep(idle_poll_seconds)
+                time.sleep(error_backoff_seconds)
+                error_backoff_seconds = min(
+                    WORKER_ERROR_BACKOFF_MAX_SECONDS,
+                    max(idle_poll_seconds, error_backoff_seconds * 2),
+                )
 
 
 if __name__ == "__main__":

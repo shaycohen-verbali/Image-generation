@@ -288,6 +288,8 @@ class CsvJobOut(BaseModel):
     execution_mode: ExecutionMode
     source_file_name: str = ""
     status: str
+    display_status: str = ""
+    display_sub_status: str = ""
     error_detail: str = ""
     total_row_count: int = 0
     started_at: datetime | None = None

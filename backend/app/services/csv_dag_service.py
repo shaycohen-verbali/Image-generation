@@ -557,7 +557,8 @@ class CsvDagService:
         for task in tasks:
             if task.status == "pending":
                 self.repo.update_csv_task(task, status="queued", error_summary="", finished_at=None)
-        return self.repo.update_csv_job(job, status="queued", error_detail="", finished_at=None)
+        started_at = job.started_at or datetime.utcnow()
+        return self.repo.update_csv_job(job, status="queued", error_detail="", finished_at=None, started_at=started_at)
 
     def retry_failures(self, job_id: str) -> tuple[CsvJob, int]:
         count = self.repo.retry_failed_csv_tasks(job_id)
@@ -708,6 +709,13 @@ class CsvDagService:
             main_status = "running"
             sub_status = f"Creating {self._step_label(running_task.step_name)}"
             current_step = self._step_label(running_task.step_name)
+        elif waiting_task is not None and str(waiting_task.status or "").lower() == "queued":
+            main_status = "running"
+            current_step = self._step_label(waiting_task.step_name)
+            if blocking_reason:
+                sub_status = blocking_reason
+            else:
+                sub_status = f"Queued for {self._step_label(waiting_task.step_name)}"
         elif counts["completed"] > 0 or item.shadow_run_id:
             main_status = "running"
             sub_status = (
@@ -1015,12 +1023,41 @@ class CsvDagService:
     def _serialize_job(self, job: CsvJob, overview: dict[str, Any]) -> dict[str, Any]:
         total_row_count = int(overview.get("total_row_count") or 0)
         duration_seconds = float(overview.get("duration_seconds") or 0)
+        display_status = "running"
+        display_sub_status = ""
+        raw_status = str(job.status or "")
+        if raw_status == "imported":
+            display_status = "pending"
+            display_sub_status = "Imported and not started yet"
+        elif raw_status in {"queued", "retry_queued"}:
+            display_status = "running"
+            display_sub_status = "Queued under load"
+        elif raw_status == "cancel_requested":
+            display_status = "running"
+            display_sub_status = "Stopping after active work finishes"
+        elif raw_status == "completed":
+            display_status = "completed"
+            display_sub_status = "All rows finished"
+        elif raw_status == "partial_failed":
+            display_status = "failure"
+            display_sub_status = "Some rows failed and some completed"
+        elif raw_status == "failed":
+            display_status = "failure"
+            display_sub_status = "One or more rows failed"
+        elif raw_status == "canceled":
+            display_status = "failure"
+            display_sub_status = "Canceled"
+        else:
+            display_status = "running"
+            display_sub_status = "Work is in progress"
         return {
             "id": job.id,
             "batch_id": job.batch_id,
             "execution_mode": job.execution_mode,
             "source_file_name": job.source_file_name,
             "status": job.status,
+            "display_status": display_status,
+            "display_sub_status": display_sub_status,
             "error_detail": job.error_detail,
             "total_row_count": total_row_count,
             "started_at": job.started_at,

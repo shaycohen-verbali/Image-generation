@@ -80,15 +80,29 @@ function csvStepLabel(stepName) {
   return CSV_STEP_LABELS[String(stepName || '').trim()] || String(stepName || 'Unknown step')
 }
 
-function csvJobMainStatus(rawStatus) {
-  const value = String(rawStatus || '').toLowerCase()
+function csvJobMainStatus(jobOrStatus) {
+  if (jobOrStatus && typeof jobOrStatus === 'object') {
+    const displayStatus = String(jobOrStatus.display_status || '').trim()
+    const displaySubStatus = String(jobOrStatus.display_sub_status || '').trim()
+    if (displayStatus || displaySubStatus) {
+      return {
+        main: displayStatus || 'running',
+        sub: displaySubStatus || 'Work is in progress',
+      }
+    }
+  }
+  const value = String(
+    jobOrStatus && typeof jobOrStatus === 'object'
+      ? jobOrStatus.status
+      : jobOrStatus,
+  ).toLowerCase()
   if (value === 'completed') return { main: 'completed', sub: 'All rows finished' }
   if (value === 'partial_failed') return { main: 'failure', sub: 'Some rows failed and some completed' }
   if (value === 'failed') return { main: 'failure', sub: 'One or more rows failed' }
   if (value === 'canceled') return { main: 'failure', sub: 'Canceled' }
   if (value === 'cancel_requested') return { main: 'running', sub: 'Stopping after active work finishes' }
   if (value === 'imported') return { main: 'pending', sub: 'Imported and not started yet' }
-  if (['queued', 'retry_queued'].includes(value)) return { main: 'pending', sub: 'Waiting to be picked up' }
+  if (['queued', 'retry_queued'].includes(value)) return { main: 'running', sub: 'Queued under load' }
   return { main: 'running', sub: 'Work is in progress' }
 }
 
@@ -1355,8 +1369,8 @@ export default function RunsPage() {
                       <td>{job.batch_id}</td>
                       <td>
                         <div className="status-stack">
-                          <strong>{csvPrettyStatus(csvJobMainStatus(job.status).main)}</strong>
-                          <span>{csvJobMainStatus(job.status).sub}</span>
+                          <strong>{csvPrettyStatus(csvJobMainStatus(job).main)}</strong>
+                          <span>{csvJobMainStatus(job).sub}</span>
                         </div>
                       </td>
                       <td>{job.total_row_count}</td>
@@ -1423,8 +1437,8 @@ export default function RunsPage() {
                 </div>
                 <div>
                   <strong>Status</strong>
-                  <p>{csvPrettyStatus(csvJobMainStatus(csvJobOverview.job.status).main)}</p>
-                  <small>{csvJobMainStatus(csvJobOverview.job.status).sub}</small>
+                  <p>{csvPrettyStatus(csvJobMainStatus(csvJobOverview.job).main)}</p>
+                  <small>{csvJobMainStatus(csvJobOverview.job).sub}</small>
                 </div>
                 <div>
                     <strong>Timer</strong>
