@@ -263,6 +263,7 @@ class InventorySyncService:
         missing_slots = [slot for slot in expected_slots if not str(slot_values.get(slot) or "").strip()]
         now = datetime.utcnow()
         has_person_value = str(getattr(entry, "has_person", "") or "").strip().lower()
+        shadow_run = self.repo.get_run(item.shadow_run_id) if item.shadow_run_id else None
         if has_person_value not in {"yes", "no"} and item.shadow_run_id:
             winner_attempt = 0
             if item.base_regular_asset_id:
@@ -296,6 +297,13 @@ class InventorySyncService:
             "category": entry.category,
             "context": entry.context,
             "has_person": has_person_value,
+            "image_score": float(shadow_run.quality_score) if shadow_run and shadow_run.quality_score is not None else existing_row.get("image_score"),
+            "needs_person_attention": bool(
+                shadow_run
+                and shadow_run.quality_score is not None
+                and shadow_run.quality_threshold is not None
+                and float(shadow_run.quality_score) < float(shadow_run.quality_threshold)
+            ) if shadow_run is not None else bool(existing_row.get("needs_person_attention") or False),
             "job_status": item.status,
             "fully_complete": item.status == "completed" and not missing_slots and not failures,
             "missing_slots_json": json.dumps(missing_slots, ensure_ascii=True),

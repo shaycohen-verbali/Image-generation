@@ -400,9 +400,13 @@ function mergeRunDetail(previous, next) {
 }
 
 function stageTitle(stageName) {
+  if (stageName === 'stage1_prompt') return 'Stage 1 Prompt'
+  if (stageName === 'stage3_upgrade') return 'Stage 3 Prompt Upgrade'
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
   if (stageName === 'stage4_white_bg') return 'Stage 4 White Background'
+  if (stageName === 'stage4_background') return 'Stage 4 White Background Prompt'
+  if (stageName === 'stage4_variant_correction') return 'Step 8.2 Variant Correction Prompt'
   if (stageName === 'stage4_variant_generate') return 'Character Variant Final'
   if (stageName === 'stage5_variant_white_bg') return 'Character Variant White Background'
   return stageName
@@ -443,7 +447,10 @@ export default function RunsPage() {
   const [selectedCsvJobId, setSelectedCsvJobId] = useState('')
   const [csvJobOverview, setCsvJobOverview] = useState(null)
   const [selectedCsvItemId, setSelectedCsvItemId] = useState('')
+  const [csvShadowRunDetail, setCsvShadowRunDetail] = useState(null)
   const [selectedCsvStatusFilter, setSelectedCsvStatusFilter] = useState('')
+  const [showCsvScoreHistory, setShowCsvScoreHistory] = useState(false)
+  const [showCsvPromptHistory, setShowCsvPromptHistory] = useState(false)
   const [continueSelections, setContinueSelections] = useState({
     person_gender_options: [],
     person_age_options: [],
@@ -576,6 +583,21 @@ export default function RunsPage() {
   const selectedCsvItemTasks = useMemo(
     () => csvJobTasks.filter((task) => task.csv_job_item_id === selectedCsvItem?.id),
     [csvJobTasks, selectedCsvItem?.id]
+  )
+  const csvScoreHistory = useMemo(
+    () => [...(Array.isArray(csvShadowRunDetail?.scores) ? csvShadowRunDetail.scores : [])].sort((left, right) => (left.attempt || 0) - (right.attempt || 0)),
+    [csvShadowRunDetail]
+  )
+  const csvPromptHistory = useMemo(
+    () => [...(Array.isArray(csvShadowRunDetail?.prompts) ? csvShadowRunDetail.prompts : [])]
+      .filter((prompt) => ['stage1_prompt', 'stage3_upgrade', 'stage4_background', 'stage4_variant_correction'].includes(String(prompt.stage_name || '')))
+      .sort((left, right) => {
+        const leftAttempt = Number(left.attempt || 0)
+        const rightAttempt = Number(right.attempt || 0)
+        if (leftAttempt !== rightAttempt) return leftAttempt - rightAttempt
+        return String(left.stage_name || '').localeCompare(String(right.stage_name || ''))
+      }),
+    [csvShadowRunDetail]
   )
   const selectedCsvItemProgress = selectedCsvItem || null
   const selectedCsvItemImages = useMemo(
@@ -820,6 +842,43 @@ export default function RunsPage() {
       setSelectedCsvItemId(filteredCsvJobItems[0].id)
     }
   }, [filteredCsvJobItems, selectedCsvItemId])
+
+  useEffect(() => {
+    setCsvShadowRunDetail(null)
+    setShowCsvScoreHistory(false)
+    setShowCsvPromptHistory(false)
+  }, [selectedCsvItem?.id])
+
+  useEffect(() => {
+    const shadowRunId = String(selectedCsvItem?.shadow_run_id || '').trim()
+    if (!shadowRunId) {
+      setCsvShadowRunDetail(null)
+      return undefined
+    }
+    let canceled = false
+    const loadShadowRunDetail = async ({ isPolling = false } = {}) => {
+      try {
+        const data = await getRun(shadowRunId)
+        if (!canceled && String(selectedCsvItem?.shadow_run_id || '').trim() === shadowRunId) {
+          setCsvShadowRunDetail(data)
+        }
+      } catch (_error) {
+        if (!isPolling && !canceled) {
+          setCsvShadowRunDetail(null)
+        }
+      }
+    }
+    loadShadowRunDetail()
+    const timer = window.setInterval(() => {
+      if (!pageVisible) return
+      if (isTerminalRunStatus(selectedCsvItem?.shadow_run_status)) return
+      loadShadowRunDetail({ isPolling: true })
+    }, CSV_DETAIL_POLL_MS)
+    return () => {
+      canceled = true
+      window.clearInterval(timer)
+    }
+  }, [selectedCsvItem?.shadow_run_id, selectedCsvItem?.shadow_run_status, pageVisible])
 
   useEffect(() => {
     if (!pageVisible) return undefined
@@ -1525,6 +1584,10 @@ export default function RunsPage() {
                     <p>{selectedCsvItemProgress ? `${selectedCsvItemProgress.progress?.completed || 0}/${selectedCsvItemProgress.progress?.total || 0} steps finished` : '-'}</p>
                   </div>
                   <div>
+                    <strong>Score</strong>
+                    <p>{formatQualityScore(selectedCsvItem.quality_score)}</p>
+                  </div>
+                  <div>
                     <strong>Current step</strong>
                     <p>{selectedCsvItem.current_step || '-'}</p>
                   </div>
@@ -1548,6 +1611,61 @@ export default function RunsPage() {
                     <p>{selectedCsvItem.error_detail || selectedCsvItem.shadow_run_error_detail || '-'}</p>
                   </div>
                 </div>
+                <div className="inline-fields" style={{ marginBottom: 16 }}>
+                  <button type="button" className="button-secondary" onClick={() => setShowCsvScoreHistory((value) => !value)}>
+                    {showCsvScoreHistory ? 'Hide score history' : 'View score history'}
+                  </button>
+                  <button type="button" className="button-secondary" onClick={() => setShowCsvPromptHistory((value) => !value)}>
+                    {showCsvPromptHistory ? 'Hide image prompts' : 'View image prompts'}
+                  </button>
+                </div>
+                {showCsvScoreHistory ? (
+                  <div className="table-wrap runs-table-wrap" style={{ marginBottom: 16 }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Attempt</th>
+                          <th>Score</th>
+                          <th>Pass</th>
+                          <th>Stage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvScoreHistory.length ? (
+                          csvScoreHistory.map((scoreRow) => (
+                            <tr key={scoreRow.id}>
+                              <td>{scoreRow.attempt || '-'}</td>
+                              <td>{formatQualityScore(scoreRow.score_0_100)}</td>
+                              <td>{scoreRow.pass_fail ? 'Yes' : 'No'}</td>
+                              <td>{scoreRow.stage_name || 'quality_gate'}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={4}>No score history recorded for this word yet.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+                {showCsvPromptHistory ? (
+                  <div style={{ marginBottom: 16 }}>
+                    {csvPromptHistory.length ? (
+                      csvPromptHistory.map((promptRow) => (
+                        <article key={promptRow.id} className="csv-word-image-card" style={{ marginBottom: 12 }}>
+                          <div className="csv-word-image-meta">
+                            <strong>{stageTitle(promptRow.stage_name)}</strong>
+                            <span>Attempt {promptRow.attempt || '-'}</span>
+                          </div>
+                          <pre className="prompt-doc-box">{promptRow.prompt_text || 'No prompt text recorded.'}</pre>
+                        </article>
+                      ))
+                    ) : (
+                      <p>No image-generation prompts recorded for this word yet.</p>
+                    )}
+                  </div>
+                ) : null}
                 <div className="table-wrap runs-table-wrap">
                   <table>
                     <thead>

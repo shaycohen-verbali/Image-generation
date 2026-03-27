@@ -226,6 +226,10 @@ def _ensure_inventory_columns() -> None:
             existing = {row[1] for row in rows}
             if "has_person" not in existing:
                 conn.execute(text("ALTER TABLE word_inventory ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+            if "image_score" not in existing:
+                conn.execute(text("ALTER TABLE word_inventory ADD COLUMN image_score REAL"))
+            if "needs_person_attention" not in existing:
+                conn.execute(text("ALTER TABLE word_inventory ADD COLUMN needs_person_attention BOOLEAN NOT NULL DEFAULT 0"))
             for age in AGE_VALUES:
                 for gender in GENDER_VALUES:
                     for skin_color in SKIN_VALUES:
@@ -235,6 +239,8 @@ def _ensure_inventory_columns() -> None:
                                 conn.execute(text(f"ALTER TABLE word_inventory ADD COLUMN {column_name} TEXT NOT NULL DEFAULT ''"))
         else:
             conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS has_person TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS image_score DOUBLE PRECISION"))
+            conn.execute(text("ALTER TABLE word_inventory ADD COLUMN IF NOT EXISTS needs_person_attention BOOLEAN NOT NULL DEFAULT FALSE"))
             for age in AGE_VALUES:
                 for gender in GENDER_VALUES:
                     for skin_color in SKIN_VALUES:
