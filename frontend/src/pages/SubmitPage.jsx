@@ -54,6 +54,7 @@ export default function SubmitPage() {
   const [promptEngineerModel, setPromptEngineerModel] = useState('gpt-5.4')
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-5.4')
   const [stage3AnatomyCritiqueModel, setStage3AnatomyCritiqueModel] = useState('gpt-5.4')
+  const [stage3AccessibilityCritiqueModel, setStage3AccessibilityCritiqueModel] = useState('gpt-5.4')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
   const [variantCritiqueModel, setVariantCritiqueModel] = useState('gpt-5.4')
   const [variantCorrectionModel, setVariantCorrectionModel] = useState('nano-banana-2')
@@ -115,6 +116,11 @@ export default function SubmitPage() {
         }
         if (mounted && (config?.stage3_anatomy_critique_model || config?.stage3_critique_model || config?.openai_model_vision)) {
           setStage3AnatomyCritiqueModel(config.stage3_anatomy_critique_model || config.stage3_critique_model || config.openai_model_vision)
+        }
+        if (mounted && (config?.stage3_accessibility_critique_model || config?.stage3_anatomy_critique_model || config?.stage3_critique_model || config?.openai_model_vision)) {
+          setStage3AccessibilityCritiqueModel(
+            config.stage3_accessibility_critique_model || config.stage3_anatomy_critique_model || config.stage3_critique_model || config.openai_model_vision
+          )
         }
         if (mounted && config?.stage3_generate_model) {
           setStage3GenerateModel(config.stage3_generate_model)
@@ -359,6 +365,7 @@ export default function SubmitPage() {
       const updated = await updateConfig(updates)
       if (updated.stage3_critique_model) setStage3CritiqueModel(updated.stage3_critique_model)
       if (updated.stage3_anatomy_critique_model) setStage3AnatomyCritiqueModel(updated.stage3_anatomy_critique_model)
+      if (updated.stage3_accessibility_critique_model) setStage3AccessibilityCritiqueModel(updated.stage3_accessibility_critique_model)
       if (updated.stage3_generate_model) setStage3GenerateModel(updated.stage3_generate_model)
       if (updated.variant_critique_model) setVariantCritiqueModel(updated.variant_critique_model)
       if (updated.variant_correction_model) setVariantCorrectionModel(updated.variant_correction_model)
@@ -731,7 +738,7 @@ export default function SubmitPage() {
 
         <article className="card">
           <h2>Model Selection</h2>
-          <p>Choose models for Stage 3 critique, Stage 3.15 anatomy critique, Stage 3 upgraded image, the new variant review/correction steps, and Quality Gate scoring. Changes are saved automatically.</p>
+          <p>Choose models for Stage 3 critique, Stage 3.15 anatomy critique, Stage 3.16 simplicity critique, Stage 3 upgraded image, the new variant review/correction steps, and Quality Gate scoring. Changes are saved automatically.</p>
           <div className="form-grid submit-compact-form">
             <label>
               Stage 3.1 Vision Critique
@@ -761,6 +768,25 @@ export default function SubmitPage() {
                   setStage3AnatomyCritiqueModel(value)
                   setMessage('Saving Stage 3 anatomy critique model...')
                   saveModelConfig({ stage3_anatomy_critique_model: value }, `Saved Stage 3 anatomy critique model: ${value}`)
+                }}
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.4-nano">gpt-5.4-nano</option>
+                <option value="gemini-3-flash">Gemini-3-flash</option>
+                <option value="gemini-3-pro">Gemini-3-pro</option>
+              </select>
+            </label>
+            <label>
+              Stage 3.16 Simplicity Critique
+              <select
+                value={stage3AccessibilityCritiqueModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setStage3AccessibilityCritiqueModel(value)
+                  setMessage('Saving Stage 3 simplicity critique model...')
+                  saveModelConfig({ stage3_accessibility_critique_model: value }, `Saved Stage 3 simplicity critique model: ${value}`)
                 }}
               >
                 <option value="gpt-4o-mini">gpt-4o-mini</option>

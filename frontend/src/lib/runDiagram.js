@@ -37,6 +37,14 @@ const STAGE_DEFINITIONS = [
     retryPolicy: 'API retry + stage retry',
   },
   {
+    id: 'stage3_accessibility_critique',
+    label: 'Stage 3.16 Simplicity Critique',
+    provider: 'OpenAI Vision',
+    inputs: ['previous image', 'AAC accessibility lens'],
+    expected: ['simplicity_ok', 'issues', 'correction_recommendations', 'simplicity_problem'],
+    retryPolicy: 'API retry + stage retry',
+  },
+  {
     id: 'stage3_prompt_upgrade',
     label: 'Stage 3.2 Prompt Upgrade',
     provider: 'Prompt Engineer',
@@ -114,8 +122,9 @@ const FLOW_EDGES = [
   { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt + initial style guess', fromPort: 'right', toPort: 'left' },
   { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
   { from: 'stage3_critique', to: 'stage3_anatomy_critique', label: 'person/animal scenes', fromPort: 'bottom', toPort: 'top' },
-  { from: 'stage3_critique', to: 'stage3_prompt_upgrade', label: 'skip anatomy review', fromPort: 'right', toPort: 'left' },
-  { from: 'stage3_anatomy_critique', to: 'stage3_prompt_upgrade', label: 'add anatomy fixes', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_critique', to: 'stage3_accessibility_critique', label: 'always check simplicity', fromPort: 'right', toPort: 'left' },
+  { from: 'stage3_anatomy_critique', to: 'stage3_accessibility_critique', label: 'add anatomy fixes first', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_accessibility_critique', to: 'stage3_prompt_upgrade', label: 'add simplicity fixes', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt + resolved style', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
@@ -263,7 +272,7 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
     return asStageStatus(stageResult?.status)
   }
 
-  if (stageId === 'stage3_critique' || stageId === 'stage3_anatomy_critique' || stageId === 'stage3_prompt_upgrade' || stageId === 'stage3_generate') {
+  if (stageId === 'stage3_critique' || stageId === 'stage3_anatomy_critique' || stageId === 'stage3_accessibility_critique' || stageId === 'stage3_prompt_upgrade' || stageId === 'stage3_generate') {
     if (run.status === 'running' && run.current_stage === 'stage3_upgrade' && attempt === currentAttempt && !stageResult) {
       return 'running'
     }
@@ -379,6 +388,14 @@ function anatomyCritiqueTemplate(ctx) {
   )
 }
 
+function accessibilityCritiqueTemplate(ctx) {
+  return (
+    'You are an AAC accessibility reviewer for children and users with special needs. Return STRICT JSON with keys ' +
+    '{"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. ' +
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+  )
+}
+
 function variantCritiqueTemplate(ctx) {
   return (
     'Critique the generated variant image for target-profile clothing/styling correctness. Return STRICT JSON with keys ' +
@@ -452,6 +469,13 @@ function aiInstructionForStage({
     return {
       text: anatomyCritiqueTemplate(stage1Context),
       source: 'backend prompt template (OpenAIClient.analyze_image_anatomy)',
+    }
+  }
+
+  if (stageId === 'stage3_accessibility_critique') {
+    return {
+      text: accessibilityCritiqueTemplate(stage1Context),
+      source: 'backend prompt template (OpenAIClient.analyze_image_accessibility)',
     }
   }
 
@@ -627,6 +651,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage2Result = stageIndex.get(makeKey('stage2_draft', 0))
   const stage3Result = stageIndex.get(makeKey('stage3_upgrade', attempt))
   const stage3AnatomyResult = stageIndex.get(makeKey('stage3_anatomy_critique', attempt))
+  const stage3AccessibilityResult = stageIndex.get(makeKey('stage3_accessibility_critique', attempt))
   const qualityResult = stageIndex.get(makeKey('quality_gate', attempt))
   const stage4Result = stageIndex.get(makeKey('stage4_background', attempt))
   const stage4VariantResult = stageIndex.get(makeKey('stage4_variant_generate', attempt))
@@ -717,6 +742,17 @@ export function buildRunDiagram(detail, selectedAttempt) {
       responsePayload: safeObject(stage3AnatomyResult?.response_json),
       asset: stage2Asset || null,
       model: safeText(safeObject(stage3AnatomyResult?.request_json).anatomy_critique_model_selected) || 'gpt-5.4',
+      score: null,
+      attempt,
+    },
+    {
+      id: 'stage3_accessibility_critique',
+      stageResult: stage3AccessibilityResult,
+      promptRecord: null,
+      requestPayload: safeObject(stage3AccessibilityResult?.request_json),
+      responsePayload: safeObject(stage3AccessibilityResult?.response_json),
+      asset: stage2Asset || null,
+      model: safeText(safeObject(stage3AccessibilityResult?.request_json).accessibility_critique_model_selected) || 'gpt-5.4',
       score: null,
       attempt,
     },

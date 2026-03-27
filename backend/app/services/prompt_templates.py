@@ -407,6 +407,23 @@ def build_stage3_anatomy_recommendations(anatomy_analysis: dict[str, str] | None
     return " ".join(parts).strip()
 
 
+def build_stage3_accessibility_recommendations(accessibility_analysis: dict[str, str] | None) -> str:
+    analysis = accessibility_analysis or {}
+    issues = str(analysis.get("issues") or "").strip()
+    recommendations = str(analysis.get("correction_recommendations") or "").strip()
+    problem = str(analysis.get("simplicity_problem") or "").strip()
+    if not any([issues, recommendations, problem]):
+        return ""
+    parts = []
+    if problem and problem != "none":
+        parts.append(f"Simplicity issue: {problem}.")
+    if issues:
+        parts.append(f"Observed simplicity/accessibility problems: {issues}.")
+    if recommendations:
+        parts.append(f"Accessibility fixes: {recommendations}.")
+    return " ".join(parts).strip()
+
+
 def build_stage3_anatomy_critique_prompt(
     *,
     word: str,
@@ -425,6 +442,23 @@ def build_stage3_anatomy_critique_prompt(
         "Focus on extra limbs, missing limbs, detached or stray body parts, half bodies, random legs or arms, and comparable anatomy errors for animals. "
         "If the image is anatomically clean, return anatomy_ok=yes and body_integrity_problem=none. "
         "Keep the recommendations short and actionable."
+    )
+
+
+def build_stage3_accessibility_critique_prompt(
+    *,
+    word: str,
+    part_of_sentence: str,
+    category: str,
+) -> str:
+    return (
+        "You are an AAC accessibility reviewer for children and users with special needs. Analyze whether the image is simple, easy to understand, and not visually busy. "
+        'Return STRICT JSON with keys {"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", '
+        '"simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. '
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        "Focus on whether the image has one clear focal subject, low clutter, a readable silhouette, and minimal distractions. "
+        "Recommend only simple, local changes that preserve the same concept and scene intent. "
+        "If the image is already simple and AAC-friendly, return simplicity_ok=yes and simplicity_problem=none."
     )
 
 

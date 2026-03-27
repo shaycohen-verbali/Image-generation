@@ -143,6 +143,7 @@ class RunOut(BaseModel):
     current_stage: str
     quality_score: float | None
     quality_threshold: int
+    needs_person_attention: bool = False
     optimization_attempt: int
     max_optimization_attempts: int
     technical_retry_count: int
@@ -442,6 +443,7 @@ class RuntimeConfigOut(BaseModel):
     openai_model_vision: str
     stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
+    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
     variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
@@ -474,6 +476,7 @@ class RuntimeConfigUpdate(BaseModel):
     openai_model_vision: str | None = None
     stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
+    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
     variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None

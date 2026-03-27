@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     openai_model_vision: str = Field(default="gpt-5.4", alias="OPENAI_MODEL_VISION")
     stage3_critique_model: str = Field(default="gpt-5.4", alias="STAGE3_CRITIQUE_MODEL")
     stage3_anatomy_critique_model: str = Field(default="gpt-5.4", alias="STAGE3_ANATOMY_CRITIQUE_MODEL")
+    stage3_accessibility_critique_model: str = Field(default="gpt-5.4", alias="STAGE3_ACCESSIBILITY_CRITIQUE_MODEL")
     stage3_generate_model: str = Field(default="nano-banana-2", alias="STAGE3_GENERATE_MODEL")
     variant_critique_model: str = Field(default="gpt-5.4", alias="VARIANT_CRITIQUE_MODEL")
     variant_correction_model: str = Field(default="nano-banana-2", alias="VARIANT_CORRECTION_MODEL")

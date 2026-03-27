@@ -64,6 +64,12 @@ def init_db() -> None:
                     stage3_anatomy_critique_model=normalize_vision_model(
                         settings.stage3_anatomy_critique_model or settings.stage3_critique_model or settings.openai_model_vision
                     ),
+                    stage3_accessibility_critique_model=normalize_vision_model(
+                        settings.stage3_accessibility_critique_model
+                        or settings.stage3_anatomy_critique_model
+                        or settings.stage3_critique_model
+                        or settings.openai_model_vision
+                    ),
                     stage3_generate_model=normalize_stage3_generation_model(settings.stage3_generate_model),
                     variant_critique_model=normalize_vision_model(
                         settings.variant_critique_model or settings.stage3_critique_model or settings.openai_model_vision
@@ -120,6 +126,11 @@ def init_db() -> None:
             existing.stage3_anatomy_critique_model = normalize_vision_model(
                 getattr(existing, "stage3_anatomy_critique_model", existing.stage3_critique_model) or existing.stage3_critique_model
             )
+            existing.stage3_accessibility_critique_model = normalize_vision_model(
+                getattr(existing, "stage3_accessibility_critique_model", existing.stage3_anatomy_critique_model)
+                or existing.stage3_anatomy_critique_model
+                or existing.stage3_critique_model
+            )
             existing.variant_critique_model = normalize_vision_model(
                 getattr(existing, "variant_critique_model", existing.stage3_critique_model) or existing.stage3_critique_model
             )
@@ -146,6 +157,8 @@ def _ensure_runtime_config_columns() -> None:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "stage3_anatomy_critique_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "stage3_accessibility_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "stage3_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
             if "variant_critique_model" not in existing:
@@ -183,6 +196,7 @@ def _ensure_runtime_config_columns() -> None:
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS max_variant_workers INTEGER NOT NULL DEFAULT 2"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             conn.execute(text("ALTER TABLE runtime_config ADD COLUMN IF NOT EXISTS variant_correction_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))

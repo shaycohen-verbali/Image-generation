@@ -17,6 +17,8 @@ from app.services.openai_client import AssistantRunFailedError, OpenAIClient
 from app.services.person_profiles import profile_edit_instruction, profile_key, profile_prompt_fragment, variant_branch_plan
 from app.services.prompt_templates import (
     apply_render_decision_to_prompt,
+    build_stage3_accessibility_critique_prompt,
+    build_stage3_accessibility_recommendations,
     build_stage3_anatomy_critique_prompt,
     build_stage3_anatomy_recommendations,
     build_stage1_prompt,
@@ -1321,6 +1323,7 @@ class PipelineRunner:
         runtime_config = self.repo.get_runtime_config()
         critique_model = runtime_config.stage3_critique_model
         anatomy_critique_model = runtime_config.stage3_anatomy_critique_model
+        accessibility_critique_model = runtime_config.stage3_accessibility_critique_model
         stage1_prompt = self._latest_prompt(run.id, "stage1_prompt")
         latest_stage3 = self._latest_stage_result(run.id, "stage3_upgrade")
         latest_stage3_response = json.loads(latest_stage3.response_json) if latest_stage3 and latest_stage3.response_json else {}
@@ -1338,6 +1341,7 @@ class PipelineRunner:
                 "source_asset": critique_source_asset.abs_path,
                 "critique_model": critique_model,
                 "anatomy_critique_model": anatomy_critique_model,
+                "accessibility_critique_model": accessibility_critique_model,
                 "initial_need_person": current_need_person,
                 "current_render_style_mode": current_render_style_mode,
             },
@@ -1406,6 +1410,45 @@ class PipelineRunner:
                 },
                 idempotency_key=f"{run.id}:stage3_anatomy_critique:{attempt}",
             )
+        accessibility_prompt_text = build_stage3_accessibility_critique_prompt(
+            word=entry.word,
+            part_of_sentence=entry.part_of_sentence,
+            category=entry.category,
+        )
+        accessibility_analysis, accessibility_analysis_raw = self.openai.analyze_image_accessibility(
+            critique_path,
+            word=entry.word,
+            part_of_sentence=entry.part_of_sentence,
+            category=entry.category,
+            model=accessibility_critique_model,
+        )
+        self.repo.add_prompt(
+            run_id=run.id,
+            stage_name="stage3_accessibility_critique",
+            attempt=attempt,
+            prompt_text=accessibility_prompt_text,
+            needs_person=current_need_person,
+            source="accessibility_critique",
+            raw_response_json={
+                "analysis": accessibility_analysis,
+                "analysis_raw": accessibility_analysis_raw,
+            },
+        )
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage3_accessibility_critique",
+            attempt=attempt,
+            status="ok",
+            request_json={
+                "source_asset": critique_source_asset.abs_path,
+                "accessibility_critique_model_selected": accessibility_critique_model,
+            },
+            response_json={
+                "analysis": accessibility_analysis,
+                "analysis_raw": accessibility_analysis_raw,
+            },
+            idempotency_key=f"{run.id}:stage3_accessibility_critique:{attempt}",
+        )
 
         previous_prompt = self._latest_prompt(run.id, "stage3_upgrade") or self._latest_prompt(run.id, "stage1_prompt")
         if previous_prompt is None:
@@ -1425,6 +1468,9 @@ class PipelineRunner:
         anatomy_recommendations = build_stage3_anatomy_recommendations(anatomy_analysis)
         if anatomy_recommendations:
             recommendations = f"{recommendations}\n{anatomy_recommendations}".strip()
+        accessibility_recommendations = build_stage3_accessibility_recommendations(accessibility_analysis)
+        if accessibility_recommendations:
+            recommendations = f"{recommendations}\n{accessibility_recommendations}".strip()
         if previous_score_explanation:
             recommendations = f"{recommendations}\nPrevious score feedback: {previous_score_explanation}"
 
@@ -1457,6 +1503,7 @@ class PipelineRunner:
                 "upgrade_prompt_request": upgrade_request,
                 "critique_model_selected": critique_model,
                 "anatomy_critique_model_selected": anatomy_critique_model,
+                "accessibility_critique_model_selected": accessibility_critique_model,
                 **(exc.request_json or {}),
             }
             exc.response_json = {
@@ -1464,6 +1511,8 @@ class PipelineRunner:
                 "analysis_raw": analysis_raw,
                 "anatomy_analysis": anatomy_analysis,
                 "anatomy_analysis_raw": anatomy_analysis_raw,
+                "accessibility_analysis": accessibility_analysis,
+                "accessibility_analysis_raw": accessibility_analysis_raw,
                 **(exc.response_json or {}),
             }
             raise
@@ -1507,6 +1556,8 @@ class PipelineRunner:
                 "analysis_raw": analysis_raw,
                 "anatomy_analysis": anatomy_analysis,
                 "anatomy_analysis_raw": anatomy_analysis_raw,
+                "accessibility_analysis": accessibility_analysis,
+                "accessibility_analysis_raw": accessibility_analysis_raw,
                 "decision": enforced_decision,
                 "original_prompt_text": upgraded_prompt,
                 "enforced_prompt_text": enforced_upgraded_prompt,
@@ -1626,6 +1677,7 @@ class PipelineRunner:
                 "visual_style_prompt_block": runtime_config.visual_style_prompt_block,
                 "critique_model_selected": critique_model,
                 "anatomy_critique_model_selected": anatomy_critique_model,
+                "accessibility_critique_model_selected": accessibility_critique_model,
                 "generation_model_selected": selected_stage3_model,
                 "generation_client": generation_client,
                 "initial_need_person": current_need_person,
@@ -1641,6 +1693,8 @@ class PipelineRunner:
                 "analysis_raw": analysis_raw,
                 "anatomy_analysis": anatomy_analysis,
                 "anatomy_analysis_raw": anatomy_analysis_raw,
+                "accessibility_analysis": accessibility_analysis,
+                "accessibility_analysis_raw": accessibility_analysis_raw,
                 "prompt_engineer": {"parsed": parsed, "raw": raw, "mode": runtime_config.prompt_engineer_mode},
                 "generation": flux_result,
                 "generation_model": model_name,

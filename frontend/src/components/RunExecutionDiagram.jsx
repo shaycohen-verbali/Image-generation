@@ -46,6 +46,7 @@ function prettyStage(stage) {
   if (stage === 'stage2_draft') return 'Stage 2: Draft image'
   if (stage === 'stage3_upgrade') return 'Stage 3: Improve + generate'
   if (stage === 'stage3_anatomy_critique') return 'Stage 3.15: Anatomy critique'
+  if (stage === 'stage3_accessibility_critique') return 'Stage 3.16: Simplicity critique'
   if (stage === 'quality_gate') return 'Quality check'
   if (stage === 'stage4_background') return 'Stage 4: White background'
   if (stage === 'stage4_variant_generate') return 'Stage 5-8: Variant finals'
@@ -1255,8 +1256,9 @@ export default function RunExecutionDiagram({
       stage2_draft: { x: 380, y: 235 },
       stage3_critique: { x: 760, y: 20 },
       stage3_anatomy_critique: { x: 760, y: 170 },
-      stage3_prompt_upgrade: { x: 760, y: 320 },
-      stage3_generate: { x: 760, y: 470 },
+      stage3_accessibility_critique: { x: 760, y: 320 },
+      stage3_prompt_upgrade: { x: 760, y: 470 },
+      stage3_generate: { x: 760, y: 620 },
       quality_gate: { x: 1160, y: 235 },
       stage4_background: { x: 1540, y: 120 },
       stage4_variant_generate: { x: 1910, y: 40 },
@@ -1269,6 +1271,7 @@ export default function RunExecutionDiagram({
     const badge =
       node.id === 'stage3_critique' ||
       node.id === 'stage3_anatomy_critique' ||
+      node.id === 'stage3_accessibility_critique' ||
       node.id === 'stage3_prompt_upgrade' ||
       node.id === 'stage3_generate' ||
       node.id === 'quality_gate' ||

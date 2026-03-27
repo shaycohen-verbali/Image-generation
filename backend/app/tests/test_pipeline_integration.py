@@ -29,6 +29,9 @@ class MockOpenAI:
     def analyze_image_anatomy(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str, **_kwargs):
         return {"anatomy_ok": "yes", "issues": "", "correction_recommendations": "", "body_integrity_problem": "none"}, {"raw_text": "ok"}
 
+    def analyze_image_accessibility(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str):
+        return {"simplicity_ok": "yes", "issues": "", "correction_recommendations": "", "simplicity_problem": "none"}, {"raw_text": "ok"}
+
     def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         self._upgrade_idx += 1
         return {"upgraded prompt": f"upgraded prompt {self._upgrade_idx}"}, {"raw_text": "ok"}
@@ -113,6 +116,14 @@ class AnatomyAndCorrectionOpenAI(PersonVariantOpenAI):
             "issues": "extra limb",
             "correction_recommendations": "fix the anatomy and remove the extra limb",
             "body_integrity_problem": "extra_limbs",
+        }, {"raw_text": "ok"}
+
+    def analyze_image_accessibility(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str):
+        return {
+            "simplicity_ok": "no",
+            "issues": "too many distracting action details around the main subject",
+            "correction_recommendations": "reduce extra props and keep one clear focal action",
+            "simplicity_problem": "visual_overload",
         }, {"raw_text": "ok"}
 
     def critique_variant_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, target_profile: str, source_profile: str, model: str):
@@ -685,6 +696,30 @@ def test_stage3_anatomy_critique_runs_when_person_or_animal_is_present(db_sessio
     assert anatomy_stage.status == "ok"
     assert anatomy_response["analysis"]["body_integrity_problem"] == "extra_limbs"
     assert stage3_prompt_raw["anatomy_analysis"]["body_integrity_problem"] == "extra_limbs"
+
+
+def test_stage3_accessibility_critique_runs_and_feeds_stage3_prompt(db_session):
+    run = _create_variant_run(db_session)
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=AnatomyAndCorrectionOpenAI(scores=[98]),
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    repo = Repository(db_session)
+    _, stages, prompts, _, _ = repo.run_details(run.id)
+    accessibility_stage = next(stage for stage in stages if stage.stage_name == "stage3_accessibility_critique")
+    accessibility_response = json.loads(accessibility_stage.response_json)
+    stage3_prompt = next(prompt for prompt in prompts if prompt.stage_name == "stage3_upgrade")
+    stage3_prompt_raw = json.loads(stage3_prompt.raw_response_json)
+
+    assert accessibility_stage.status == "ok"
+    assert accessibility_response["analysis"]["simplicity_problem"] == "visual_overload"
+    assert stage3_prompt_raw["accessibility_analysis"]["simplicity_problem"] == "visual_overload"
 
 
 def test_variant_critique_and_single_correction_are_recorded(db_session):

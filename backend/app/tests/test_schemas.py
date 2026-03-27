@@ -53,6 +53,12 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
         assert True
 
     try:
+        RuntimeConfigUpdate(stage3_accessibility_critique_model="unknown-model")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
         RuntimeConfigUpdate(variant_critique_model="unknown-model")
         assert False, "expected ValidationError"
     except ValidationError:
@@ -73,8 +79,13 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
 def test_runtime_config_update_accepts_gpt54_for_stage3_critique() -> None:
     config = RuntimeConfigUpdate(stage3_critique_model="gpt-5.4")
     assert config.stage3_critique_model == "gpt-5.4"
-    config = RuntimeConfigUpdate(stage3_anatomy_critique_model="gpt-5.4", variant_critique_model="gpt-5.4")
+    config = RuntimeConfigUpdate(
+        stage3_anatomy_critique_model="gpt-5.4",
+        stage3_accessibility_critique_model="gpt-5.4",
+        variant_critique_model="gpt-5.4",
+    )
     assert config.stage3_anatomy_critique_model == "gpt-5.4"
+    assert config.stage3_accessibility_critique_model == "gpt-5.4"
     assert config.variant_critique_model == "gpt-5.4"
 
 
@@ -83,12 +94,14 @@ def test_runtime_config_update_accepts_new_gpt54_mini_and_nano_models() -> None:
         responses_prompt_engineer_model="gpt-5.4-mini",
         stage3_critique_model="gpt-5.4-mini",
         stage3_anatomy_critique_model="gpt-5.4-nano",
+        stage3_accessibility_critique_model="gpt-5.4",
         variant_critique_model="gpt-5.4-mini",
         quality_gate_model="gpt-5.4-nano",
     )
     assert config.responses_prompt_engineer_model == "gpt-5.4-mini"
     assert config.stage3_critique_model == "gpt-5.4-mini"
     assert config.stage3_anatomy_critique_model == "gpt-5.4-nano"
+    assert config.stage3_accessibility_critique_model == "gpt-5.4"
     assert config.variant_critique_model == "gpt-5.4-mini"
     assert config.quality_gate_model == "gpt-5.4-nano"
 

@@ -60,6 +60,16 @@ function summarizeNode(node) {
     ]
   }
 
+  if (node.id === 'stage3_accessibility_critique') {
+    const analysis = response.analysis || response
+    return [
+      ['Simplicity OK', analysis.simplicity_ok || '-'],
+      ['Problem type', analysis.simplicity_problem || '-'],
+      ['Issues', analysis.issues || '-'],
+      ['Correction recommendations', analysis.correction_recommendations || '-'],
+    ]
+  }
+
   if (node.id === 'stage3_prompt_upgrade') {
     const parsed = response.parsed || response.prompt_engineer?.parsed || {}
     return [

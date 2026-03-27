@@ -64,6 +64,7 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
     config = repo.update_runtime_config(
         {
             "stage3_critique_model": "gpt-40-mini",
+            "stage3_accessibility_critique_model": "unknown-model",
             "stage3_generate_model": "bad-model-name",
             "quality_gate_model": "gemini-3-pro",
             "prompt_engineer_mode": "not-real",
@@ -73,6 +74,7 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
         }
     )
     assert config.stage3_critique_model == "gpt-4o-mini"
+    assert config.stage3_accessibility_critique_model == "gpt-4o-mini"
     assert config.stage3_generate_model == "nano-banana-2"
     assert config.quality_gate_model == "gemini-3-pro"
     assert config.prompt_engineer_mode == "responses_api"

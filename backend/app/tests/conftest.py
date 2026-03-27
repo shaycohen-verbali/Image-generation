@@ -56,6 +56,7 @@ def db_session(tmp_path: Path):
                 stage1_prompt_template=DEFAULT_STAGE1_PROMPT_TEMPLATE,
                 stage3_prompt_template=DEFAULT_STAGE3_PROMPT_TEMPLATE,
                 stage3_critique_model="gpt-4o-mini",
+                stage3_accessibility_critique_model="gpt-5.4",
                 stage3_generate_model="nano-banana-2",
                 quality_gate_model="gpt-4o-mini",
                 openai_model_vision="gpt-4o-mini",

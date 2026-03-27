@@ -101,6 +101,17 @@ function csvPrettyStatus(status) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
+function formatQualityScore(score) {
+  if (score === undefined || score === null || score === '') return '-'
+  const numeric = Number(score)
+  if (Number.isNaN(numeric)) return '-'
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1)
+}
+
+function personAttentionLabel(needsAttention) {
+  return needsAttention ? 'Needs review' : 'No'
+}
+
 function csvProfileSummary(profileKey) {
   const [gender, age, skinColor] = String(profileKey || '').split(':')
   return [age, gender, skinColor].filter(Boolean).join(' ')
@@ -1092,8 +1103,10 @@ export default function RunsPage() {
                       <th>Category</th>
                       <th>Profile</th>
                       <th>Status</th>
+                      <th>Score</th>
                       <th>Progress</th>
                       <th>Current step</th>
+                      <th>Needs person attention?</th>
                       <th>Person?</th>
                     </tr>
                   </thead>
@@ -1117,8 +1130,10 @@ export default function RunsPage() {
                             <span>{item.sub_status || '-'}</span>
                           </div>
                         </td>
+                        <td>{formatQualityScore(item.quality_score)}</td>
                         <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
                         <td>{item.current_step || '-'}</td>
+                        <td>{personAttentionLabel(Boolean(item.needs_person_attention))}</td>
                         <td>{item.has_person === 'yes' ? 'Yes' : item.has_person === 'no' ? 'No' : '-'}</td>
                       </tr>
                     ))}
@@ -1133,6 +1148,7 @@ export default function RunsPage() {
                       <th>Category</th>
                       <th>Status</th>
                       <th>Score</th>
+                      <th>Needs person attention?</th>
                       <th>Attempt</th>
                       <th>Est. cost</th>
                       <th>Est. avg / image</th>
@@ -1152,7 +1168,8 @@ export default function RunsPage() {
                         <td>{run.part_of_sentence || '-'}</td>
                         <td>{run.category || '-'}</td>
                         <td>{run.status}</td>
-                        <td>{run.quality_score ?? '-'}</td>
+                        <td>{formatQualityScore(run.quality_score)}</td>
+                        <td>{personAttentionLabel(Boolean(run.needs_person_attention))}</td>
                         <td>{run.optimization_attempt}</td>
                         <td>{typeof run.estimated_total_cost_usd === 'number' ? `$${Number(run.estimated_total_cost_usd).toFixed(4)}` : '-'}</td>
                         <td>{run.estimated_cost_per_image_usd != null ? `$${Number(run.estimated_cost_per_image_usd).toFixed(4)}` : '-'}</td>

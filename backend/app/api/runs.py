@@ -100,6 +100,11 @@ def _run_out(run, entry, *, cost_summary: dict | None = None) -> RunOut:
     cost_summary = cost_summary or {}
     batch = entry.batch if entry else ""
     batch_job = None
+    needs_person_attention = (
+        run.quality_score is not None
+        and run.quality_threshold is not None
+        and float(run.quality_score) < float(run.quality_threshold)
+    )
     if cost_summary.get("batch_job"):
         batch_job = BatchJobSummaryOut(**cost_summary["batch_job"])
     return RunOut(
@@ -114,6 +119,7 @@ def _run_out(run, entry, *, cost_summary: dict | None = None) -> RunOut:
         current_stage=run.current_stage,
         quality_score=run.quality_score,
         quality_threshold=run.quality_threshold,
+        needs_person_attention=needs_person_attention,
         optimization_attempt=run.optimization_attempt,
         max_optimization_attempts=run.max_optimization_attempts,
         technical_retry_count=run.technical_retry_count,

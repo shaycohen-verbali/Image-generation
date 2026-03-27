@@ -288,6 +288,7 @@ class RuntimeConfig(Base):
     stage3_prompt_template: Mapped[str] = mapped_column(Text, default="", nullable=False)
     stage3_critique_model: Mapped[str] = mapped_column(String(128), default="gpt-5.4", nullable=False)
     stage3_anatomy_critique_model: Mapped[str] = mapped_column(String(128), default="gpt-5.4", nullable=False)
+    stage3_accessibility_critique_model: Mapped[str] = mapped_column(String(128), default="gpt-5.4", nullable=False)
     stage3_generate_model: Mapped[str] = mapped_column(String(128), default="nano-banana-2", nullable=False)
     variant_critique_model: Mapped[str] = mapped_column(String(128), default="gpt-5.4", nullable=False)
     variant_correction_model: Mapped[str] = mapped_column(String(128), default="nano-banana-2", nullable=False)

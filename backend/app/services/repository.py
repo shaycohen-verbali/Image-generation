@@ -111,6 +111,8 @@ class Repository:
             legacy_model = normalize_vision_model(config.openai_model_vision)
             if updates.get("stage3_critique_model") is None:
                 config.stage3_critique_model = legacy_model
+            if updates.get("stage3_accessibility_critique_model") is None:
+                config.stage3_accessibility_critique_model = legacy_model
             if updates.get("quality_gate_model") is None:
                 config.quality_gate_model = legacy_model
         config.responses_prompt_engineer_model = normalize_prompt_engineer_model(config.responses_prompt_engineer_model)
@@ -123,6 +125,9 @@ class Repository:
         config.stage3_critique_model = normalize_vision_model(config.stage3_critique_model)
         config.stage3_anatomy_critique_model = normalize_vision_model(
             getattr(config, "stage3_anatomy_critique_model", config.stage3_critique_model)
+        )
+        config.stage3_accessibility_critique_model = normalize_vision_model(
+            getattr(config, "stage3_accessibility_critique_model", config.stage3_anatomy_critique_model)
         )
         config.stage3_generate_model = normalize_stage3_generation_model(config.stage3_generate_model)
         config.variant_critique_model = normalize_vision_model(
