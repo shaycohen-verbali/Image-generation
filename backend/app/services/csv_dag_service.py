@@ -1079,6 +1079,7 @@ class CsvDagService:
         items_payload: list[dict[str, Any]] = []
         word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0}
         total_estimated_cost_usd = 0.0
+        provider_breakdown = {"google": 0.0, "replicate": 0.0, "openai": 0.0}
         for item in overview["items"]:
             entry = entries_by_id.get(item.entry_id)
             shadow_run = runs_by_id.get(item.shadow_run_id) if item.shadow_run_id else None
@@ -1095,6 +1096,9 @@ class CsvDagService:
             )
             if estimated_item_cost is not None:
                 total_estimated_cost_usd += estimated_item_cost
+                for provider_name, provider_cost in (cost_summary.get("provider_breakdown") or {}).items():
+                    if provider_name in provider_breakdown:
+                        provider_breakdown[provider_name] += float(provider_cost or 0.0)
             available_profiles = available_profiles_by_entry.get(item.entry_id, []) if entry else []
             word_counts[item_progress["main_status"]] += 1
             items_payload.append(
@@ -1120,6 +1124,11 @@ class CsvDagService:
                         and float(shadow_run.quality_score) < float(shadow_run.quality_threshold)
                     ),
                     "estimated_total_cost_usd": round(estimated_item_cost, 6) if estimated_item_cost is not None else None,
+                    "provider_breakdown": {
+                        key: round(float(value or 0.0), 6)
+                        for key, value in (cost_summary.get("provider_breakdown") or {}).items()
+                        if key in {"google", "replicate", "openai"}
+                    } if estimated_item_cost is not None else {},
                     "base_regular_asset_id": item.base_regular_asset_id,
                     "base_white_bg_asset_id": item.base_white_bg_asset_id,
                     "main_status": item_progress["main_status"],
@@ -1169,6 +1178,9 @@ class CsvDagService:
             "word_counts": word_counts,
             "requested_profile_history": self._requested_profile_history(job),
             "estimated_total_cost_usd": round(total_estimated_cost_usd, 6) if total_estimated_cost_usd > 0 else None,
+            "provider_breakdown": {
+                key: round(value, 6) for key, value in provider_breakdown.items()
+            },
             "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }

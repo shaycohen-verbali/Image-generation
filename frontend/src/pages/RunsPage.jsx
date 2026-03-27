@@ -115,6 +115,15 @@ function formatUsd(value) {
   return `$${numeric.toFixed(4)}`
 }
 
+function normalizeProviderBreakdown(breakdown) {
+  const source = breakdown && typeof breakdown === 'object' ? breakdown : {}
+  return {
+    google: Number(source.google || 0),
+    replicate: Number(source.replicate || 0),
+    openai: Number(source.openai || 0),
+  }
+}
+
 function personAttentionLabel(needsAttention) {
   return needsAttention ? 'Needs review' : 'No'
 }
@@ -606,6 +615,17 @@ export default function RunsPage() {
       }),
     [csvShadowRunDetail]
   )
+  const csvJobProviderBreakdown = useMemo(
+    () => normalizeProviderBreakdown(csvJobOverview?.provider_breakdown),
+    [csvJobOverview]
+  )
+  const csvJobHasProviderCost = csvJobOverview?.estimated_total_cost_usd != null
+  const csvSelectedItemProviderBreakdown = useMemo(
+    () => normalizeProviderBreakdown(csvShadowRunDetail?.cost_summary?.provider_breakdown || selectedCsvItem?.provider_breakdown),
+    [csvShadowRunDetail, selectedCsvItem]
+  )
+  const csvSelectedItemHasProviderCost =
+    selectedCsvItem?.estimated_total_cost_usd != null || csvShadowRunDetail?.cost_summary?.estimated_total_cost_usd != null
   const selectedCsvItemProgress = selectedCsvItem || null
   const selectedCsvItemImages = useMemo(
     () => csvCombinedImages(selectedCsvItem, selectedCsvItemTasks),
@@ -1450,6 +1470,30 @@ export default function RunsPage() {
               <p className="config-help-text">
                 Click a status chip to filter the word list on the first floor.
               </p>
+              <div className="table-wrap runs-table-wrap" style={{ marginBottom: 16 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Estimated cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Google</td>
+                      <td>{csvJobHasProviderCost ? formatUsd(csvJobProviderBreakdown.google) : '-'}</td>
+                    </tr>
+                    <tr>
+                      <td>Replicate</td>
+                      <td>{csvJobHasProviderCost ? formatUsd(csvJobProviderBreakdown.replicate) : '-'}</td>
+                    </tr>
+                    <tr>
+                      <td>OpenAI</td>
+                      <td>{csvJobHasProviderCost ? formatUsd(csvJobProviderBreakdown.openai) : '-'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
               <div className="csv-request-history">
                 <div>
                   <strong>Current requested variants</strong>
@@ -1695,6 +1739,30 @@ export default function RunsPage() {
                       <tr>
                         <td>Base white background</td>
                         <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_white_bg_asset_id)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="table-wrap runs-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Provider</th>
+                        <th>Estimated cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Google</td>
+                        <td>{csvSelectedItemHasProviderCost ? formatUsd(csvSelectedItemProviderBreakdown.google) : '-'}</td>
+                      </tr>
+                      <tr>
+                        <td>Replicate</td>
+                        <td>{csvSelectedItemHasProviderCost ? formatUsd(csvSelectedItemProviderBreakdown.replicate) : '-'}</td>
+                      </tr>
+                      <tr>
+                        <td>OpenAI</td>
+                        <td>{csvSelectedItemHasProviderCost ? formatUsd(csvSelectedItemProviderBreakdown.openai) : '-'}</td>
                       </tr>
                     </tbody>
                   </table>

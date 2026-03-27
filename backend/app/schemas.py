@@ -347,6 +347,7 @@ class CsvJobItemOut(BaseModel):
     quality_threshold: int | None = None
     needs_person_attention: bool = False
     estimated_total_cost_usd: float | None = None
+    provider_breakdown: dict[str, float] = Field(default_factory=dict)
     base_regular_asset_id: str | None = None
     base_white_bg_asset_id: str | None = None
     main_status: str = "pending"
@@ -372,6 +373,7 @@ class CsvJobOverviewOut(BaseModel):
     word_counts: dict[str, int] = Field(default_factory=dict)
     requested_profile_history: list[dict[str, Any]] = Field(default_factory=list)
     estimated_total_cost_usd: float | None = None
+    provider_breakdown: dict[str, float] = Field(default_factory=dict)
     export_ready: bool = False
     export_id: str | None = None
 

@@ -499,6 +499,11 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         )
         total += estimated_cost_usd
 
+    provider_breakdown = {
+        "google": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in stage_costs if str(entry.get("provider") or "") == "google"), 6),
+        "replicate": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in stage_costs if str(entry.get("provider") or "") == "replicate"), 6),
+        "openai": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in stage_costs if str(entry.get("provider") or "") == "openai"), 6),
+    }
     image_count = len(asset_list)
     avg = total / image_count if image_count > 0 else None
     return {
@@ -506,5 +511,6 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         "estimated_cost_per_image_usd": round(avg, 6) if avg is not None else None,
         "image_count": image_count,
         "stage_costs": stage_costs,
-        "estimate_note": "Estimated from official OpenAI, Gemini, and Google Imagen pricing checked on 2026-03-09. Replicate-wrapped image steps are mapped to the closest published provider pricing, not invoice totals.",
+        "provider_breakdown": provider_breakdown,
+        "estimate_note": "Estimated from official OpenAI, Gemini, and Google Imagen pricing checked on 2026-03-27. Replicate-wrapped image steps are mapped to the closest published provider pricing, not invoice totals.",
     }
