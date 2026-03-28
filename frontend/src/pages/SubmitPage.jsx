@@ -380,6 +380,8 @@ export default function SubmitPage() {
       if (updated.stage3_anatomy_critique_model) setStage3AnatomyCritiqueModel(updated.stage3_anatomy_critique_model)
       if (updated.stage3_accessibility_critique_model) setStage3AccessibilityCritiqueModel(updated.stage3_accessibility_critique_model)
       if (updated.stage3_generate_model) setStage3GenerateModel(updated.stage3_generate_model)
+      if (updated.post_quality_accessibility_critique_model) setPostQualityAccessibilityCritiqueModel(updated.post_quality_accessibility_critique_model)
+      if (updated.post_quality_accessibility_generate_model) setPostQualityAccessibilityGenerateModel(updated.post_quality_accessibility_generate_model)
       if (updated.variant_critique_model) setVariantCritiqueModel(updated.variant_critique_model)
       if (updated.variant_correction_model) setVariantCorrectionModel(updated.variant_correction_model)
       if (updated.quality_gate_model) setQualityGateModel(updated.quality_gate_model)
@@ -768,8 +770,8 @@ export default function SubmitPage() {
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                <option value="gemini-3-flash">Gemini-3-flash</option>
-                <option value="gemini-3-pro">Gemini-3-pro</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
               </select>
             </label>
             <label>
@@ -787,8 +789,8 @@ export default function SubmitPage() {
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                <option value="gemini-3-flash">Gemini-3-flash</option>
-                <option value="gemini-3-pro">Gemini-3-pro</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
               </select>
             </label>
             <label>
@@ -801,8 +803,8 @@ export default function SubmitPage() {
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                <option value="gemini-3-flash">Gemini-3-flash</option>
-                <option value="gemini-3-pro">Gemini-3-pro</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
               </select>
               <span className="field-help-text">Shown for backward compatibility only. New runs skip this step.</span>
             </label>
@@ -840,8 +842,8 @@ export default function SubmitPage() {
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                <option value="gemini-3-flash">Gemini-3-flash</option>
-                <option value="gemini-3-pro">Gemini-3-pro</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
               </select>
             </label>
             <label>
@@ -878,8 +880,8 @@ export default function SubmitPage() {
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                <option value="gemini-3-flash">Gemini-3-flash</option>
-                <option value="gemini-3-pro">Gemini-3-pro</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
               </select>
             </label>
             <label>
@@ -915,8 +917,8 @@ export default function SubmitPage() {
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                <option value="gemini-3-flash">Gemini-3-flash</option>
-                <option value="gemini-3-pro">Gemini-3-pro</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
               </select>
             </label>
           </div>
@@ -963,8 +965,8 @@ export default function SubmitPage() {
                 <option value="gpt-5.4">gpt-5.4</option>
                 <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                <option value="gemini-3-flash">Gemini-3-flash</option>
-                <option value="gemini-3-pro">Gemini-3-pro</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
               </select>
             </label>
             <p className="config-help-text">

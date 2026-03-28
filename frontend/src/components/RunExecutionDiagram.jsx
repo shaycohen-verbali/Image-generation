@@ -1700,8 +1700,8 @@ export default function RunExecutionDiagram({
                   <option value="gpt-5.4">gpt-5.4</option>
                   <option value="gpt-5.4-mini">gpt-5.4-mini</option>
                   <option value="gpt-5.4-nano">gpt-5.4-nano</option>
-                  <option value="gemini-3-flash">Gemini-3-flash</option>
-                  <option value="gemini-3-pro">Gemini-3-pro</option>
+                  <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                  <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
                 </select>
               </label>
               <label>

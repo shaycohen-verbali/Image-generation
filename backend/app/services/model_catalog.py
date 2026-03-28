@@ -5,6 +5,18 @@ VISION_MODEL_ALIASES = {
     "gpt 5.4": "gpt-5.4",
     "gpt 5.4 mini": "gpt-5.4-mini",
     "gpt 5.4 nano": "gpt-5.4-nano",
+    "gemini-3-flash": "gemini-3-flash-preview",
+    "gemini 3 flash": "gemini-3-flash-preview",
+    "gemini flash": "gemini-3-flash-preview",
+    "gemini-3.1-flash": "gemini-3-flash-preview",
+    "gemini 3.1 flash": "gemini-3-flash-preview",
+    "gemini-3.1-flash-preview": "gemini-3-flash-preview",
+    "gemini-3-pro": "gemini-3-pro-preview",
+    "gemini 3 pro": "gemini-3-pro-preview",
+    "gemini pro": "gemini-3-pro-preview",
+    "gemini-3.1-pro": "gemini-3-pro-preview",
+    "gemini 3.1 pro": "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview": "gemini-3-pro-preview",
 }
 
 SUPPORTED_PROMPT_ENGINEER_MODELS = {
@@ -13,8 +25,8 @@ SUPPORTED_PROMPT_ENGINEER_MODELS = {
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-3-flash",
-    "gemini-3-pro",
+    "gemini-3-flash-preview",
+    "gemini-3-pro-preview",
 }
 
 SUPPORTED_VISION_MODELS = {
@@ -22,8 +34,8 @@ SUPPORTED_VISION_MODELS = {
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-3-flash",
-    "gemini-3-pro",
+    "gemini-3-flash-preview",
+    "gemini-3-pro-preview",
 }
 
 SUPPORTED_STAGE3_GENERATION_MODELS = {
