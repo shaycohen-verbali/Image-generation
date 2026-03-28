@@ -1220,6 +1220,7 @@ export default function RunsPage() {
                       <th>Profile</th>
                       <th>Status</th>
                       <th>Score</th>
+                      <th>Iteration</th>
                       <th>Est. cost</th>
                       <th>Progress</th>
                       <th>Current step</th>
@@ -1248,6 +1249,7 @@ export default function RunsPage() {
                           </div>
                         </td>
                         <td>{formatQualityScore(item.quality_score)}</td>
+                        <td>{item.optimization_attempt || '-'}</td>
                         <td>{formatUsd(item.estimated_total_cost_usd)}</td>
                         <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
                         <td>{item.current_step || '-'}</td>

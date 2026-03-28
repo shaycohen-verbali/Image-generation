@@ -1186,6 +1186,7 @@ class CsvDagService:
                     "shadow_run_status": shadow_run.status if shadow_run else "",
                     "shadow_run_current_stage": shadow_run.current_stage if shadow_run else "",
                     "shadow_run_error_detail": shadow_run.error_detail if shadow_run else "",
+                    "optimization_attempt": shadow_run.optimization_attempt if shadow_run else None,
                     "quality_score": shadow_run.quality_score if shadow_run else None,
                     "quality_threshold": shadow_run.quality_threshold if shadow_run else None,
                     "needs_person_attention": bool(
