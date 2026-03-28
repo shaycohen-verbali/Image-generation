@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 
@@ -16,6 +17,7 @@ class MockOpenAI:
         self._scores = scores
         self._score_idx = 0
         self._upgrade_idx = 0
+        self.settings = SimpleNamespace(max_api_retries=0)
 
     def resolve_assistant_id(self, configured_id: str, configured_name: str) -> str:
         return configured_id or "asst_test"
@@ -146,6 +148,33 @@ class AnatomyAndCorrectionOpenAI(PersonVariantOpenAI):
         }, {"raw_text": "ok"}
 
 
+class AgeMismatchVariantOpenAI(PersonVariantOpenAI):
+    def critique_variant_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, target_profile: str, source_profile: str, model: str):
+        if "teenage" in target_profile or "teenager" in target_profile:
+            return {
+                "correction_needed": "yes",
+                "issues": "The face reads older than the body; the torso, limb lengths, and head ratio still read as a younger child.",
+                "correction_prompt": "Keep the same scene and identity, but make the full body read as an older adolescent: longer legs, longer torso, larger hands and feet, less childlike head-to-body ratio, and modest older-teen clothing fit.",
+                "reason": "Teenager face and body age do not match yet.",
+                "body_age_match": "no",
+                "face_age_match": "yes",
+                "age_consistency_ok": "no",
+                "outfit_age_fit": "no",
+                "teenager_child_safe": "yes",
+            }, {"raw_text": "ok"}
+        return {
+            "correction_needed": "no",
+            "issues": "",
+            "correction_prompt": "",
+            "reason": "Looks good",
+            "body_age_match": "yes",
+            "face_age_match": "yes",
+            "age_consistency_ok": "yes",
+            "outfit_age_fit": "yes",
+            "teenager_child_safe": "n/a",
+        }, {"raw_text": "ok"}
+
+
 class MockReplicate:
     def __init__(
         self,
@@ -161,6 +190,7 @@ class MockReplicate:
         self.flux_fail_attempts = flux_fail_attempts or set()
         self.nano_fail_attempts = nano_fail_attempts or set()
         self.imagen_calls = 0
+        self.settings = SimpleNamespace(max_api_retries=0)
 
     def flux_schnell(self, prompt: str, *, aspect_ratio: str = "1:1"):
         self.stage2_calls += 1
@@ -305,6 +335,7 @@ class MockGoogleImageClient:
         self._variant_idx = 0
         self._inline_assets: dict[str, bytes] = {}
         self.max_variant_workers = 1
+        self.settings = SimpleNamespace(nano_banana_safety_level="default")
 
     @staticmethod
     def _image_bytes() -> bytes:
@@ -353,6 +384,24 @@ class MockGoogleImageClient:
             "response_json": {"mock": True},
         }
 
+    def white_bg_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+    ) -> dict[str, object]:
+        return {
+            "model": "nano-banana-2",
+            "provider_model": "gemini-3.1-flash-image-preview",
+            "prompt": f"white background prompt for {word}",
+            "source_image_path": image_path.as_posix(),
+            "aspect_ratio": aspect_ratio or "match_input_image",
+            "image_size": image_size or "1K",
+            "safety_level": "default",
+        }
+
     def profile_variant_request_summary(
         self,
         image_path: Path,
@@ -398,6 +447,7 @@ class MockGoogleImageClient:
                 "profile_description": profile_description,
                 "white_background": white_background,
                 "model_choice": model_choice,
+                "edit_instruction": edit_instruction,
             }
         )
         self._variant_predictions[prediction_id] = {
@@ -443,6 +493,26 @@ class MockGoogleImageClient:
             "response_json": {"mock": True},
         }
         return {"id": prediction_id, "status": "processing", "model": "gemini-3.1-flash-image-preview"}
+
+    def post_quality_accessibility_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
+    ) -> dict[str, object]:
+        return {
+            "model": model_choice,
+            "provider_model": "gemini-3.1-flash-image-preview",
+            "prompt": edit_instruction or f"soften prompt for {word}",
+            "source_image_path": image_path.as_posix(),
+            "aspect_ratio": aspect_ratio or "match_input_image",
+            "image_size": image_size or "1K",
+            "word": word,
+        }
 
     def get_prediction(self, prediction_id: str) -> dict[str, object]:
         state = self._variant_predictions[prediction_id]
@@ -539,6 +609,29 @@ def _create_variant_run(db_session):
             "person_gender_options": ["male", "female"],
             "person_age_options": ["kid", "tween"],
             "person_skin_color_options": ["white", "black"],
+            "batch": "1",
+        }
+    )
+    run = repo.create_runs(
+        [entry.id],
+        quality_threshold=95,
+        max_optimization_attempts=3,
+    )[0]
+    return run
+
+
+def _create_teen_variant_run(db_session):
+    repo = Repository(db_session)
+    entry = repo.create_entry(
+        {
+            "word": "soccer",
+            "part_of_sentence": "verb",
+            "category": "",
+            "context": "",
+            "boy_or_girl": "male",
+            "person_gender_options": ["male", "female"],
+            "person_age_options": ["kid", "teenager"],
+            "person_skin_color_options": ["white"],
             "batch": "1",
         }
     )
@@ -835,6 +928,36 @@ def test_variant_critique_and_single_correction_are_recorded(db_session):
     assert any(not item.get("skipped") for item in correction_response["profiles"])
     assert any(prompt.stage_name == "stage4_variant_critique" for prompt in prompts)
     assert any(prompt.stage_name == "stage4_variant_correction" for prompt in prompts)
+
+
+def test_variant_age_mismatch_triggers_single_repair_pass_for_teenager(db_session):
+    run = _create_teen_variant_run(db_session)
+    mock_google = MockGoogleImageClient()
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=AgeMismatchVariantOpenAI(scores=[98]),
+        replicate_client=MockReplicate(),
+        google_image_client=mock_google,
+    )
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    repo = Repository(db_session)
+    _, stages, prompts, _, _ = repo.run_details(run.id)
+    critique_stage = next(stage for stage in stages if stage.stage_name == "stage4_variant_critique")
+    correction_stage = next(stage for stage in stages if stage.stage_name == "stage4_variant_correction")
+    critique_response = json.loads(critique_stage.response_json)
+    correction_response = json.loads(correction_stage.response_json)
+
+    assert any(item["critique"].get("age_consistency_ok") == "no" for item in critique_response["profiles"])
+    assert any(item["critique"].get("body_age_match") == "no" for item in critique_response["profiles"])
+    assert any(not item.get("skipped") for item in correction_response["profiles"])
+    assert any(prompt.stage_name == "stage4_variant_correction" and "older adolescent" in prompt.prompt_text.lower() for prompt in prompts)
+    assert any(
+        not submission["white_background"] and "older adolescent" in str(submission.get("edit_instruction") or "").lower()
+        for submission in mock_google.variant_submissions
+    )
 
 
 def test_variant_stages_record_progress_and_completed_profiles(db_session):

@@ -326,7 +326,7 @@ class PipelineRunner:
                 attempt=attempt,
                 event_type="stage_skipped",
                 status="skipped",
-                message="Variant clothing critique skipped",
+                message="Variant age/profile critique skipped",
                 payload={"profile": profile, "source_profile": source_profile or {}, "reason": "skin-color-only-or-no-source"},
             )
             return (
@@ -336,6 +336,11 @@ class PipelineRunner:
                     "correction_prompt": "",
                     "reason": "Skipped because only skin color changed or there is no source profile.",
                     "review_skipped": True,
+                    "body_age_match": "n/a",
+                    "face_age_match": "n/a",
+                    "age_consistency_ok": "n/a",
+                    "outfit_age_fit": "n/a",
+                    "teenager_child_safe": "n/a",
                 },
                 {},
             )
@@ -353,7 +358,7 @@ class PipelineRunner:
             attempt=attempt,
             event_type="stage_started",
             status="running",
-            message="Variant clothing critique started",
+            message="Variant age/profile critique started",
             payload={"profile": profile, "source_profile": source_profile or {}, "model": runtime_config.variant_critique_model},
         )
         critique, critique_raw = self.openai.critique_variant_image(
@@ -385,7 +390,7 @@ class PipelineRunner:
             attempt=attempt,
             event_type="stage_completed",
             status="ok",
-            message="Variant clothing critique completed",
+            message="Variant age/profile critique completed",
             payload={"profile": profile, "source_profile": source_profile or {}, "correction_needed": critique.get("correction_needed", "no")},
         )
         return critique, critique_raw

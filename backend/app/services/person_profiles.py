@@ -137,20 +137,20 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
     age_guidance = {
         "toddler": (
             "make the age unmistakably toddler, around 2 to 4 years old, with a very short small body, a noticeably larger head "
-            "relative to the body, short toddler limbs, a tiny torso, a low standing height, round baby-faced cheeks, and preschool-child proportions"
+            "relative to the body, short toddler limbs, a tiny torso, a low standing height, round baby-faced cheeks, preschool-child proportions, very small hands and feet, and toddler clothing fit; do not let the body read as a school-age kid"
         ),
         "kid": (
             "make the age unmistakably a young kid, around 5 to 9 years old, with elementary-school child proportions, a clearly "
-            "young face, a child-sized torso, shorter limbs than a tween, and a body that is taller and older than a toddler but still clearly not pre-teen"
+            "young face, a child-sized torso, shorter limbs than a tween, a shorter neck, a smaller shoulder span, smaller hands and feet than a tween, and a body that is taller and older than a toddler but still clearly not pre-teen; do not let the result read as a tween or teenager"
         ),
         "tween": (
             "make the age unmistakably a tween, around 10 to 14 years old, with clearly taller pre-teen proportions, longer limbs, "
-            "a longer leg-to-torso ratio, a less baby-faced look, and age cues that read older than a kid but younger than a teenager"
+            "a longer leg-to-torso ratio, a less baby-faced look, longer hands and feet than a kid, a more elongated torso, and age cues that read older than a kid but younger than a teenager; do not let the result read as a small child or as a full teenager"
         ),
         "teenager": (
-            "make the age unmistakably a 17-year-old teenager, with clearly older adolescent proportions, a taller "
-            "body, longer limbs, a more mature adolescent face, a longer neck, less baby-faced cheeks, visible 17-year-old height and proportions, "
-            "and visual age cues that do not read as a child"
+            "make the age unmistakably a 17-year-old older teenager, with clearly older adolescent proportions, a taller "
+            "body, longer limbs, a more mature adolescent face, a longer neck, less baby-faced cheeks, broader shoulders relative to younger ages, a longer torso, larger hands and feet than a tween, visible 17-year-old height and proportions, "
+            "and visual age cues that do not read as a child or young tween; never allow a teenager face on a kid body, an oversized child head ratio, or child-short limbs"
         ),
     }.get(age, "make the age visually obvious")
 
@@ -262,7 +262,7 @@ def profile_age_edit_guidance(age: str) -> str:
             "make the body unmistakably that of a tween: taller pre-teen height, longer limbs, more elongated torso and legs than a kid, less baby-faced features, and pre-teen clothing fit"
         ),
         "teenager": (
-            "make the body unmistakably that of a 17-year-old teenager: clearly taller adolescent height, longer limbs, more mature face, more mature shoulder and torso proportions, and teenage clothing fit that does not read as a child"
+            "make the body unmistakably that of a 17-year-old older teenager: clearly taller adolescent height, longer limbs, longer torso, more mature face, more mature shoulder and torso proportions, larger hands and feet, less childlike head-to-body ratio, and teenage clothing fit that does not read as a child or tween"
         ),
     }.get(normalized_age, "make the requested age visually obvious in the full body")
 
@@ -292,7 +292,7 @@ def profile_edit_instruction(target: dict[str, str], source: dict[str, str] | No
     changes: list[str] = []
     if target_age and target_age != source_age:
         changes.append(
-            f"Make this picture {profile_age_phrase(target_age)}. {profile_age_edit_guidance(target_age)}. Adjust height relative to nearby objects, body proportions, head-to-body ratio, limb length, hand and foot size, shoulder width, face maturity, and clothing fit so the requested age is obvious in the full body, not only in the face."
+            f"Make this picture {profile_age_phrase(target_age)}. {profile_age_edit_guidance(target_age)}. Adjust height relative to nearby objects, body proportions, head-to-body ratio, limb length, torso length, hand and foot size, shoulder width, face maturity, and clothing fit so the requested age is obvious in the full body, not only in the face. Body age and face age must match. Do not leave a teenager face on a child body or a child height with mature facial features."
         )
     if target_gender and target_gender != source_gender:
         changes.append(

@@ -4,6 +4,8 @@ from app.services.prompt_templates import (
     DEFAULT_VISUAL_STYLE_ID,
     DEFAULT_VISUAL_STYLE_NAME,
     apply_render_decision_to_prompt,
+    build_variant_correction_prompt,
+    build_variant_critique_prompt,
     build_stage1_prompt,
     build_stage3_prompt,
     resolve_person_decision,
@@ -94,3 +96,32 @@ def test_apply_render_decision_to_prompt_enforces_illustration_with_person() -> 
     assert "Create an illustration for the AAC concept" in enforced_prompt
     assert "Include one clear central person" in enforced_prompt
     assert "Follow this illustration style block exactly" in enforced_prompt
+
+
+def test_variant_critique_prompt_calls_out_age_consistency() -> None:
+    prompt = build_variant_critique_prompt(
+        word="soccer",
+        part_of_sentence="verb",
+        category="",
+        target_profile="17-year-old teenage girl with Brown skin",
+        source_profile="school-age girl with Brown skin",
+    )
+
+    assert "body age, face age, clothing fit" in prompt
+    assert "teenager must not read as tween or kid" in prompt
+    assert '"age_consistency_ok":"yes|no"' in prompt
+    assert "older-adolescent read that stays modest and child-safe" in prompt
+
+
+def test_variant_correction_prompt_requires_age_body_face_alignment() -> None:
+    prompt = build_variant_correction_prompt(
+        word="soccer",
+        part_of_sentence="verb",
+        category="",
+        target_profile="17-year-old teenage girl with Brown skin",
+        correction_prompt="Make the body read as an older teenager instead of a kid.",
+    )
+
+    assert "body age, face age, clothing fit" in prompt
+    assert "body age and face age aligned" in prompt.lower()
+    assert "older adolescent" in prompt

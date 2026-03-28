@@ -38,8 +38,8 @@ def test_default_profile_uses_locked_defaults_first() -> None:
 def test_all_selected_profiles_returns_full_cross_product() -> None:
     profiles = all_selected_profiles(make_entry())
     assert len(profiles) == 32
-    assert len(planned_review_profiles(make_entry())) == 10
-    assert len(additional_variant_profiles(make_entry())) == 9
+    assert len(planned_review_profiles(make_entry())) == 16
+    assert len(additional_variant_profiles(make_entry())) == 15
     assert {"gender": "female", "age": "kid", "skin_color": "white"} in planned_review_profiles(make_entry())
     assert {"gender": "male", "age": "teenager", "skin_color": "white"} in planned_review_profiles(make_entry())
 
@@ -47,10 +47,11 @@ def test_all_selected_profiles_returns_full_cross_product() -> None:
 def test_profile_prompt_fragment_makes_age_and_gender_explicit() -> None:
     fragment = profile_prompt_fragment({"gender": "female", "age": "teenager", "skin_color": "brown"})
     assert "teenage girl" in fragment
-    assert "15 to 18 years old" in fragment
+    assert "17-year-old older teenager" in fragment
     assert "visibly female" in fragment
-    assert "Brown skin" in fragment
-    assert "body size" in fragment or "full-body proportions" in fragment
+    assert "Brown (Indian origin) skin" in fragment
+    assert "full-body proportions" in fragment or "head-to-body ratio" in fragment
+    assert "older adolescent" in fragment
 
 
 def test_variant_branch_plan_follows_white_age_then_female_then_race_order() -> None:
@@ -68,14 +69,17 @@ def test_profile_edit_instruction_makes_age_gender_and_race_changes_explicit() -
         {"gender": "male", "age": "kid", "skin_color": "white"},
     )
     assert "teenager (17 yo)" in age_instruction
-    assert "body and head" in age_instruction
-    assert "other objects near the human changes accordingly" in age_instruction
+    assert "Body age and face age must match" in age_instruction
+    assert "torso length" in age_instruction
+    assert "teenager face on a child body" in age_instruction
 
     gender_instruction = profile_edit_instruction(
         {"gender": "female", "age": "teenager", "skin_color": "white"},
         {"gender": "male", "age": "kid", "skin_color": "white"},
     )
     assert "female teenager (17 yo)" in gender_instruction
+    assert "clothing" in gender_instruction
+    assert "unisex" in gender_instruction
 
     race_instruction = profile_edit_instruction(
         {"gender": "female", "age": "teenager", "skin_color": "asian"},
