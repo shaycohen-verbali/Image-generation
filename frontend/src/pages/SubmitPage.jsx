@@ -56,6 +56,8 @@ export default function SubmitPage() {
   const [stage3AnatomyCritiqueModel, setStage3AnatomyCritiqueModel] = useState('gpt-5.4')
   const [stage3AccessibilityCritiqueModel, setStage3AccessibilityCritiqueModel] = useState('gpt-5.4')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
+  const [postQualityAccessibilityCritiqueModel, setPostQualityAccessibilityCritiqueModel] = useState('gpt-5.4')
+  const [postQualityAccessibilityGenerateModel, setPostQualityAccessibilityGenerateModel] = useState('nano-banana-2')
   const [variantCritiqueModel, setVariantCritiqueModel] = useState('gpt-5.4')
   const [variantCorrectionModel, setVariantCorrectionModel] = useState('nano-banana-2')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
@@ -124,6 +126,14 @@ export default function SubmitPage() {
         }
         if (mounted && config?.stage3_generate_model) {
           setStage3GenerateModel(config.stage3_generate_model)
+        }
+        if (mounted && (config?.post_quality_accessibility_critique_model || config?.stage3_accessibility_critique_model || config?.stage3_critique_model || config?.openai_model_vision)) {
+          setPostQualityAccessibilityCritiqueModel(
+            config.post_quality_accessibility_critique_model || config.stage3_accessibility_critique_model || config.stage3_critique_model || config.openai_model_vision
+          )
+        }
+        if (mounted && (config?.post_quality_accessibility_generate_model || config?.stage3_generate_model)) {
+          setPostQualityAccessibilityGenerateModel(config.post_quality_accessibility_generate_model || config.stage3_generate_model)
         }
         if (mounted && (config?.variant_critique_model || config?.stage3_critique_model || config?.openai_model_vision)) {
           setVariantCritiqueModel(config.variant_critique_model || config.stage3_critique_model || config.openai_model_vision)
@@ -738,7 +748,7 @@ export default function SubmitPage() {
 
         <article className="card">
           <h2>Model Selection</h2>
-          <p>Choose models for Stage 3 critique, Stage 3.15 anatomy critique, Stage 3.16 simplicity critique, Stage 3 upgraded image, the new variant review/correction steps, and Quality Gate scoring. Changes are saved automatically.</p>
+          <p>Choose models for Stage 3 critique, Stage 3.15 anatomy critique, the disabled legacy Stage 3.16 control, the post-quality AAC softening steps, Stage 3 upgraded image, the variant review/correction steps, and Quality Gate scoring. Changes are saved automatically.</p>
           <div className="form-grid submit-compact-form">
             <label>
               Stage 3.1 Vision Critique
@@ -779,14 +789,48 @@ export default function SubmitPage() {
               </select>
             </label>
             <label>
-              Stage 3.16 Simplicity Critique
+              Stage 3.16 Simplicity Critique (disabled)
               <select
                 value={stage3AccessibilityCritiqueModel}
+                disabled
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.4-nano">gpt-5.4-nano</option>
+                <option value="gemini-3-flash">Gemini-3-flash</option>
+                <option value="gemini-3-pro">Gemini-3-pro</option>
+              </select>
+              <span className="field-help-text">Shown for backward compatibility only. New runs skip this step.</span>
+            </label>
+            <label>
+              Stage 3.3 Upgraded Image
+              <select
+                value={stage3GenerateModel}
                 onChange={(e) => {
                   const value = e.target.value
-                  setStage3AccessibilityCritiqueModel(value)
-                  setMessage('Saving Stage 3 simplicity critique model...')
-                  saveModelConfig({ stage3_accessibility_critique_model: value }, `Saved Stage 3 simplicity critique model: ${value}`)
+                  setStage3GenerateModel(value)
+                  setMessage('Saving Stage 3 upgraded image model...')
+                  saveModelConfig({ stage3_generate_model: value }, `Saved Stage 3 upgraded image model: ${value}`)
+                }}
+              >
+                <option value="flux-1.1-pro">Flux 1.1 Pro</option>
+                <option value="imagen-3">Imagen 3</option>
+                <option value="imagen-4">Imagen 4</option>
+                <option value="nano-banana">Nano Banana</option>
+                <option value="nano-banana-2">Nano Banana 2</option>
+                <option value="nano-banana-pro">Nano Banana Pro</option>
+              </select>
+            </label>
+            <label>
+              Post-quality AAC Critique
+              <select
+                value={postQualityAccessibilityCritiqueModel}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setPostQualityAccessibilityCritiqueModel(value)
+                  setMessage('Saving post-quality AAC critique model...')
+                  saveModelConfig({ post_quality_accessibility_critique_model: value }, `Saved post-quality AAC critique model: ${value}`)
                 }}
               >
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
@@ -798,14 +842,14 @@ export default function SubmitPage() {
               </select>
             </label>
             <label>
-              Stage 3.3 Upgraded Image
+              Post-quality AAC Soften Image
               <select
-                value={stage3GenerateModel}
+                value={postQualityAccessibilityGenerateModel}
                 onChange={(e) => {
                   const value = e.target.value
-                  setStage3GenerateModel(value)
-                  setMessage('Saving Stage 3 upgraded image model...')
-                  saveModelConfig({ stage3_generate_model: value }, `Saved Stage 3 upgraded image model: ${value}`)
+                  setPostQualityAccessibilityGenerateModel(value)
+                  setMessage('Saving post-quality AAC soften image model...')
+                  saveModelConfig({ post_quality_accessibility_generate_model: value }, `Saved post-quality AAC soften image model: ${value}`)
                 }}
               >
                 <option value="flux-1.1-pro">Flux 1.1 Pro</option>

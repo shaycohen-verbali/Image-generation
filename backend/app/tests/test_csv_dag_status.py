@@ -109,3 +109,137 @@ def test_start_job_records_started_at_even_before_first_claim(db_session) -> Non
 
     assert started.started_at is not None
     assert started.status == "queued"
+
+
+def test_variant_task_prefers_softened_base_asset_when_present(db_session, monkeypatch) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="abbey")
+    shadow_run = repo.create_shadow_run(
+        entry_id=entry.id,
+        quality_threshold=95,
+        max_optimization_attempts=3,
+    )
+    job = repo.create_csv_job(
+        batch_id="csv_test_soften_dependency",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={
+            "image_aspect_ratio": "1:1",
+            "image_resolution": "1K",
+            "image_format": "jpg",
+            "nano_banana_safety_level": "default",
+        },
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "abbey"},
+        shadow_run_id=shadow_run.id,
+    )
+    quality_asset = repo.add_asset(
+        run_id=shadow_run.id,
+        stage_name="stage3_upgraded",
+        attempt=1,
+        file_name="quality.jpg",
+        abs_path="/tmp/quality.jpg",
+        mime_type="image/jpeg",
+        sha256="quality",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+    )
+    soften_asset = repo.add_asset(
+        run_id=shadow_run.id,
+        stage_name="stage3_post_quality_accessibility_generate",
+        attempt=1,
+        file_name="soften.jpg",
+        abs_path="/tmp/soften.jpg",
+        mime_type="image/jpeg",
+        sha256="soften",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+    )
+    variant_regular_asset = repo.add_asset(
+        run_id=shadow_run.id,
+        stage_name="stage4_variant_generate",
+        attempt=1,
+        file_name="variant-regular.jpg",
+        abs_path="/tmp/variant-regular.jpg",
+        mime_type="image/jpeg",
+        sha256="variant-regular",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+    )
+    variant_white_bg_asset = repo.add_asset(
+        run_id=shadow_run.id,
+        stage_name="stage5_variant_white_bg",
+        attempt=1,
+        file_name="variant-white.jpg",
+        abs_path="/tmp/variant-white.jpg",
+        mime_type="image/jpeg",
+        sha256="variant-white",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+    )
+    repo.update_csv_job_item(
+        item,
+        base_regular_asset_id=quality_asset.id,
+        base_soften_asset_id=soften_asset.id,
+        base_white_bg_asset_id=variant_white_bg_asset.id,
+    )
+    base_task = repo.create_csv_task_node(
+        csv_job_id=job.id,
+        csv_job_item_id=item.id,
+        step_name="step1_base",
+        task_key="row1:base",
+        profile_key="male:kid:white",
+        source_profile_key="",
+        branch_role="base",
+        dependency_keys=[],
+        dependency_task_ids=[],
+        status="completed",
+        regular_asset_id=quality_asset.id,
+        white_bg_asset_id=variant_white_bg_asset.id,
+    )
+    variant_task = repo.create_csv_task_node(
+        csv_job_id=job.id,
+        csv_job_item_id=item.id,
+        step_name="step2_variant",
+        task_key="row1:variant",
+        profile_key="male:tween:white",
+        source_profile_key="male:kid:white",
+        branch_role="male_age_variant",
+        dependency_keys=[base_task.task_key],
+        dependency_task_ids=[base_task.id],
+        status="running",
+    )
+
+    captured: dict[str, str] = {}
+
+    class FakePipelineRunner:
+        def __init__(self, db):
+            self.db = db
+
+        def create_profile_variant_pair(self, **kwargs):
+            source_asset = kwargs["source_asset"]
+            captured["source_asset_id"] = getattr(source_asset, "id", "")
+            return {
+                "regular_asset": variant_regular_asset,
+                "white_bg_asset": variant_white_bg_asset,
+            }
+
+    monkeypatch.setattr("app.services.csv_dag_service.PipelineRunner", FakePipelineRunner)
+
+    finished = service.execute_task(variant_task.id)
+
+    assert captured["source_asset_id"] == soften_asset.id
+    assert finished.status == "completed"

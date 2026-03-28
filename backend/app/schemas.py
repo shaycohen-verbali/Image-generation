@@ -351,6 +351,7 @@ class CsvJobItemOut(BaseModel):
     estimated_total_cost_usd: float | None = None
     provider_breakdown: dict[str, float] = Field(default_factory=dict)
     base_regular_asset_id: str | None = None
+    base_soften_asset_id: str | None = None
     base_white_bg_asset_id: str | None = None
     main_status: str = "pending"
     sub_status: str = ""
@@ -455,6 +456,8 @@ class RuntimeConfigOut(BaseModel):
     stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
+    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
+    post_quality_accessibility_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
     variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
     quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"]
@@ -488,6 +491,8 @@ class RuntimeConfigUpdate(BaseModel):
     stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
+    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
+    post_quality_accessibility_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
     variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
     quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3-flash", "gemini-3-pro"] | None = None

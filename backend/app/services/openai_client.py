@@ -12,6 +12,7 @@ import requests
 from app.core.config import get_settings
 from app.services.model_catalog import is_gemini_model, normalize_prompt_engineer_model, normalize_vision_model
 from app.services.prompt_templates import (
+    build_post_quality_accessibility_critique_prompt,
     build_stage3_accessibility_critique_prompt,
     build_stage3_anatomy_critique_prompt,
     build_variant_critique_prompt,
@@ -438,6 +439,22 @@ class OpenAIClient:
         model: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         prompt = build_stage3_accessibility_critique_prompt(
+            word=word,
+            part_of_sentence=part_of_sentence,
+            category=category,
+        )
+        return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.1)
+
+    def analyze_post_quality_accessibility(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        part_of_sentence: str,
+        category: str,
+        model: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        prompt = build_post_quality_accessibility_critique_prompt(
             word=word,
             part_of_sentence=part_of_sentence,
             category=category,

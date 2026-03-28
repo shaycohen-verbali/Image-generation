@@ -462,6 +462,46 @@ def build_stage3_accessibility_critique_prompt(
     )
 
 
+def build_post_quality_accessibility_critique_prompt(
+    *,
+    word: str,
+    part_of_sentence: str,
+    category: str,
+) -> str:
+    return (
+        "You are an AAC image reviewer checking a high-quality image that already works conceptually. "
+        "Your job is only to decide whether it needs minor softening so it is easier to process inside a busy AAC grid. "
+        'Return STRICT JSON with keys {"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", '
+        '"simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. '
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        "Preserve the exact same scene, action, framing, props, concept, and subject identity. "
+        "Recommend no changes when the image is already AAC-friendly. "
+        "If changes are needed, recommend only minor simplifications such as reducing background competition, toning down extra clutter, or making the focal subject easier to separate from the surroundings. "
+        "Do not recommend changing the concept, removing core objects, changing object count, changing the camera angle, or redesigning the scene."
+    )
+
+
+def build_post_quality_accessibility_generate_instruction(
+    accessibility_analysis: dict[str, str] | None,
+) -> str:
+    analysis = accessibility_analysis or {}
+    issues = str(analysis.get("issues") or "").strip()
+    recommendations = str(analysis.get("correction_recommendations") or "").strip()
+    problem = str(analysis.get("simplicity_problem") or "").strip()
+    parts = [
+        "Keep the exact same AAC concept, exact same scene, exact same action, exact same framing, exact same subject identity, exact same props, and exact same object count.",
+        "Make only the smallest visual softening changes needed so the image is easier to process in a busy AAC grid.",
+        "Do not add people, remove core subjects, replace objects, or materially change the composition.",
+    ]
+    if problem and problem != "none":
+        parts.append(f"Minor readability issue to soften: {problem}.")
+    if issues:
+        parts.append(f"Observed readability issues: {issues}.")
+    if recommendations:
+        parts.append(f"Minor softening request: {recommendations}.")
+    return " ".join(parts).strip()
+
+
 def build_variant_critique_prompt(
     *,
     word: str,

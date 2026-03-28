@@ -46,7 +46,9 @@ function prettyStage(stage) {
   if (stage === 'stage2_draft') return 'Stage 2: Draft image'
   if (stage === 'stage3_upgrade') return 'Stage 3: Improve + generate'
   if (stage === 'stage3_anatomy_critique') return 'Stage 3.15: Anatomy critique'
-  if (stage === 'stage3_accessibility_critique') return 'Stage 3.16: Simplicity critique'
+  if (stage === 'stage3_accessibility_critique') return 'Stage 3.16: Simplicity critique (disabled)'
+  if (stage === 'stage3_post_quality_accessibility_critique') return 'Post-quality AAC critique'
+  if (stage === 'stage3_post_quality_accessibility_generate') return 'Post-quality AAC soften image'
   if (stage === 'quality_gate') return 'Quality check'
   if (stage === 'stage4_background') return 'Stage 4: White background'
   if (stage === 'stage4_variant_generate') return 'Stage 5-8: Variant finals'
@@ -106,9 +108,10 @@ function stage4StatusText({ run, selectedSummary, winnerStage4Attempt }) {
 const assetStageOrder = {
   stage2_draft: 1,
   stage3_upgraded: 2,
-  stage4_white_bg: 3,
-  stage4_variant_generate: 4,
-  stage5_variant_white_bg: 5,
+  stage3_post_quality_accessibility_generate: 3,
+  stage4_white_bg: 4,
+  stage4_variant_generate: 5,
+  stage5_variant_white_bg: 6,
 }
 
 const IMAGE_FILTER = {
@@ -128,7 +131,8 @@ const DETAIL_TABS = {
 
 function stageImageLabel(stageName) {
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
-  if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
+  if (stageName === 'stage3_upgraded') return 'Quality Image'
+  if (stageName === 'stage3_post_quality_accessibility_generate') return 'Soften Image'
   if (stageName === 'stage4_white_bg') return 'Stage 4 White Background'
   if (stageName === 'stage4_variant_generate') return 'Character Variant Final'
   if (stageName === 'stage5_variant_white_bg') return 'Character Variant White Background'
@@ -152,6 +156,8 @@ function currentNodeId(detail) {
   if (stage === 'stage1_prompt') return 'stage1_prompt'
   if (stage === 'stage2_draft') return 'stage2_draft'
   if (stage === 'stage3_upgrade') return 'stage3_generate'
+  if (stage === 'stage3_post_quality_accessibility_critique') return 'stage3_post_quality_accessibility_critique'
+  if (stage === 'stage3_post_quality_accessibility_generate') return 'stage3_post_quality_accessibility_generate'
   if (stage === 'quality_gate') return 'quality_gate'
   if (stage === 'stage4_background') return 'stage4_background'
   if (stage === 'stage4_variant_generate') return 'stage4_variant_generate'
@@ -1260,7 +1266,9 @@ export default function RunExecutionDiagram({
       stage3_prompt_upgrade: { x: 760, y: 470 },
       stage3_generate: { x: 760, y: 620 },
       quality_gate: { x: 1160, y: 235 },
-      stage4_background: { x: 1540, y: 120 },
+      stage3_post_quality_accessibility_critique: { x: 1540, y: 40 },
+      stage3_post_quality_accessibility_generate: { x: 1540, y: 235 },
+      stage4_background: { x: 1540, y: 430 },
       stage4_variant_generate: { x: 1910, y: 40 },
       stage4_variant_critique: { x: 1910, y: 230 },
       stage4_variant_correction: { x: 1910, y: 390 },
@@ -1272,6 +1280,8 @@ export default function RunExecutionDiagram({
       node.id === 'stage3_critique' ||
       node.id === 'stage3_anatomy_critique' ||
       node.id === 'stage3_accessibility_critique' ||
+      node.id === 'stage3_post_quality_accessibility_critique' ||
+      node.id === 'stage3_post_quality_accessibility_generate' ||
       node.id === 'stage3_prompt_upgrade' ||
       node.id === 'stage3_generate' ||
       node.id === 'quality_gate' ||
@@ -1398,7 +1408,7 @@ export default function RunExecutionDiagram({
             </div>
             <div className="run-help-card compact-help-card">
               {imageFilter === IMAGE_FILTER.DRAFT ? <p>Showing only Stage 2 draft images.</p> : null}
-              {imageFilter === IMAGE_FILTER.ATTEMPT ? <p>Showing Attempt {selectedAttempt}, the original draft, and any extra character-profile finals for that winning attempt.</p> : null}
+              {imageFilter === IMAGE_FILTER.ATTEMPT ? <p>Showing Attempt {selectedAttempt}, the original quality image, any optional soften image, and any extra character-profile finals for that winning attempt.</p> : null}
               {imageFilter === IMAGE_FILTER.REMOVE_BACKGROUND ? <p>Showing the white-background winner plus any extra character-profile white-background variants.</p> : null}
               {imageFilter !== IMAGE_FILTER.DRAFT ? <p>Variant images below are grouped by Gender, Age, and Skin Color for quality review.</p> : null}
               {winnerStage4Asset ? <p>Winner attempt: <strong>{winnerStage4Asset.attempt}</strong></p> : null}

@@ -59,6 +59,18 @@ def test_runtime_config_update_rejects_unknown_model_values() -> None:
         assert True
 
     try:
+        RuntimeConfigUpdate(post_quality_accessibility_critique_model="unknown-model")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
+        RuntimeConfigUpdate(post_quality_accessibility_generate_model="not-a-model")
+        assert False, "expected ValidationError"
+    except ValidationError:
+        assert True
+
+    try:
         RuntimeConfigUpdate(variant_critique_model="unknown-model")
         assert False, "expected ValidationError"
     except ValidationError:
@@ -95,6 +107,8 @@ def test_runtime_config_update_accepts_new_gpt54_mini_and_nano_models() -> None:
         stage3_critique_model="gpt-5.4-mini",
         stage3_anatomy_critique_model="gpt-5.4-nano",
         stage3_accessibility_critique_model="gpt-5.4",
+        post_quality_accessibility_critique_model="gpt-5.4-mini",
+        post_quality_accessibility_generate_model="nano-banana-2",
         variant_critique_model="gpt-5.4-mini",
         quality_gate_model="gpt-5.4-nano",
     )
@@ -102,6 +116,8 @@ def test_runtime_config_update_accepts_new_gpt54_mini_and_nano_models() -> None:
     assert config.stage3_critique_model == "gpt-5.4-mini"
     assert config.stage3_anatomy_critique_model == "gpt-5.4-nano"
     assert config.stage3_accessibility_critique_model == "gpt-5.4"
+    assert config.post_quality_accessibility_critique_model == "gpt-5.4-mini"
+    assert config.post_quality_accessibility_generate_model == "nano-banana-2"
     assert config.variant_critique_model == "gpt-5.4-mini"
     assert config.quality_gate_model == "gpt-5.4-nano"
 

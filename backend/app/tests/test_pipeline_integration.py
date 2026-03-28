@@ -32,6 +32,9 @@ class MockOpenAI:
     def analyze_image_accessibility(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str):
         return {"simplicity_ok": "yes", "issues": "", "correction_recommendations": "", "simplicity_problem": "none"}, {"raw_text": "ok"}
 
+    def analyze_post_quality_accessibility(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str):
+        return {"simplicity_ok": "yes", "issues": "", "correction_recommendations": "", "simplicity_problem": "none"}, {"raw_text": "ok"}
+
     def generate_upgraded_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         self._upgrade_idx += 1
         return {"upgraded prompt": f"upgraded prompt {self._upgrade_idx}"}, {"raw_text": "ok"}
@@ -126,6 +129,14 @@ class AnatomyAndCorrectionOpenAI(PersonVariantOpenAI):
             "simplicity_problem": "visual_overload",
         }, {"raw_text": "ok"}
 
+    def analyze_post_quality_accessibility(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, model: str):
+        return {
+            "simplicity_ok": "no",
+            "issues": "background details compete with the main subject",
+            "correction_recommendations": "soften the surrounding clutter slightly while keeping the same scene",
+            "simplicity_problem": "distracting_background",
+        }, {"raw_text": "ok"}
+
     def critique_variant_image(self, image_path: Path, *, word: str, part_of_sentence: str, category: str, target_profile: str, source_profile: str, model: str):
         return {
             "correction_needed": "yes",
@@ -196,6 +207,26 @@ class MockReplicate:
             "aspect_ratio": aspect_ratio or "match_input_image",
             "image_size": image_size or "1K",
             "output_format": "jpg",
+            "word": word,
+        }
+
+    def post_quality_accessibility_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
+    ) -> dict[str, object]:
+        return {
+            "model": model_choice,
+            "provider_model": "gemini-3.1-flash-image-preview",
+            "prompt": edit_instruction or f"soften prompt for {word}",
+            "source_image_path": image_path.as_posix(),
+            "aspect_ratio": aspect_ratio or "match_input_image",
+            "image_size": image_size or "1K",
             "word": word,
         }
 
@@ -379,6 +410,35 @@ class MockGoogleImageClient:
                 "aspect_ratio": aspect_ratio or "match_input_image",
                 "image_size": image_size or "1K",
                 "edit_instruction": edit_instruction,
+            },
+            "response_json": {"mock": True},
+        }
+        return {"id": prediction_id, "status": "processing", "model": "gemini-3.1-flash-image-preview"}
+
+    def submit_post_quality_accessibility_generate(
+        self,
+        image_path: Path,
+        *,
+        run_id: str,
+        word: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
+    ) -> dict[str, object]:
+        self._variant_idx += 1
+        prediction_id = f"google_soften_{self._variant_idx}"
+        self._variant_predictions[prediction_id] = {
+            "status": "processing",
+            "polls_remaining": 1,
+            "output": self._inline_url(prediction_id),
+            "request_json": {
+                "source_path": image_path.as_posix(),
+                "word": word,
+                "aspect_ratio": aspect_ratio or "match_input_image",
+                "image_size": image_size or "1K",
+                "edit_instruction": edit_instruction,
+                "model_choice": model_choice,
             },
             "response_json": {"mock": True},
         }
@@ -698,7 +758,7 @@ def test_stage3_anatomy_critique_runs_when_person_or_animal_is_present(db_sessio
     assert stage3_prompt_raw["anatomy_analysis"]["body_integrity_problem"] == "extra_limbs"
 
 
-def test_stage3_accessibility_critique_runs_and_feeds_stage3_prompt(db_session):
+def test_stage3_accessibility_critique_is_skipped_for_new_runs(db_session):
     run = _create_variant_run(db_session)
     runner = RecordingPipelineRunner(
         db_session,
@@ -717,9 +777,37 @@ def test_stage3_accessibility_critique_runs_and_feeds_stage3_prompt(db_session):
     stage3_prompt = next(prompt for prompt in prompts if prompt.stage_name == "stage3_upgrade")
     stage3_prompt_raw = json.loads(stage3_prompt.raw_response_json)
 
-    assert accessibility_stage.status == "ok"
-    assert accessibility_response["analysis"]["simplicity_problem"] == "visual_overload"
-    assert stage3_prompt_raw["accessibility_analysis"]["simplicity_problem"] == "visual_overload"
+    assert accessibility_stage.status == "skipped"
+    assert accessibility_response["analysis"]["skipped"] is True
+    assert stage3_prompt_raw["accessibility_analysis"]["skipped"] is True
+
+
+def test_post_quality_accessibility_flow_records_soften_asset_and_stage4_still_completes(db_session):
+    run = _create_variant_run(db_session)
+    google_client = MockGoogleImageClient()
+    runner = RecordingPipelineRunner(
+        db_session,
+        openai_client=AnatomyAndCorrectionOpenAI(scores=[98]),
+        replicate_client=MockReplicate(),
+        google_image_client=google_client,
+    )
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    repo = Repository(db_session)
+    _, stages, _, assets, _ = repo.run_details(run.id)
+    post_quality_critique = next(stage for stage in stages if stage.stage_name == "stage3_post_quality_accessibility_critique")
+    post_quality_generate = next(stage for stage in stages if stage.stage_name == "stage3_post_quality_accessibility_generate")
+    stage4_stage = next(stage for stage in stages if stage.stage_name == "stage4_background")
+    soften_asset = next(asset for asset in assets if asset.stage_name == "stage3_post_quality_accessibility_generate")
+    stage4_asset = next(asset for asset in assets if asset.stage_name == "stage4_white_bg")
+
+    assert post_quality_critique.status == "ok"
+    assert post_quality_generate.status == "ok"
+    assert soften_asset.id
+    assert stage4_asset.id
+    assert json.loads(stage4_stage.request_json)["input_asset"] == soften_asset.abs_path
 
 
 def test_variant_critique_and_single_correction_are_recorded(db_session):

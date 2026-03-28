@@ -49,6 +49,7 @@ def init_db() -> None:
     _ensure_inventory_columns()
     _ensure_entry_columns()
     _ensure_run_columns()
+    _ensure_csv_job_item_columns()
     _ensure_runtime_config_columns()
     settings = get_settings()
     with SessionLocal() as db:
@@ -86,6 +87,15 @@ def init_db() -> None:
                         or settings.openai_model_vision
                     ),
                     stage3_generate_model=normalize_stage3_generation_model(settings.stage3_generate_model),
+                    post_quality_accessibility_critique_model=normalize_vision_model(
+                        settings.post_quality_accessibility_critique_model
+                        or settings.stage3_accessibility_critique_model
+                        or settings.stage3_critique_model
+                        or settings.openai_model_vision
+                    ),
+                    post_quality_accessibility_generate_model=normalize_stage3_generation_model(
+                        settings.post_quality_accessibility_generate_model or settings.stage3_generate_model
+                    ),
                     variant_critique_model=normalize_vision_model(
                         settings.variant_critique_model or settings.stage3_critique_model or settings.openai_model_vision
                     ),
@@ -146,6 +156,15 @@ def init_db() -> None:
                 or existing.stage3_anatomy_critique_model
                 or existing.stage3_critique_model
             )
+            existing.post_quality_accessibility_critique_model = normalize_vision_model(
+                getattr(existing, "post_quality_accessibility_critique_model", existing.stage3_accessibility_critique_model)
+                or existing.stage3_accessibility_critique_model
+                or existing.stage3_critique_model
+            )
+            existing.post_quality_accessibility_generate_model = normalize_stage3_generation_model(
+                getattr(existing, "post_quality_accessibility_generate_model", existing.stage3_generate_model)
+                or existing.stage3_generate_model
+            )
             existing.variant_critique_model = normalize_vision_model(
                 getattr(existing, "variant_critique_model", existing.stage3_critique_model) or existing.stage3_critique_model
             )
@@ -176,6 +195,10 @@ def _ensure_runtime_config_columns() -> None:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "stage3_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            if "post_quality_accessibility_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "post_quality_accessibility_generate_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
             if "variant_critique_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "variant_correction_model" not in existing:
@@ -220,6 +243,10 @@ def _ensure_runtime_config_columns() -> None:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "stage3_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
+            if "post_quality_accessibility_critique_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+            if "post_quality_accessibility_generate_model" not in existing:
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_generate_model TEXT NOT NULL DEFAULT 'nano-banana-2'"))
             if "variant_critique_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "variant_correction_model" not in existing:
@@ -321,6 +348,19 @@ def _ensure_run_columns() -> None:
             existing = _postgres_existing_columns(conn, "runs")
             if "execution_mode" not in existing:
                 conn.execute(text("ALTER TABLE runs ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
+
+
+def _ensure_csv_job_item_columns() -> None:
+    with engine.begin() as conn:
+        if str(engine.url).startswith("sqlite"):
+            rows = conn.execute(text("PRAGMA table_info(csv_job_items)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "base_soften_asset_id" not in existing:
+                conn.execute(text("ALTER TABLE csv_job_items ADD COLUMN base_soften_asset_id TEXT"))
+        else:
+            existing = _postgres_existing_columns(conn, "csv_job_items")
+            if "base_soften_asset_id" not in existing:
+                conn.execute(text("ALTER TABLE csv_job_items ADD COLUMN base_soften_asset_id TEXT"))
 
 
 if __name__ == "__main__":

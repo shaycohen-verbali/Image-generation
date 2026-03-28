@@ -405,6 +405,83 @@ class GoogleImageClient:
             "safety_level": normalize_nano_banana_safety_level(self.settings.nano_banana_safety_level),
         }
 
+    def post_quality_accessibility_request_summary(
+        self,
+        image_path: Path,
+        *,
+        word: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
+    ) -> dict[str, Any]:
+        selected_model = normalize_stage3_generation_model(model_choice)
+        provider_model = (
+            google_image_model_name(selected_model)
+            if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"}
+            else google_image_model_name("nano-banana-2")
+        )
+        prompt = (
+            "Using the provided image as the base, keep the exact same AAC concept, exact same scene, exact same action, exact same object count, exact same framing, exact same lighting, and exact same subject identity. "
+            "This is not a new composition. It is only a tiny readability softening pass for AAC grid use. "
+            f"{edit_instruction.strip()} "
+            "Reduce only minor clutter or distraction if needed. "
+            "Do not add or remove core subjects, do not replace objects, do not move to a different scene, do not change the camera angle, and do not change the meaning of the image. "
+            f'The image must still clearly represent the concept "{word}" for AAC users. '
+            "Do not add text, watermark, extra people, extra props, or extra limbs."
+        )
+        return {
+            "model": selected_model,
+            "provider_model": provider_model,
+            "prompt": prompt,
+            "source_image_path": image_path.as_posix(),
+            "aspect_ratio": aspect_ratio or "",
+            "image_size": image_size or "",
+            "safety_level": normalize_nano_banana_safety_level(self.settings.nano_banana_safety_level),
+        }
+
+    def submit_post_quality_accessibility_generate(
+        self,
+        image_path: Path,
+        *,
+        run_id: str,
+        word: str,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+        edit_instruction: str = "",
+        model_choice: str = "nano-banana-2",
+    ) -> dict[str, Any]:
+        prediction_id = f"google_pred_{uuid.uuid4().hex}"
+        selected_model = normalize_stage3_generation_model(model_choice)
+        model_name = (
+            google_image_model_name(selected_model)
+            if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"}
+            else google_image_model_name("nano-banana-2")
+        )
+        future = self._prediction_executor.submit(
+            self._run_generation,
+            run_id=run_id,
+            model_name=model_name,
+            prompt=str(
+                self.post_quality_accessibility_request_summary(
+                    image_path,
+                    word=word,
+                    aspect_ratio=aspect_ratio,
+                    image_size=image_size,
+                    edit_instruction=edit_instruction,
+                    model_choice=model_choice,
+                )["prompt"]
+            ),
+            image_paths=[image_path],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+            safety_level=self.settings.nano_banana_safety_level,
+        )
+        with self._lock:
+            self._prediction_futures[prediction_id] = future
+            self._prediction_models[prediction_id] = model_name
+        return {"id": prediction_id, "status": "processing", "model": model_name, "provider": "google"}
+
     def submit_nano_banana_profile_variant(
         self,
         image_path: Path,

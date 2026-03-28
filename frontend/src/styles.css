@@ -379,6 +379,13 @@ body {
   width: fit-content;
 }
 
+.field-help-text {
+  display: block;
+  margin-top: 4px;
+  color: #6b6257;
+  font-size: 0.82rem;
+}
+
 .csv-word-image-hover-preview {
   position: absolute;
   left: 0;
@@ -824,6 +831,16 @@ pre {
   width: 100%;
   height: auto;
   display: block;
+}
+
+.asset-image-empty {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fbf8f2 0%, #f3ede2 100%);
+  color: #6b6257;
+  font-weight: 600;
 }
 
 .deferred-asset-placeholder {

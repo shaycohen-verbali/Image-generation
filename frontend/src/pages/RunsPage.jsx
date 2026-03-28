@@ -253,17 +253,29 @@ function csvItemImages(item, tasks) {
   const images = []
   const seen = new Set()
   const addImage = (payload) => {
-    const key = `${payload.id}:${payload.kind}`
-    if (!payload.id || seen.has(key)) return
+    const key = `${payload.kind}:${payload.id || payload.label}`
+    if ((!payload.id && !payload.missing) || seen.has(key)) return
     seen.add(key)
     images.push(payload)
   }
-  if (item?.base_regular_asset_id) {
-    addImage({ id: item.base_regular_asset_id, label: 'Base regular', kind: 'regular' })
-  }
-  if (item?.base_white_bg_asset_id) {
-    addImage({ id: item.base_white_bg_asset_id, label: 'Base white background', kind: 'white_bg' })
-  }
+  addImage({
+    id: item?.base_regular_asset_id || '',
+    label: 'Quality image',
+    kind: 'quality',
+    missing: !item?.base_regular_asset_id,
+  })
+  addImage({
+    id: item?.base_soften_asset_id || '',
+    label: 'Soften image',
+    kind: 'soften',
+    missing: !item?.base_soften_asset_id,
+  })
+  addImage({
+    id: item?.base_white_bg_asset_id || '',
+    label: 'White background image',
+    kind: 'white_bg',
+    missing: !item?.base_white_bg_asset_id,
+  })
   ;(Array.isArray(tasks) ? tasks : []).forEach((task) => {
     const profile = csvProfileSummary(task.profile_key)
     const baseLabel = `${profile || csvStepLabel(task.step_name)}`
@@ -432,6 +444,9 @@ function mergeRunDetail(previous, next) {
 function stageTitle(stageName) {
   if (stageName === 'stage1_prompt') return 'Stage 1 Prompt'
   if (stageName === 'stage3_upgrade') return 'Stage 3 Prompt Upgrade'
+  if (stageName === 'stage3_accessibility_critique') return 'Stage 3.16 Simplicity Critique (disabled)'
+  if (stageName === 'stage3_post_quality_accessibility_critique') return 'Post-quality AAC Critique'
+  if (stageName === 'stage3_post_quality_accessibility_generate') return 'Post-quality AAC Soften Image'
   if (stageName === 'stage2_draft') return 'Stage 2 Draft'
   if (stageName === 'stage3_upgraded') return 'Stage 3 Upgraded'
   if (stageName === 'stage4_white_bg') return 'Stage 4 White Background'
@@ -445,9 +460,10 @@ function stageTitle(stageName) {
 const stagePriority = {
   stage2_draft: 1,
   stage3_upgraded: 2,
-  stage4_white_bg: 3,
-  stage4_variant_generate: 4,
-  stage5_variant_white_bg: 5,
+  stage3_post_quality_accessibility_generate: 3,
+  stage4_white_bg: 4,
+  stage4_variant_generate: 5,
+  stage5_variant_white_bg: 6,
 }
 
 const CSV_GENDER_OPTIONS = ['male', 'female']
@@ -1747,11 +1763,15 @@ export default function RunsPage() {
                     </thead>
                     <tbody>
                       <tr>
-                        <td>Base regular</td>
+                        <td>Quality image</td>
                         <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_regular_asset_id)}</td>
                       </tr>
                       <tr>
-                        <td>Base white background</td>
+                        <td>Soften image</td>
+                        <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_soften_asset_id)}</td>
+                      </tr>
+                      <tr>
+                        <td>White background image</td>
                         <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_white_bg_asset_id)}</td>
                       </tr>
                     </tbody>
@@ -1811,22 +1831,32 @@ export default function RunsPage() {
                   {selectedCsvItemImages.length ? (
                     selectedCsvItemImages.map((image) => (
                       <article key={`${selectedCsvItem.id}:${image.id}:${image.label}`} className="csv-word-image-card">
-                        <DeferredAssetImage
-                          asset={image.id}
-                          alt={image.label}
-                          buttonLabel={`Load ${image.label}`}
-                          className="asset-image"
-                        />
+                        {image.id ? (
+                          <DeferredAssetImage
+                            asset={image.id}
+                            alt={image.label}
+                            buttonLabel={`Load ${image.label}`}
+                            className="asset-image"
+                          />
+                        ) : (
+                          <div className="asset-image asset-image-empty">
+                            <span>Not created</span>
+                          </div>
+                        )}
                         <div className="csv-word-image-meta">
                           <strong>{image.label}</strong>
-                          <div className="csv-word-image-link-wrap">
-                            <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
-                              Preview image
-                            </a>
-                            <div className="csv-word-image-hover-preview">
-                              <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
+                          {image.id ? (
+                            <div className="csv-word-image-link-wrap">
+                              <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
+                                Preview image
+                              </a>
+                              <div className="csv-word-image-hover-preview">
+                                <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
+                              </div>
                             </div>
-                          </div>
+                          ) : (
+                            <span>Not created</span>
+                          )}
                         </div>
                       </article>
                     ))

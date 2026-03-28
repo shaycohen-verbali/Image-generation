@@ -17,8 +17,9 @@ from app.services.openai_client import AssistantRunFailedError, OpenAIClient
 from app.services.person_profiles import profile_edit_instruction, profile_key, profile_prompt_fragment, variant_branch_plan
 from app.services.prompt_templates import (
     apply_render_decision_to_prompt,
+    build_post_quality_accessibility_critique_prompt,
+    build_post_quality_accessibility_generate_instruction,
     build_stage3_accessibility_critique_prompt,
-    build_stage3_accessibility_recommendations,
     build_stage3_anatomy_critique_prompt,
     build_stage3_anatomy_recommendations,
     build_stage1_prompt,
@@ -1085,6 +1086,23 @@ class PipelineRunner:
         if best_attempt is None or best_score is None:
             raise RuntimeError("No scored attempt available to select winner")
 
+        self._raise_if_stop_requested(run, "stage3_post_quality_accessibility_critique")
+        run = self.repo.update_run(
+            run,
+            current_stage="stage3_post_quality_accessibility_critique",
+            optimization_attempt=best_attempt,
+            quality_score=best_score,
+        )
+        self._execute_with_stage_retry(
+            retry_limit,
+            lambda: self._run_post_quality_accessibility_flow(
+                run=run,
+                entry=entry,
+                winner_attempt=best_attempt,
+                winner_score=best_score,
+            ),
+        )
+
         self._raise_if_stop_requested(run, "stage4_background")
         run = self.repo.update_run(run, current_stage="stage4_background", optimization_attempt=best_attempt, quality_score=best_score)
         self._execute_with_stage_retry(
@@ -1415,13 +1433,15 @@ class PipelineRunner:
             part_of_sentence=entry.part_of_sentence,
             category=entry.category,
         )
-        accessibility_analysis, accessibility_analysis_raw = self.openai.analyze_image_accessibility(
-            critique_path,
-            word=entry.word,
-            part_of_sentence=entry.part_of_sentence,
-            category=entry.category,
-            model=accessibility_critique_model,
-        )
+        accessibility_analysis = {
+            "skipped": True,
+            "reason": "Stage 3.16 is disabled for new runs and has moved after Quality Gate.",
+            "simplicity_ok": "yes",
+            "issues": "",
+            "correction_recommendations": "",
+            "simplicity_problem": "none",
+        }
+        accessibility_analysis_raw: dict[str, Any] = {}
         self.repo.add_prompt(
             run_id=run.id,
             stage_name="stage3_accessibility_critique",
@@ -1438,10 +1458,11 @@ class PipelineRunner:
             run_id=run.id,
             stage_name="stage3_accessibility_critique",
             attempt=attempt,
-            status="ok",
+            status="skipped",
             request_json={
                 "source_asset": critique_source_asset.abs_path,
                 "accessibility_critique_model_selected": accessibility_critique_model,
+                "disabled": True,
             },
             response_json={
                 "analysis": accessibility_analysis,
@@ -1468,9 +1489,6 @@ class PipelineRunner:
         anatomy_recommendations = build_stage3_anatomy_recommendations(anatomy_analysis)
         if anatomy_recommendations:
             recommendations = f"{recommendations}\n{anatomy_recommendations}".strip()
-        accessibility_recommendations = build_stage3_accessibility_recommendations(accessibility_analysis)
-        if accessibility_recommendations:
-            recommendations = f"{recommendations}\n{accessibility_recommendations}".strip()
         if previous_score_explanation:
             recommendations = f"{recommendations}\nPrevious score feedback: {previous_score_explanation}"
 
@@ -1678,6 +1696,7 @@ class PipelineRunner:
                 "critique_model_selected": critique_model,
                 "anatomy_critique_model_selected": anatomy_critique_model,
                 "accessibility_critique_model_selected": accessibility_critique_model,
+                "accessibility_critique_disabled": True,
                 "generation_model_selected": selected_stage3_model,
                 "generation_client": generation_client,
                 "initial_need_person": current_need_person,
@@ -1772,9 +1791,9 @@ class PipelineRunner:
         if not planned_profiles:
             return
 
-        upgraded_asset = self._asset_for_attempt(run.id, "stage3_upgraded", winner_attempt)
+        upgraded_asset = self._winner_source_asset(run.id, winner_attempt)
         if upgraded_asset is None:
-            raise RuntimeError(f"Missing stage3 upgraded image for variant generation attempt {winner_attempt}")
+            raise RuntimeError(f"Missing winner image for variant generation attempt {winner_attempt}")
 
         runtime_config = self.repo.get_runtime_config()
         aspect_ratio = runtime_config.image_aspect_ratio
@@ -2750,9 +2769,9 @@ class PipelineRunner:
         }
 
     def _run_stage4_attempt(self, *, run: Run, entry: Entry, winner_attempt: int, winner_score: float) -> None:
-        upgraded_asset = self._asset_for_attempt(run.id, "stage3_upgraded", winner_attempt)
+        upgraded_asset = self._winner_source_asset(run.id, winner_attempt)
         if upgraded_asset is None:
-            raise RuntimeError(f"Missing stage3 upgraded image for winner attempt {winner_attempt}")
+            raise RuntimeError(f"Missing winner image for attempt {winner_attempt}")
         runtime_config = self.repo.get_runtime_config()
         white_bg_request = self.google_images.white_bg_request_summary(
             self._local_asset_path(upgraded_asset),
@@ -2900,6 +2919,252 @@ class PipelineRunner:
                 "latency_ms": round((perf_counter() - start) * 1000, 2),
             },
         )
+
+    @staticmethod
+    def _post_quality_softening_needed(accessibility_analysis: dict[str, Any] | None) -> bool:
+        analysis = accessibility_analysis or {}
+        if str(analysis.get("simplicity_ok") or "").strip().lower() == "yes":
+            return False
+        if str(analysis.get("simplicity_problem") or "").strip().lower() not in {"", "none"}:
+            return True
+        if str(analysis.get("issues") or "").strip():
+            return True
+        return bool(str(analysis.get("correction_recommendations") or "").strip())
+
+    def _winner_source_asset(self, run_id: str, winner_attempt: int) -> Asset | None:
+        return (
+            self._asset_for_attempt(run_id, "stage3_post_quality_accessibility_generate", winner_attempt)
+            or self._asset_for_attempt(run_id, "stage3_upgraded", winner_attempt)
+        )
+
+    def _run_post_quality_accessibility_flow(
+        self,
+        *,
+        run: Run,
+        entry: Entry,
+        winner_attempt: int,
+        winner_score: float,
+    ) -> Asset | None:
+        quality_asset = self._asset_for_attempt(run.id, "stage3_upgraded", winner_attempt)
+        if quality_asset is None:
+            raise RuntimeError(f"Missing stage3 upgraded image for winner attempt {winner_attempt}")
+        quality_path = self._local_asset_path(quality_asset)
+        runtime_config = self.repo.get_runtime_config()
+        critique_model = runtime_config.post_quality_accessibility_critique_model
+        generate_model = runtime_config.post_quality_accessibility_generate_model
+        critique_prompt_text = build_post_quality_accessibility_critique_prompt(
+            word=entry.word,
+            part_of_sentence=entry.part_of_sentence,
+            category=entry.category,
+        )
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_critique",
+            attempt=winner_attempt,
+            event_type="stage_started",
+            status="running",
+            message="Post-quality AAC softening critique started",
+            payload={
+                "source_asset": quality_asset.abs_path,
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+                "critique_model": critique_model,
+            },
+        )
+        analysis, analysis_raw = self.openai.analyze_post_quality_accessibility(
+            quality_path,
+            word=entry.word,
+            part_of_sentence=entry.part_of_sentence,
+            category=entry.category,
+            model=critique_model,
+        )
+        self.repo.add_prompt(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_critique",
+            attempt=winner_attempt,
+            prompt_text=critique_prompt_text,
+            needs_person="",
+            source="post_quality_accessibility_critique",
+            raw_response_json={
+                "analysis": analysis,
+                "analysis_raw": analysis_raw,
+            },
+        )
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_critique",
+            attempt=winner_attempt,
+            status="ok",
+            request_json={
+                "source_asset": quality_asset.abs_path,
+                "post_quality_accessibility_critique_model_selected": critique_model,
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+            },
+            response_json={
+                "analysis": analysis,
+                "analysis_raw": analysis_raw,
+            },
+            idempotency_key=f"{run.id}:stage3_post_quality_accessibility_critique:{winner_attempt}",
+        )
+        needs_softening = self._post_quality_softening_needed(analysis)
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_critique",
+            attempt=winner_attempt,
+            event_type="stage_completed",
+            status="ok",
+            message="Post-quality AAC softening critique completed",
+            payload={
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+                "softening_needed": needs_softening,
+                "simplicity_problem": str(analysis.get("simplicity_problem") or ""),
+            },
+        )
+        if not needs_softening:
+            self._record_stage(
+                run_id=run.id,
+                stage_name="stage3_post_quality_accessibility_generate",
+                attempt=winner_attempt,
+                status="skipped",
+                request_json={
+                    "source_asset": quality_asset.abs_path,
+                    "post_quality_accessibility_generate_model_selected": generate_model,
+                    "winner_attempt": winner_attempt,
+                    "winner_score": winner_score,
+                },
+                response_json={
+                    "skipped": True,
+                    "reason": "Image already AAC-friendly; no soften pass needed",
+                    "analysis": analysis,
+                },
+                idempotency_key=f"{run.id}:stage3_post_quality_accessibility_generate:{winner_attempt}",
+            )
+            self._record_event(
+                run_id=run.id,
+                stage_name="stage3_post_quality_accessibility_generate",
+                attempt=winner_attempt,
+                event_type="stage_completed",
+                status="skipped",
+                message="Post-quality AAC soften image skipped",
+                payload={"reason": "Image already AAC-friendly"},
+            )
+            return None
+
+        edit_instruction = build_post_quality_accessibility_generate_instruction(analysis)
+        request_summary = self.google_images.post_quality_accessibility_request_summary(
+            quality_path,
+            word=entry.word,
+            aspect_ratio=runtime_config.image_aspect_ratio,
+            image_size=runtime_config.image_resolution,
+            edit_instruction=edit_instruction,
+            model_choice=generate_model,
+        )
+        self.repo.update_run(run, current_stage="stage3_post_quality_accessibility_generate")
+        if request_summary.get("prompt"):
+            self.repo.add_prompt(
+                run_id=run.id,
+                stage_name="stage3_post_quality_accessibility_generate",
+                attempt=winner_attempt,
+                prompt_text=str(request_summary.get("prompt") or ""),
+                needs_person="",
+                source="post_quality_accessibility_generate",
+                raw_response_json=request_summary,
+            )
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_generate",
+            attempt=winner_attempt,
+            event_type="stage_started",
+            status="running",
+            message="Post-quality AAC soften image generation started",
+            payload={
+                "source_asset": quality_asset.abs_path,
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+                "selected_model": generate_model,
+            },
+        )
+        try:
+            created = self.google_images.submit_post_quality_accessibility_generate(
+                quality_path,
+                run_id=run.id,
+                word=entry.word,
+                aspect_ratio=runtime_config.image_aspect_ratio,
+                image_size=runtime_config.image_resolution,
+                edit_instruction=edit_instruction,
+                model_choice=generate_model,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._merge_error_context(exc, request_json=request_summary)
+            raise
+        prediction_id = str(created.get("id") or "")
+        if not prediction_id:
+            self._raise_with_context(
+                "post-quality soften generation returned no prediction id",
+                request_json=request_summary,
+                response_json=created if isinstance(created, dict) else {},
+            )
+        prediction_result, status_transitions = self._poll_prediction_result(prediction_id)
+        if prediction_result.get("status") != "succeeded":
+            self._raise_with_context(
+                f"Post-quality soften image failed: {prediction_result.get('status')}",
+                request_json=request_summary,
+                response_json=self._json_dict(prediction_result.get("response_json")) or prediction_result,
+            )
+        output_url = self.replicate.extract_output_url(prediction_result)
+        if not output_url:
+            self._raise_with_context(
+                "No output URL for post-quality soften image",
+                request_json=request_summary,
+                response_json=self._json_dict(prediction_result.get("response_json")) or prediction_result,
+            )
+        image_bytes = self._download_generated_image(output_url)
+        saved_asset = self._save_asset(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_generate",
+            attempt=winner_attempt,
+            filename=f"stage3_softened_{self._entry_slug(entry)}_attempt_{winner_attempt}.jpg",
+            image_bytes=image_bytes,
+            origin_url=output_url,
+            model_name=str(prediction_result.get("model") or "gemini-3.1-flash-image-preview"),
+        )
+        self._record_stage(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_generate",
+            attempt=winner_attempt,
+            status="ok",
+            request_json={
+                "source_asset": quality_asset.abs_path,
+                "post_quality_accessibility_generate_model_selected": generate_model,
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+                "edit_instruction": edit_instruction,
+                **request_summary,
+            },
+            response_json={
+                **self._compact_google_generation_result(prediction_result),
+                "status_transitions": status_transitions,
+                "analysis": analysis,
+            },
+            idempotency_key=f"{run.id}:stage3_post_quality_accessibility_generate:{winner_attempt}",
+        )
+        self._record_event(
+            run_id=run.id,
+            stage_name="stage3_post_quality_accessibility_generate",
+            attempt=winner_attempt,
+            event_type="stage_completed",
+            status="ok",
+            message="Post-quality AAC soften image generation completed",
+            payload={
+                "winner_attempt": winner_attempt,
+                "winner_score": winner_score,
+                "saved_file": saved_asset.file_name,
+                "output_url": output_url,
+            },
+        )
+        return saved_asset
 
     def _run_quality_gate_attempt(self, *, run: Run, entry: Entry, attempt: int) -> tuple[float, bool, dict[str, Any]]:
         final_asset = self._asset_for_attempt(run.id, "stage3_upgraded", attempt)

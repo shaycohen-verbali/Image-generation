@@ -821,6 +821,14 @@ class CsvDagService:
                     (asset for asset in shadow_assets if asset.stage_name == "stage4_white_bg" and int(asset.attempt or 0) == winner_attempt),
                     None,
                 )
+                soften_asset = next(
+                    (
+                        asset
+                        for asset in shadow_assets
+                        if asset.stage_name == "stage3_post_quality_accessibility_generate" and int(asset.attempt or 0) == winner_attempt
+                    ),
+                    None,
+                )
                 if regular_asset is None or white_bg_asset is None:
                     missing_assets: list[str] = []
                     if regular_asset is None:
@@ -841,6 +849,7 @@ class CsvDagService:
                     response_json={
                         "winner_attempt": winner_attempt,
                         "regular_asset_id": regular_asset.id,
+                        "soften_asset_id": soften_asset.id if soften_asset else "",
                         "white_bg_asset_id": white_bg_asset.id,
                     },
                     finished_at=datetime.utcnow(),
@@ -857,6 +866,7 @@ class CsvDagService:
                 self.repo.update_csv_job_item(
                     item,
                     base_regular_asset_id=regular_asset.id,
+                    base_soften_asset_id=soften_asset.id if soften_asset else None,
                     base_white_bg_asset_id=white_bg_asset.id,
                 )
                 _, shadow_stages, _, _ = self.repo.run_snapshot(shadow_run.id)
@@ -908,9 +918,24 @@ class CsvDagService:
                         return None
                     if profile_key(source_profile) != f"{DEFAULT_GENDER}:{DEFAULT_AGE}:{DEFAULT_SKIN_COLOR}":
                         return None
+                    if item.base_soften_asset_id:
+                        softened = self.repo.get_asset(item.base_soften_asset_id)
+                        if softened is not None:
+                            return softened
                     if not item.base_regular_asset_id:
                         return None
                     return self.repo.get_asset(item.base_regular_asset_id)
+
+                def _source_asset_for_dependency_task(source_task: CsvTaskNode | None) -> Asset | None:
+                    if source_task is None:
+                        return None
+                    if source_task.step_name == "step1_base":
+                        softened = _default_base_source_asset()
+                        if softened is not None:
+                            return softened
+                    if source_task.regular_asset_id:
+                        return self.repo.get_asset(source_task.regular_asset_id)
+                    return None
 
                 def _cannot_complete(reason: str) -> CsvTaskNode:
                     self.repo.update_csv_task(
@@ -932,9 +957,7 @@ class CsvDagService:
 
                 if dependency_ids:
                     source_task = self.repo.get_csv_task(dependency_ids[0])
-                    source_asset: Asset | str | None = None
-                    if source_task is not None and source_task.regular_asset_id:
-                        source_asset = self.repo.get_asset(source_task.regular_asset_id)
+                    source_asset: Asset | str | None = _source_asset_for_dependency_task(source_task)
                     if source_asset is None:
                         source_asset = _default_base_source_asset()
                     if source_asset is None:
@@ -1167,6 +1190,7 @@ class CsvDagService:
                         if key in {"google", "replicate", "openai"}
                     } if estimated_item_cost is not None else {},
                     "base_regular_asset_id": item.base_regular_asset_id,
+                    "base_soften_asset_id": item.base_soften_asset_id,
                     "base_white_bg_asset_id": item.base_white_bg_asset_id,
                     "main_status": item_progress["main_status"],
                     "sub_status": item_progress["sub_status"],
@@ -1298,6 +1322,7 @@ class CsvDagService:
                         "status": item.status,
                         "shadow_run_id": item.shadow_run_id,
                         "base_regular_asset_id": item.base_regular_asset_id,
+                        "base_soften_asset_id": item.base_soften_asset_id,
                         "base_white_bg_asset_id": item.base_white_bg_asset_id,
                     }
                 )
@@ -1327,6 +1352,7 @@ class CsvDagService:
                     "sub_status",
                     "shadow_run_id",
                     "base_regular_asset_id",
+                    "base_soften_asset_id",
                     "base_white_bg_asset_id",
                 ],
             )
@@ -1345,6 +1371,7 @@ class CsvDagService:
                         "sub_status": item.get("sub_status") or "",
                         "shadow_run_id": item.get("shadow_run_id") or "",
                         "base_regular_asset_id": item.get("base_regular_asset_id") or "",
+                        "base_soften_asset_id": item.get("base_soften_asset_id") or "",
                         "base_white_bg_asset_id": item.get("base_white_bg_asset_id") or "",
                     }
                 )

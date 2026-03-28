@@ -38,10 +38,26 @@ const STAGE_DEFINITIONS = [
   },
   {
     id: 'stage3_accessibility_critique',
-    label: 'Stage 3.16 Simplicity Critique',
+    label: 'Stage 3.16 Simplicity Critique (Disabled)',
     provider: 'OpenAI Vision',
-    inputs: ['previous image', 'AAC accessibility lens'],
+    inputs: ['previous image', 'legacy config only'],
+    expected: ['skipped for new runs'],
+    retryPolicy: 'skipped',
+  },
+  {
+    id: 'stage3_post_quality_accessibility_critique',
+    label: 'Post-quality AAC Critique',
+    provider: 'OpenAI Vision',
+    inputs: ['winner stage3 image', 'AAC grid readability lens'],
     expected: ['simplicity_ok', 'issues', 'correction_recommendations', 'simplicity_problem'],
+    retryPolicy: 'API retry + stage retry',
+  },
+  {
+    id: 'stage3_post_quality_accessibility_generate',
+    label: 'Post-quality AAC Soften Image',
+    provider: 'Selected edit model',
+    inputs: ['winner stage3 image', 'minor softening instructions'],
+    expected: ['optional softened image'],
     retryPolicy: 'API retry + stage retry',
   },
   {
@@ -122,15 +138,18 @@ const FLOW_EDGES = [
   { from: 'stage1_prompt', to: 'stage2_draft', label: 'prompt + initial style guess', fromPort: 'right', toPort: 'left' },
   { from: 'stage2_draft', to: 'stage3_critique', label: 'start attempt 1', fromPort: 'right', toPort: 'left' },
   { from: 'stage3_critique', to: 'stage3_anatomy_critique', label: 'person/animal scenes', fromPort: 'bottom', toPort: 'top' },
-  { from: 'stage3_critique', to: 'stage3_accessibility_critique', label: 'always check simplicity', fromPort: 'right', toPort: 'left' },
-  { from: 'stage3_anatomy_critique', to: 'stage3_accessibility_critique', label: 'add anatomy fixes first', fromPort: 'bottom', toPort: 'top' },
-  { from: 'stage3_accessibility_critique', to: 'stage3_prompt_upgrade', label: 'add simplicity fixes', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_critique', to: 'stage3_accessibility_critique', label: 'record disabled legacy step', fromPort: 'right', toPort: 'left' },
+  { from: 'stage3_anatomy_critique', to: 'stage3_prompt_upgrade', label: 'add anatomy fixes first', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_accessibility_critique', to: 'stage3_prompt_upgrade', label: 'skip and continue', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt + resolved style', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
-  { from: 'quality_gate', to: 'stage4_background', label: 'winner selected', fromPort: 'top', toPort: 'left' },
+  { from: 'quality_gate', to: 'stage3_post_quality_accessibility_critique', label: 'winner selected', fromPort: 'top', toPort: 'left' },
+  { from: 'stage3_post_quality_accessibility_critique', to: 'stage3_post_quality_accessibility_generate', label: 'soften only if needed', fromPort: 'right', toPort: 'left' },
+  { from: 'stage3_post_quality_accessibility_critique', to: 'stage4_background', label: 'already AAC-friendly', fromPort: 'bottom', toPort: 'top' },
+  { from: 'stage3_post_quality_accessibility_generate', to: 'stage4_background', label: 'use softened image when created', fromPort: 'right', toPort: 'left' },
   { from: 'stage4_background', to: 'completed', label: 'base ready / no extra variants', fromPort: 'right', toPort: 'left' },
-  { from: 'stage4_background', to: 'stage4_variant_generate', label: 'use stage3 winner as the variant baseline', fromPort: 'right', toPort: 'left' },
+  { from: 'stage4_background', to: 'stage4_variant_generate', label: 'use selected winner source as the variant baseline', fromPort: 'right', toPort: 'left' },
   { from: 'stage4_variant_generate', to: 'stage4_variant_critique', label: 'review gender/age changes', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage4_variant_critique', to: 'stage4_variant_correction', label: 'correct if needed', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage4_variant_critique', to: 'stage5_variant_white_bg', label: 'skip when clean', fromPort: 'right', toPort: 'left' },
@@ -279,6 +298,15 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
     return asStageStatus(stageResult?.status)
   }
 
+  if (stageId === 'stage3_post_quality_accessibility_critique' || stageId === 'stage3_post_quality_accessibility_generate') {
+    const winnerAttempt = Number(run.optimization_attempt || 0)
+    const isCompleted = String(run.status || '').startsWith('completed_')
+    if (isCompleted && winnerAttempt > 0 && attempt !== winnerAttempt && !stageResult) return 'skipped'
+    if (isCurrentAttemptStage) return 'running'
+    if (stageResult) return asStageStatus(stageResult.status)
+    return 'queued'
+  }
+
   if (stageId === 'stage4_background') {
     const winnerAttempt = Number(run.optimization_attempt || 0)
     const isCompleted = String(run.status || '').startsWith('completed_')
@@ -326,6 +354,8 @@ function nodeSubtitle(stageId, run, score, attempt) {
   if (stageId === 'stage4_variant_critique') return 'Variant critique'
   if (stageId === 'stage4_variant_correction') return 'Variant correction'
   if (stageId === 'stage5_variant_white_bg') return 'White-bg variants'
+  if (stageId === 'stage3_post_quality_accessibility_critique') return 'Minor AAC softening critique'
+  if (stageId === 'stage3_post_quality_accessibility_generate') return 'Optional soften image'
   return ''
 }
 
@@ -396,6 +426,15 @@ function accessibilityCritiqueTemplate(ctx) {
   )
 }
 
+function postQualityAccessibilityCritiqueTemplate(ctx) {
+  return (
+    'You are reviewing a conceptually good AAC image after the quality gate. Return STRICT JSON with keys ' +
+    '{"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. ' +
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}. ` +
+    'Recommend only minor readability softening and recommend no changes when the image is already AAC-friendly.'
+  )
+}
+
 function variantCritiqueTemplate(ctx) {
   return (
     'Critique the generated variant image for target-profile clothing/styling correctness. Return STRICT JSON with keys ' +
@@ -428,6 +467,7 @@ function aiInstructionForStage({
   stage1Result,
   stage2Result,
   stage3Result,
+  postQualityGenerateResult,
   stage4Result,
   stage4VariantResult,
   stage4VariantCritiqueResult,
@@ -475,7 +515,29 @@ function aiInstructionForStage({
   if (stageId === 'stage3_accessibility_critique') {
     return {
       text: accessibilityCritiqueTemplate(stage1Context),
-      source: 'backend prompt template (OpenAIClient.analyze_image_accessibility)',
+      source: 'backend prompt template (disabled / skipped for new runs)',
+    }
+  }
+
+  if (stageId === 'stage3_post_quality_accessibility_critique') {
+    return {
+      text: postQualityAccessibilityCritiqueTemplate(stage1Context),
+      source: 'backend prompt template (OpenAIClient.analyze_post_quality_accessibility)',
+    }
+  }
+
+  if (stageId === 'stage3_post_quality_accessibility_generate') {
+    return {
+      text: JSON.stringify(
+        {
+          selected_model: safeText(safeObject(postQualityGenerateResult?.request_json).post_quality_accessibility_generate_model_selected) || '<selected soften model>',
+          source_image: '<stage3 winner image>',
+          instruction: safeText(safeObject(postQualityGenerateResult?.request_json).edit_instruction) || '<minor AAC softening instruction>',
+        },
+        null,
+        2,
+      ),
+      source: 'backend prompt template (GoogleImageClient.post_quality_accessibility_request_summary)',
     }
   }
 
@@ -616,7 +678,7 @@ export function getAvailableAttempts(detail) {
     if (attempt > 0) attempts.add(attempt)
   })
   detail.assets.forEach((asset) => {
-    if (!['stage3_upgraded', 'stage4_white_bg', 'stage4_variant_generate', 'stage5_variant_white_bg'].includes(asset.stage_name)) return
+    if (!['stage3_upgraded', 'stage3_post_quality_accessibility_generate', 'stage4_white_bg', 'stage4_variant_generate', 'stage5_variant_white_bg'].includes(asset.stage_name)) return
     const attempt = Number(asset.attempt || 0)
     if (attempt > 0) attempts.add(attempt)
   })
@@ -653,6 +715,8 @@ export function buildRunDiagram(detail, selectedAttempt) {
   const stage3AnatomyResult = stageIndex.get(makeKey('stage3_anatomy_critique', attempt))
   const stage3AccessibilityResult = stageIndex.get(makeKey('stage3_accessibility_critique', attempt))
   const qualityResult = stageIndex.get(makeKey('quality_gate', attempt))
+  const postQualityCritiqueResult = stageIndex.get(makeKey('stage3_post_quality_accessibility_critique', attempt))
+  const postQualityGenerateResult = stageIndex.get(makeKey('stage3_post_quality_accessibility_generate', attempt))
   const stage4Result = stageIndex.get(makeKey('stage4_background', attempt))
   const stage4VariantResult = stageIndex.get(makeKey('stage4_variant_generate', attempt))
   const stage4VariantCritiqueResult = stageIndex.get(makeKey('stage4_variant_critique', attempt))
@@ -665,11 +729,13 @@ export function buildRunDiagram(detail, selectedAttempt) {
 
   const stage2Assets = assetIndex.get(makeKey('stage2_draft', 0)) || []
   const stage3Assets = assetIndex.get(makeKey('stage3_upgraded', attempt)) || []
+  const postQualityAssets = assetIndex.get(makeKey('stage3_post_quality_accessibility_generate', attempt)) || []
   const stage4Assets = assetIndex.get(makeKey('stage4_white_bg', attempt)) || []
   const stage4VariantAssets = assetIndex.get(makeKey('stage4_variant_generate', attempt)) || []
   const stage5VariantAssets = assetIndex.get(makeKey('stage5_variant_white_bg', attempt)) || []
   const stage2Asset = stage2Assets[0] || null
   const stage3Asset = stage3Assets[0] || null
+  const postQualityAsset = postQualityAssets[0] || null
   const stage4Asset = stage4Assets[0] || null
   const stage4VariantAsset = firstVariantAsset(stage4VariantResult?.response_json, stage4VariantAssets)
   const stage5VariantAsset = firstVariantAsset(stage5VariantResult?.response_json, stage5VariantAssets)
@@ -790,9 +856,31 @@ export function buildRunDiagram(detail, selectedAttempt) {
       attempt,
     },
     {
+      id: 'stage3_post_quality_accessibility_critique',
+      stageResult: postQualityCritiqueResult,
+      promptRecord: promptIndex.get(makeKey('stage3_post_quality_accessibility_critique', attempt)) || null,
+      requestPayload: safeObject(postQualityCritiqueResult?.request_json),
+      responsePayload: safeObject(postQualityCritiqueResult?.response_json),
+      asset: stage3Asset || null,
+      model: safeText(safeObject(postQualityCritiqueResult?.request_json).post_quality_accessibility_critique_model_selected) || 'gpt-5.4',
+      score: score || null,
+      attempt,
+    },
+    {
+      id: 'stage3_post_quality_accessibility_generate',
+      stageResult: postQualityGenerateResult,
+      promptRecord: promptIndex.get(makeKey('stage3_post_quality_accessibility_generate', attempt)) || null,
+      requestPayload: safeObject(postQualityGenerateResult?.request_json),
+      responsePayload: safeObject(postQualityGenerateResult?.response_json),
+      asset: postQualityAsset || null,
+      model: postQualityAsset?.model_name || safeText(safeObject(postQualityGenerateResult?.request_json).post_quality_accessibility_generate_model_selected) || 'nano-banana-2',
+      score: score || null,
+      attempt,
+    },
+    {
       id: 'stage4_background',
       stageResult: stage4Result,
-      promptRecord: stage3Prompt || null,
+      promptRecord: promptIndex.get(makeKey('stage4_background', attempt)) || stage3Prompt || null,
       requestPayload: safeObject(stage4Result?.request_json),
       responsePayload: safeObject(stage4Result?.response_json),
       asset: stage4Asset || null,
@@ -878,6 +966,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       stage1Result,
       stage2Result,
       stage3Result,
+      postQualityGenerateResult,
       stage4Result,
       stage4VariantResult,
       stage4VariantCritiqueResult,

@@ -298,11 +298,36 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
             )
         ]
 
-    if stage_name in {"stage2_draft", "stage4_background"}:
+    if stage_name == "stage3_post_quality_accessibility_critique":
+        raw = _json_dict(response_json.get("analysis_raw"))
+        model = _first_text(
+            raw.get("model"),
+            _nested(raw, "raw_response", "model"),
+            request_json.get("post_quality_accessibility_critique_model_selected"),
+        )
+        provider = _first_text(raw.get("provider"), "google" if str(model).startswith("gemini-") else "openai")
+        input_tokens, output_tokens = _extract_gemini_usage(raw) if provider == "google" else _extract_openai_usage(raw)
+        return [
+            _cost_entry(
+                stage_name=stage_name,
+                stage_label="Post-Quality AAC Critique",
+                attempt=attempt,
+                provider=provider,
+                model=model,
+                estimated_cost_usd=_token_cost_usd(model, input_tokens, output_tokens),
+                estimate_basis="official token pricing",
+            )
+        ]
+
+    if stage_name in {"stage2_draft", "stage4_background", "stage3_post_quality_accessibility_generate"}:
         model = _first_text(response_json.get("model"))
         provider = "google" if model.startswith("gemini-") else "replicate"
         estimated_cost_usd = REPLICATE_IMAGE_RATES_USD.get(model, 0.0)
-        label = "Stage 2 Draft Generation" if stage_name == "stage2_draft" else "Stage 4 White Background"
+        label = {
+            "stage2_draft": "Stage 2 Draft Generation",
+            "stage4_background": "Stage 4 White Background",
+            "stage3_post_quality_accessibility_generate": "Post-Quality AAC Soften Image",
+        }.get(stage_name, stage_name)
         return [
             _cost_entry(
                 stage_name=stage_name,

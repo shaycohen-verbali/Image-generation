@@ -35,6 +35,8 @@ def _to_schema(config) -> RuntimeConfigOut:
         stage3_anatomy_critique_model=config.stage3_anatomy_critique_model,
         stage3_accessibility_critique_model=config.stage3_accessibility_critique_model,
         stage3_generate_model=config.stage3_generate_model,
+        post_quality_accessibility_critique_model=config.post_quality_accessibility_critique_model,
+        post_quality_accessibility_generate_model=config.post_quality_accessibility_generate_model,
         variant_critique_model=config.variant_critique_model,
         variant_correction_model=config.variant_correction_model,
         quality_gate_model=config.quality_gate_model,
