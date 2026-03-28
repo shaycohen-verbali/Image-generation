@@ -642,6 +642,34 @@ class CsvDagService:
             if has_person_val:
                 self.repo.update_entry_has_person(entry.id, has_person_val)
 
+    def _winner_base_assets(self, shadow_run_id: str) -> tuple[int, Asset | None, Asset | None, Asset | None]:
+        shadow_run = self.repo.get_run(shadow_run_id)
+        winner_attempt = max(1, int((shadow_run.optimization_attempt if shadow_run else 1) or 1))
+        shadow_assets = self.repo.run_snapshot(shadow_run_id)[2]
+        regular_asset = next(
+            (
+                asset for asset in shadow_assets
+                if asset.stage_name == "stage3_upgraded" and int(asset.attempt or 0) == winner_attempt
+            ),
+            None,
+        )
+        white_bg_asset = next(
+            (
+                asset for asset in shadow_assets
+                if asset.stage_name == "stage4_white_bg" and int(asset.attempt or 0) == winner_attempt
+            ),
+            None,
+        )
+        soften_asset = next(
+            (
+                asset
+                for asset in shadow_assets
+                if asset.stage_name == "stage3_post_quality_accessibility_generate" and int(asset.attempt or 0) == winner_attempt
+            ),
+            None,
+        )
+        return winner_attempt, regular_asset, white_bg_asset, soften_asset
+
     @staticmethod
     def _step_label(step_name: str) -> str:
         return {
@@ -811,24 +839,7 @@ class CsvDagService:
                     if detail:
                         raise RuntimeError(f"Base DAG run ended with status {status_label}: {detail}")
                     raise RuntimeError(f"Base DAG run ended with status {status_label}")
-                winner_attempt = max(1, int(completed_run.optimization_attempt or 1))
-                shadow_assets = self.repo.run_snapshot(shadow_run.id)[2]
-                regular_asset = next(
-                    (asset for asset in shadow_assets if asset.stage_name == "stage3_upgraded" and int(asset.attempt or 0) == winner_attempt),
-                    None,
-                )
-                white_bg_asset = next(
-                    (asset for asset in shadow_assets if asset.stage_name == "stage4_white_bg" and int(asset.attempt or 0) == winner_attempt),
-                    None,
-                )
-                soften_asset = next(
-                    (
-                        asset
-                        for asset in shadow_assets
-                        if asset.stage_name == "stage3_post_quality_accessibility_generate" and int(asset.attempt or 0) == winner_attempt
-                    ),
-                    None,
-                )
+                winner_attempt, regular_asset, white_bg_asset, soften_asset = self._winner_base_assets(shadow_run.id)
                 if regular_asset is None or white_bg_asset is None:
                     missing_assets: list[str] = []
                     if regular_asset is None:
@@ -1262,13 +1273,45 @@ class CsvDagService:
             if shadow_run is None:
                 continue
             shadow_status = str(shadow_run.status or "")
-            if shadow_status not in {"failed_technical", "completed_fail_threshold", "canceled"}:
+            if shadow_status not in {"completed_base_assets", "failed_technical", "completed_fail_threshold", "canceled"}:
                 continue
             active_tasks = [
                 task for task in overview["tasks"]
                 if task.csv_job_item_id == item.id and task.status in {"pending", "queued", "running"}
             ]
             if not active_tasks:
+                continue
+            if shadow_status == "completed_base_assets":
+                winner_attempt, regular_asset, white_bg_asset, soften_asset = self._winner_base_assets(shadow_run.id)
+                if regular_asset is None or white_bg_asset is None:
+                    continue
+                summary = "Recovered completed base run from terminal shadow run"
+                for task in active_tasks:
+                    if task.step_name != "step1_base":
+                        continue
+                    self.repo.update_csv_task(
+                        task,
+                        source_asset_id=regular_asset.id,
+                        regular_asset_id=regular_asset.id,
+                        white_bg_asset_id=white_bg_asset.id,
+                        status="completed",
+                        error_summary="",
+                        finished_at=now,
+                    )
+                self.repo.update_csv_job_item(
+                    item,
+                    status="completed",
+                    error_detail="",
+                    base_regular_asset_id=regular_asset.id,
+                    base_soften_asset_id=soften_asset.id if soften_asset else None,
+                    base_white_bg_asset_id=white_bg_asset.id,
+                )
+                entry = self.repo.get_entry(item.entry_id)
+                if entry is not None:
+                    has_person_val = self._read_has_person_from_shadow_run(item.shadow_run_id)
+                    if has_person_val:
+                        self.repo.update_entry_has_person(entry.id, has_person_val)
+                changed = True
                 continue
             if shadow_status == "canceled":
                 task_status = "canceled"

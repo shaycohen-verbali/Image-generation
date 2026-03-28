@@ -243,3 +243,104 @@ def test_variant_task_prefers_softened_base_asset_when_present(db_session, monke
 
     assert captured["source_asset_id"] == soften_asset.id
     assert finished.status == "completed"
+
+
+def test_job_overview_recovers_completed_base_shadow_run(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="ladder")
+    shadow_run = repo.create_shadow_run(
+        entry_id=entry.id,
+        quality_threshold=95,
+        max_optimization_attempts=3,
+    )
+    repo.update_run(
+        shadow_run,
+        status="completed_base_assets",
+        current_stage="completed_base_assets",
+        optimization_attempt=1,
+        quality_score=97,
+    )
+    quality_asset = repo.add_asset(
+        run_id=shadow_run.id,
+        stage_name="stage3_upgraded",
+        attempt=1,
+        file_name="quality.jpg",
+        abs_path="/tmp/recovered-quality.jpg",
+        mime_type="image/jpeg",
+        sha256="recovered-quality",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+    )
+    soften_asset = repo.add_asset(
+        run_id=shadow_run.id,
+        stage_name="stage3_post_quality_accessibility_generate",
+        attempt=1,
+        file_name="soften.jpg",
+        abs_path="/tmp/recovered-soften.jpg",
+        mime_type="image/jpeg",
+        sha256="recovered-soften",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+    )
+    white_bg_asset = repo.add_asset(
+        run_id=shadow_run.id,
+        stage_name="stage4_white_bg",
+        attempt=1,
+        file_name="white.jpg",
+        abs_path="/tmp/recovered-white.jpg",
+        mime_type="image/jpeg",
+        sha256="recovered-white",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+    )
+    job = repo.create_csv_job(
+        batch_id="csv_test_recover_success",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={},
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "ladder"},
+        shadow_run_id=shadow_run.id,
+        status="running",
+    )
+    repo.create_csv_task_node(
+        csv_job_id=job.id,
+        csv_job_item_id=item.id,
+        step_name="step1_base",
+        task_key="row1:base",
+        profile_key="male:kid:white",
+        source_profile_key="",
+        branch_role="base",
+        dependency_keys=[],
+        dependency_task_ids=[],
+        status="running",
+    )
+
+    overview = service.job_overview(job.id)
+
+    refreshed_task = repo.list_csv_tasks(job.id)[0]
+    refreshed_item = repo.get_csv_job_item(item.id)
+    refreshed_job = repo.get_csv_job(job.id)
+
+    assert overview is not None
+    assert refreshed_task.status == "completed"
+    assert refreshed_task.regular_asset_id == quality_asset.id
+    assert refreshed_task.white_bg_asset_id == white_bg_asset.id
+    assert refreshed_item is not None
+    assert refreshed_item.status == "completed"
+    assert refreshed_item.base_regular_asset_id == quality_asset.id
+    assert refreshed_item.base_soften_asset_id == soften_asset.id
+    assert refreshed_item.base_white_bg_asset_id == white_bg_asset.id
+    assert refreshed_job is not None
+    assert refreshed_job.status == "completed"
