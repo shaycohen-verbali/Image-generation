@@ -12,6 +12,9 @@ import {
 } from '../lib/api'
 
 export default function SubmitPage() {
+  const DEFAULT_PERSON_GENDER_OPTIONS = ['male']
+  const DEFAULT_PERSON_AGE_OPTIONS = ['kid']
+  const DEFAULT_PERSON_SKIN_COLOR_OPTIONS = ['white']
   const IMAGE_ASPECT_RATIO_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']
   const IMAGE_RESOLUTION_OPTIONS = ['1K', '2K', '4K']
   const IMAGE_FORMAT_OPTIONS = [
@@ -34,9 +37,9 @@ export default function SubmitPage() {
     part_of_sentence: '',
     category: '',
     context: '',
-    person_gender_options: [],
-    person_age_options: [],
-    person_skin_color_options: [],
+    person_gender_options: DEFAULT_PERSON_GENDER_OPTIONS,
+    person_age_options: DEFAULT_PERSON_AGE_OPTIONS,
+    person_skin_color_options: DEFAULT_PERSON_SKIN_COLOR_OPTIONS,
     batch: '',
   })
   const [lastEntryId, setLastEntryId] = useState('')
