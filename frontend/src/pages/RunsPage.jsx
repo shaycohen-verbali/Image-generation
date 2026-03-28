@@ -1220,7 +1220,7 @@ export default function RunsPage() {
                       <th>Profile</th>
                       <th>Status</th>
                       <th>Score</th>
-                      <th>Iteration</th>
+                      <th>Iterations</th>
                       <th>Est. cost</th>
                       <th>Progress</th>
                       <th>Current step</th>
@@ -1249,7 +1249,7 @@ export default function RunsPage() {
                           </div>
                         </td>
                         <td>{formatQualityScore(item.quality_score)}</td>
-                        <td>{item.optimization_attempt || '-'}</td>
+                        <td>{item.optimization_loop_count || '-'}</td>
                         <td>{formatUsd(item.estimated_total_cost_usd)}</td>
                         <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
                         <td>{item.current_step || '-'}</td>
@@ -1677,6 +1677,10 @@ export default function RunsPage() {
                     <p>{formatQualityScore(selectedCsvItem.quality_score)}</p>
                   </div>
                   <div>
+                    <strong>Iterations</strong>
+                    <p>{selectedCsvItem.optimization_loop_count || '-'}</p>
+                  </div>
+                  <div>
                     <strong>Current step</strong>
                     <p>{selectedCsvItem.current_step || '-'}</p>
                   </div>
@@ -1707,6 +1711,43 @@ export default function RunsPage() {
                   <button type="button" className="button-secondary" onClick={() => setShowCsvPromptHistory((value) => !value)}>
                     {showCsvPromptHistory ? 'Hide image prompts' : 'View image prompts'}
                   </button>
+                </div>
+                <div className="csv-word-image-grid">
+                  {selectedCsvItemImages.length ? (
+                    selectedCsvItemImages.map((image) => (
+                      <article key={`${selectedCsvItem.id}:${image.id}:${image.label}`} className="csv-word-image-card">
+                        {image.id ? (
+                          <DeferredAssetImage
+                            asset={image.id}
+                            alt={image.label}
+                            buttonLabel={`Load ${image.label}`}
+                            className="asset-image"
+                          />
+                        ) : (
+                          <div className="asset-image asset-image-empty">
+                            <span>Not created</span>
+                          </div>
+                        )}
+                        <div className="csv-word-image-meta">
+                          <strong>{image.label}</strong>
+                          {image.id ? (
+                            <div className="csv-word-image-link-wrap">
+                              <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
+                                Preview image
+                              </a>
+                              <div className="csv-word-image-hover-preview">
+                                <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
+                              </div>
+                            </div>
+                          ) : (
+                            <span>Not created</span>
+                          )}
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p>No images have been created for this word yet.</p>
+                  )}
                 </div>
                 {showCsvScoreHistory ? (
                   <div className="table-wrap runs-table-wrap" style={{ marginBottom: 16 }}>
@@ -1828,43 +1869,6 @@ export default function RunsPage() {
                       )}
                     </tbody>
                   </table>
-                </div>
-                <div className="csv-word-image-grid">
-                  {selectedCsvItemImages.length ? (
-                    selectedCsvItemImages.map((image) => (
-                      <article key={`${selectedCsvItem.id}:${image.id}:${image.label}`} className="csv-word-image-card">
-                        {image.id ? (
-                          <DeferredAssetImage
-                            asset={image.id}
-                            alt={image.label}
-                            buttonLabel={`Load ${image.label}`}
-                            className="asset-image"
-                          />
-                        ) : (
-                          <div className="asset-image asset-image-empty">
-                            <span>Not created</span>
-                          </div>
-                        )}
-                        <div className="csv-word-image-meta">
-                          <strong>{image.label}</strong>
-                          {image.id ? (
-                            <div className="csv-word-image-link-wrap">
-                              <a href={buildAssetContentUrl(image.id)} target="_blank" rel="noreferrer">
-                                Preview image
-                              </a>
-                              <div className="csv-word-image-hover-preview">
-                                <img src={buildAssetContentUrl(image.id)} alt={image.label} loading="lazy" decoding="async" />
-                              </div>
-                            </div>
-                          ) : (
-                            <span>Not created</span>
-                          )}
-                        </div>
-                      </article>
-                    ))
-                  ) : (
-                    <p>No images have been created for this word yet.</p>
-                  )}
                 </div>
                 <div className="table-wrap runs-table-wrap">
                   <table>

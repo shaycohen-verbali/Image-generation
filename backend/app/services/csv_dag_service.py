@@ -671,6 +671,28 @@ class CsvDagService:
         return winner_attempt, regular_asset, white_bg_asset, soften_asset
 
     @staticmethod
+    def _loop_count_from_snapshot(snapshot: dict[str, Any] | None, fallback_attempt: int | None) -> int | None:
+        data = snapshot or {}
+        scores = data.get("scores") if isinstance(data.get("scores"), list) else []
+        stages = data.get("stages") if isinstance(data.get("stages"), list) else []
+        attempts: list[int] = []
+        for score in scores:
+            attempt = int(getattr(score, "attempt", 0) or 0)
+            if attempt > 0:
+                attempts.append(attempt)
+        for stage in stages:
+            stage_name = str(getattr(stage, "stage_name", "") or "")
+            if stage_name not in {"stage3_upgrade", "quality_gate"}:
+                continue
+            attempt = int(getattr(stage, "attempt", 0) or 0)
+            if attempt > 0:
+                attempts.append(attempt)
+        if attempts:
+            return max(attempts)
+        fallback = int(fallback_attempt or 0)
+        return fallback or None
+
+    @staticmethod
     def _step_label(step_name: str) -> str:
         return {
             "step1_base": "Base images",
@@ -1187,6 +1209,10 @@ class CsvDagService:
                     "shadow_run_current_stage": shadow_run.current_stage if shadow_run else "",
                     "shadow_run_error_detail": shadow_run.error_detail if shadow_run else "",
                     "optimization_attempt": shadow_run.optimization_attempt if shadow_run else None,
+                    "optimization_loop_count": self._loop_count_from_snapshot(
+                        run_snapshots.get(shadow_run.id) if shadow_run else None,
+                        shadow_run.optimization_attempt if shadow_run else None,
+                    ),
                     "quality_score": shadow_run.quality_score if shadow_run else None,
                     "quality_threshold": shadow_run.quality_threshold if shadow_run else None,
                     "needs_person_attention": bool(
@@ -1286,7 +1312,6 @@ class CsvDagService:
                 winner_attempt, regular_asset, white_bg_asset, soften_asset = self._winner_base_assets(shadow_run.id)
                 if regular_asset is None or white_bg_asset is None:
                     continue
-                summary = "Recovered completed base run from terminal shadow run"
                 for task in active_tasks:
                     if task.step_name != "step1_base":
                         continue
@@ -1301,7 +1326,6 @@ class CsvDagService:
                     )
                 self.repo.update_csv_job_item(
                     item,
-                    status="completed",
                     error_detail="",
                     base_regular_asset_id=regular_asset.id,
                     base_soften_asset_id=soften_asset.id if soften_asset else None,
@@ -1312,6 +1336,7 @@ class CsvDagService:
                     has_person_val = self._read_has_person_from_shadow_run(item.shadow_run_id)
                     if has_person_val:
                         self.repo.update_entry_has_person(entry.id, has_person_val)
+                self._update_item_status(item)
                 changed = True
                 continue
             if shadow_status == "canceled":

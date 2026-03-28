@@ -344,3 +344,23 @@ def test_job_overview_recovers_completed_base_shadow_run(db_session) -> None:
     assert refreshed_item.base_white_bg_asset_id == white_bg_asset.id
     assert refreshed_job is not None
     assert refreshed_job.status == "completed"
+
+
+def test_loop_count_uses_highest_scored_attempt_not_winner_attempt() -> None:
+    class ScoreRow:
+        def __init__(self, attempt):
+            self.attempt = attempt
+
+    class StageRow:
+        def __init__(self, stage_name, attempt):
+            self.stage_name = stage_name
+            self.attempt = attempt
+
+    snapshot = {
+        "scores": [ScoreRow(1), ScoreRow(2), ScoreRow(3)],
+        "stages": [StageRow("stage3_upgrade", 1), StageRow("quality_gate", 3)],
+    }
+
+    loop_count = CsvDagService._loop_count_from_snapshot(snapshot, 1)
+
+    assert loop_count == 3

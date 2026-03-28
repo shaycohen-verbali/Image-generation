@@ -346,6 +346,7 @@ class CsvJobItemOut(BaseModel):
     shadow_run_current_stage: str = ""
     shadow_run_error_detail: str = ""
     optimization_attempt: int | None = None
+    optimization_loop_count: int | None = None
     quality_score: float | None = None
     quality_threshold: int | None = None
     needs_person_attention: bool = False
