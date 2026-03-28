@@ -11,15 +11,15 @@ VISION_MODEL_ALIASES = {
     "gemini-3.1-flash": "gemini-3-flash-preview",
     "gemini 3.1 flash": "gemini-3-flash-preview",
     "gemini-3.1-flash-preview": "gemini-3-flash-preview",
-    "gemini-3-pro": "gemini-3-pro-preview",
-    "gemini 3 pro": "gemini-3-pro-preview",
-    "gemini pro": "gemini-3-pro-preview",
-    "gemini-3.1-pro-preview": "gemini-3-pro-preview",
-    "gemini-3.1-pro": "gemini-3-pro-preview",
-    "gemini 3.1 pro": "gemini-3-pro-preview",
-    "gemini-3.1-pro-preview": "gemini-3-pro-preview",
-    "gemini-3.1-flash-lite-preview": "gemini-2.5-flash-lite-preview-09-2025",
-    "gemini 3.1 flash lite preview": "gemini-2.5-flash-lite-preview-09-2025",
+    "gemini-3-pro": "gemini-3.1-pro-preview",
+    "gemini 3 pro": "gemini-3.1-pro-preview",
+    "gemini pro": "gemini-3.1-pro-preview",
+    "gemini-3-pro-preview": "gemini-3.1-pro-preview",
+    "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    "gemini 3.1 pro": "gemini-3.1-pro-preview",
+    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite-preview",
+    "gemini 3.1 flash lite preview": "gemini-3.1-flash-lite-preview",
 }
 
 SUPPORTED_PROMPT_ENGINEER_MODELS = {
@@ -28,9 +28,9 @@ SUPPORTED_PROMPT_ENGINEER_MODELS = {
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-2.5-flash-lite-preview-09-2025",
+    "gemini-3.1-flash-lite-preview",
     "gemini-3-flash-preview",
-    "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview",
 }
 
 SUPPORTED_VISION_MODELS = {
@@ -38,9 +38,9 @@ SUPPORTED_VISION_MODELS = {
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-2.5-flash-lite-preview-09-2025",
+    "gemini-3.1-flash-lite-preview",
     "gemini-3-flash-preview",
-    "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview",
 }
 
 SUPPORTED_STAGE3_GENERATION_MODELS = {

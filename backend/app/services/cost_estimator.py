@@ -19,9 +19,9 @@ OPENAI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
 }
 
 GEMINI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
-    "gemini-2.5-flash-lite-preview-09-2025": (0.10, 0.40),
+    "gemini-3.1-flash-lite-preview": (0.10, 0.40),
     "gemini-3-flash-preview": (0.50, 3.00),
-    "gemini-3-pro-preview": (2.00, 12.00),
+    "gemini-3.1-pro-preview": (2.00, 12.00),
 }
 
 REPLICATE_IMAGE_RATES_USD: dict[str, float] = {
@@ -105,7 +105,7 @@ def _token_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
         return (input_tokens / 1_000_000.0) * input_rate + (output_tokens / 1_000_000.0) * output_rate
     if normalized in GEMINI_MODEL_RATES_PER_MILLION:
         input_rate, output_rate = GEMINI_MODEL_RATES_PER_MILLION[normalized]
-        if normalized == "gemini-3-pro-preview" and input_tokens > 200_000:
+        if normalized == "gemini-3.1-pro-preview" and input_tokens > 200_000:
             input_rate, output_rate = 4.00, 18.00
         return (input_tokens / 1_000_000.0) * input_rate + (output_tokens / 1_000_000.0) * output_rate
     return 0.0

@@ -11,9 +11,9 @@ PromptEngineerModel = Literal[
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-2.5-flash-lite-preview-09-2025",
+    "gemini-3.1-flash-lite-preview",
     "gemini-3-flash-preview",
-    "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview",
 ]
 ImageAspectRatio = Literal["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"]
 ImageResolution = Literal["1K", "2K", "4K"]
@@ -455,15 +455,15 @@ class RuntimeConfigOut(BaseModel):
     stage1_prompt_template: str
     stage3_prompt_template: str
     openai_model_vision: str
-    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"]
-    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"]
-    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"]
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"]
+    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
     post_quality_accessibility_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"]
+    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"]
+    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
     image_aspect_ratio: ImageAspectRatio
     image_resolution: ImageResolution
     image_format: ImageFormat
@@ -490,15 +490,15 @@ class RuntimeConfigUpdate(BaseModel):
     stage1_prompt_template: str | None = None
     stage3_prompt_template: str | None = None
     openai_model_vision: str | None = None
-    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"] | None = None
-    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"] | None = None
-    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"] | None = None
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
     stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"] | None = None
+    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
     post_quality_accessibility_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"] | None = None
+    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
     variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-2.5-flash-lite-preview-09-2025", "gemini-3-flash-preview", "gemini-3-pro-preview"] | None = None
+    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
     image_aspect_ratio: ImageAspectRatio | None = None
     image_resolution: ImageResolution | None = None
     image_format: ImageFormat | None = None

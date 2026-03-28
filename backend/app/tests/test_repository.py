@@ -80,7 +80,7 @@ def test_update_runtime_config_normalizes_model_fields(db_session) -> None:
     assert config.stage3_generate_model == "nano-banana-2"
     assert config.post_quality_accessibility_critique_model == "gpt-4o-mini"
     assert config.post_quality_accessibility_generate_model == "nano-banana-2"
-    assert config.quality_gate_model == "gemini-3-pro-preview"
+    assert config.quality_gate_model == "gemini-3.1-pro-preview"
     assert config.prompt_engineer_mode == "responses_api"
     assert config.responses_prompt_engineer_model == "gpt-5.4"
     assert config.stage1_prompt_template
@@ -97,13 +97,13 @@ def test_update_runtime_config_normalizes_requested_gemini_aliases(db_session) -
         {
             "stage3_critique_model": "gemini-3.1-pro-preview",
             "stage3_anatomy_critique_model": "gemini-3-flash-preview",
-            "quality_gate_model": "gemini-2.5-flash-lite-preview-09-2025",
+            "quality_gate_model": "gemini-3.1-flash-lite-preview",
         }
     )
 
-    assert config.stage3_critique_model == "gemini-3-pro-preview"
+    assert config.stage3_critique_model == "gemini-3.1-pro-preview"
     assert config.stage3_anatomy_critique_model == "gemini-3-flash-preview"
-    assert config.quality_gate_model == "gemini-2.5-flash-lite-preview-09-2025"
+    assert config.quality_gate_model == "gemini-3.1-flash-lite-preview"
 
 
 def test_update_runtime_config_normalizes_image_format(db_session) -> None:
