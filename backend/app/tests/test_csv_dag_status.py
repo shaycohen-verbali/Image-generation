@@ -111,6 +111,62 @@ def test_start_job_records_started_at_even_before_first_claim(db_session) -> Non
     assert started.status == "queued"
 
 
+def test_item_progress_uses_item_status_when_no_tasks_exist(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="aggressive")
+    job = repo.create_csv_job(
+        batch_id="csv_test_item_no_tasks",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={},
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "aggressive"},
+        status="completed",
+        error_detail="Requested variants already exist in inventory",
+    )
+
+    payload = service._item_progress_payload(item, [])
+
+    assert payload["main_status"] == "completed"
+    assert payload["sub_status"] == "Requested variants already exist in inventory"
+    assert payload["progress"] == {
+        "completed": 0,
+        "total": 0,
+        "running": 0,
+        "waiting": 0,
+        "failed": 0,
+        "canceled": 0,
+    }
+
+
+def test_finalize_job_does_not_mark_pending_taskless_items_completed(db_session) -> None:
+    repo = Repository(db_session)
+    entry = _make_entry(repo, word="abbey")
+    job = repo.create_csv_job(
+        batch_id="csv_test_taskless_pending",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={},
+    )
+    repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "abbey"},
+        status="pending",
+    )
+
+    finalized = repo.finalize_csv_job_status(job.id)
+
+    assert finalized is not None
+    assert finalized.status == "imported"
+
+
 def test_variant_task_prefers_softened_base_asset_when_present(db_session, monkeypatch) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)

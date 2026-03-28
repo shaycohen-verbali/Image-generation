@@ -709,6 +709,7 @@ class CsvDagService:
         requested_profile_keys = [
             key for key in dict.fromkeys(str(task.profile_key or "").strip() for task in relevant) if key
         ]
+        item_status = str(item.status or "").lower()
         counts = {"pending": 0, "queued": 0, "running": 0, "completed": 0, "failed": 0, "canceled": 0}
         for task in relevant:
             status = str(task.status or "").lower()
@@ -722,6 +723,80 @@ class CsvDagService:
         all_canceled = total > 0 and all(task.status == "canceled" for task in relevant)
         blocking_reason = ""
         waiting_on_steps: list[str] = []
+
+        if total == 0:
+            if item_status == "completed":
+                return {
+                    "main_status": "completed",
+                    "sub_status": str(item.error_detail or "No new images were needed"),
+                    "current_step": "",
+                    "current_profile_key": "",
+                    "requested_profile_keys": requested_profile_keys,
+                    "blocking_reason": "",
+                    "waiting_on_steps": [],
+                    "progress": {
+                        "completed": 0,
+                        "total": 0,
+                        "running": 0,
+                        "waiting": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
+                }
+            if item_status == "failed":
+                return {
+                    "main_status": "failure",
+                    "sub_status": str(item.error_detail or "Task failed"),
+                    "current_step": "",
+                    "current_profile_key": "",
+                    "requested_profile_keys": requested_profile_keys,
+                    "blocking_reason": "",
+                    "waiting_on_steps": [],
+                    "progress": {
+                        "completed": 0,
+                        "total": 0,
+                        "running": 0,
+                        "waiting": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
+                }
+            if item_status == "canceled":
+                return {
+                    "main_status": "failure",
+                    "sub_status": "Canceled",
+                    "current_step": "",
+                    "current_profile_key": "",
+                    "requested_profile_keys": requested_profile_keys,
+                    "blocking_reason": "",
+                    "waiting_on_steps": [],
+                    "progress": {
+                        "completed": 0,
+                        "total": 0,
+                        "running": 0,
+                        "waiting": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
+                }
+            if item_status in {"running", "queued"}:
+                return {
+                    "main_status": "running",
+                    "sub_status": str(item.error_detail or "Preparing work"),
+                    "current_step": "",
+                    "current_profile_key": "",
+                    "requested_profile_keys": requested_profile_keys,
+                    "blocking_reason": "",
+                    "waiting_on_steps": [],
+                    "progress": {
+                        "completed": 0,
+                        "total": 0,
+                        "running": 0,
+                        "waiting": 0,
+                        "failed": 0,
+                        "canceled": 0,
+                    },
+                }
 
         if waiting_task is not None:
             try:

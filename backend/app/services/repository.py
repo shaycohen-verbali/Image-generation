@@ -1490,7 +1490,33 @@ class Repository:
             if not items:
                 # Job was just created and the import hasn't committed yet — keep current status
                 return job
-            return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow())
+            item_statuses = [str(item.status or "").lower() for item in items]
+            if all(status in {"completed", "failed", "canceled"} for status in item_statuses):
+                if any(status == "failed" for status in item_statuses):
+                    mixed_terminal = any(status == "completed" for status in item_statuses) or any(status == "canceled" for status in item_statuses)
+                    return self.update_csv_job(
+                        job,
+                        status="partial_failed" if mixed_terminal else "failed",
+                        finished_at=datetime.utcnow(),
+                        error_detail="Some CSV DAG rows failed" if mixed_terminal else "One or more CSV DAG rows failed",
+                    )
+                if any(status == "canceled" for status in item_statuses):
+                    return self.update_csv_job(
+                        job,
+                        status="canceled",
+                        finished_at=datetime.utcnow(),
+                        error_detail=job.error_detail or "Canceled by user",
+                    )
+                return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
+            if any(status == "running" for status in item_statuses):
+                return self.update_csv_job(job, status="running", finished_at=None, error_detail="")
+            if any(status == "queued" for status in item_statuses):
+                next_status = "running" if job.started_at is not None else "queued"
+                return self.update_csv_job(job, status=next_status, finished_at=None, error_detail="")
+            if any(status == "pending" for status in item_statuses):
+                next_status = "running" if job.started_at is not None else "imported"
+                return self.update_csv_job(job, status=next_status, finished_at=None, error_detail="")
+            return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
         statuses = [task.status for task in tasks]
         if any(status == "running" for status in statuses):
             if job.status == "cancel_requested":
