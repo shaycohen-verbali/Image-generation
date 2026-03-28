@@ -135,7 +135,7 @@ const STAGE_DETAILS = {
   stage3_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash-preview | gemini-3-pro-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-pro-preview | gemini-3-flash-preview | gemini-2.5-flash-lite-preview-09-2025',
     inputs: ['stage2/stage3 source image', 'word', 'part_of_sentence', 'category'],
     outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning', 'animal_present'],
     instruction: STAGE3_CRITIQUE_PROMPT_TEMPLATE,
@@ -149,7 +149,7 @@ const STAGE_DETAILS = {
   stage3_anatomy_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash-preview | gemini-3-pro-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-pro-preview | gemini-3-flash-preview | gemini-2.5-flash-lite-preview-09-2025',
     inputs: ['stage2/stage3 source image', 'stage 3.1 person/animal signal'],
     outputs: ['anatomy_ok', 'issues', 'correction_recommendations', 'body_integrity_problem'],
     instruction: STAGE3_ANATOMY_CRITIQUE_PROMPT_TEMPLATE,
@@ -163,7 +163,7 @@ const STAGE_DETAILS = {
   stage3_accessibility_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash-preview | gemini-3-pro-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-pro-preview | gemini-3-flash-preview | gemini-2.5-flash-lite-preview-09-2025',
     inputs: ['legacy stage reference only'],
     outputs: ['skipped for new runs'],
     instruction: 'This legacy Stage 3.16 block is kept for compatibility but is skipped for new runs.',
@@ -174,7 +174,7 @@ const STAGE_DETAILS = {
   stage3_post_quality_accessibility_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash-preview | gemini-3-pro-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-pro-preview | gemini-3-flash-preview | gemini-2.5-flash-lite-preview-09-2025',
     inputs: ['quality-gate winner image', 'AAC grid readability lens'],
     outputs: ['simplicity_ok', 'issues', 'correction_recommendations', 'simplicity_problem'],
     instruction: 'Review a conceptually good winner image and recommend only minor AAC-grid softening. Preserve the exact same scene and recommend no changes if the image is already simple enough.',
@@ -253,7 +253,7 @@ const STAGE_DETAILS = {
   quality_gate: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gemini-3-flash-preview | gemini-3-pro-preview',
+    model: 'gpt-4o-mini | gemini-3-pro-preview | gemini-3-flash-preview | gemini-2.5-flash-lite-preview-09-2025',
     inputs: ['stage3 upgraded image', 'word', 'part_of_sentence', 'category', 'threshold'],
     outputs: ['score', 'explanation', 'failure_tags', 'winner selection input'],
     instruction: QUALITY_GATE_PROMPT_TEMPLATE,
@@ -374,7 +374,7 @@ const STAGE_DETAILS = {
   stage81_variant_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-flash-preview | gemini-3-pro-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3-pro-preview | gemini-3-flash-preview | gemini-2.5-flash-lite-preview-09-2025',
     inputs: ['generated variant image', 'target gender/age profile'],
     outputs: ['correction_needed', 'issues', 'correction_prompt', 'reason'],
     instruction: VARIANT_STEP81_PROMPT_TEMPLATE,

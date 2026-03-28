@@ -19,6 +19,7 @@ OPENAI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
 }
 
 GEMINI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
+    "gemini-2.5-flash-lite-preview-09-2025": (0.10, 0.40),
     "gemini-3-flash-preview": (0.50, 3.00),
     "gemini-3-pro-preview": (2.00, 12.00),
 }
