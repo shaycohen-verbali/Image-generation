@@ -157,17 +157,17 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
     if gender == "female" and age == "teenager":
         gender_guidance = (
             "make the person visibly female in an age-appropriate, non-stereotyped way, and keep the face, hairstyle, body proportions, "
-            "and overall presentation clearly readable as a 17-year-old female teenager; the result must not read as male, pre-teen, or gender-ambiguous at a glance"
+            "clothing fit, and overall presentation clearly readable as a 17-year-old female teenager; the result must not read as male, pre-teen, or gender-ambiguous at a glance"
         )
     else:
         gender_guidance = {
             "female": (
                 "make the person visibly female in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
-                "presentation clearly readable as female; the result must not read as male or gender-ambiguous at a glance"
+                "presentation clearly readable as female; use clothing and styling that still read clearly female at a glance; the result must not read as male or gender-ambiguous at a glance"
             ),
             "male": (
                 "make the person visibly male in a child-friendly, non-stereotyped way, and keep the face, hairstyle, and overall "
-                "presentation clearly readable as male"
+                "presentation clearly readable as male; use clothing and styling that still read clearly male at a glance"
             ),
         }.get(gender, "make the gender visually clear")
 
@@ -182,6 +182,7 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
         f"{subject} with {skin} skin; {age_guidance}; {gender_guidance}; {skin_guidance}; "
         "preserve the AAC concept and make the age, gender, and skin-color variation obvious at a glance; "
         "make the age difference visible in full-body proportions and height, not only in the face; "
+        f"{profile_clothing_guidance(gender, age)}; "
         "the output must read as exactly one person, not multiple people or duplicated figures"
     )
 
@@ -214,6 +215,58 @@ def profile_gender_phrase(gender: str, age: str) -> str:
     }.get(normalized_age, "a male person")
 
 
+def profile_clothing_guidance(gender: str, age: str) -> str:
+    normalized_gender = str(gender or "").strip().lower()
+    normalized_age = str(age or "").strip().lower()
+    if normalized_gender == "female":
+        return {
+            "toddler": (
+                "use clearly female toddler clothing and styling that fits a 3-year-old, with toddler-sized garments and a silhouette that reads as girl-coded at a glance; do not leave the outfit looking generic or boy-coded"
+            ),
+            "kid": (
+                "use clearly female school-age clothing and styling that fits a young girl, with girl-coded outfit choices, proportions, and cut; do not keep a generic unisex outfit if it weakens the female read"
+            ),
+            "tween": (
+                "use clearly female pre-teen clothing and styling with tween-appropriate outfit cuts, fit, and silhouette; make the result read as a pre-teen girl at a glance, not as a boy or an ambiguous child"
+            ),
+            "teenager": (
+                "use clearly female 17-year-old clothing and styling with teenage-girl fit, silhouette, and presentation; do not keep childish or generic clothing that weakens the female teenage read"
+            ),
+        }.get(normalized_age, "use clearly female clothing and styling cues that read female at a glance")
+    return {
+        "toddler": (
+            "use clearly male toddler clothing and styling that fits a 3-year-old boy, with toddler-sized garments and a boy-coded silhouette; do not leave the outfit looking generic or girl-coded"
+        ),
+        "kid": (
+            "use clearly male school-age clothing and styling that fits a young boy, with boy-coded outfit choices, proportions, and cut; do not keep a generic unisex outfit if it weakens the male read"
+        ),
+        "tween": (
+            "use clearly male pre-teen clothing and styling with tween-appropriate outfit cuts, fit, and silhouette; make the result read as a pre-teen boy at a glance"
+        ),
+        "teenager": (
+            "use clearly male 17-year-old clothing and styling with teenage-boy fit, silhouette, and presentation; do not keep childish or generic clothing that weakens the male teenage read"
+        ),
+    }.get(normalized_age, "use clearly male clothing and styling cues that read male at a glance")
+
+
+def profile_age_edit_guidance(age: str) -> str:
+    normalized_age = str(age or "").strip().lower()
+    return {
+        "toddler": (
+            "make the body unmistakably that of a toddler: very short height, oversized head-to-body ratio, tiny torso, short limbs, small hands and feet, soft round cheeks, and toddler-scale clothing fit"
+        ),
+        "kid": (
+            "make the body unmistakably that of a young kid: child height, child-sized torso, shorter limbs than a tween, youthful face, smaller shoulders, and clothing fit sized for an elementary-school child"
+        ),
+        "tween": (
+            "make the body unmistakably that of a tween: taller pre-teen height, longer limbs, more elongated torso and legs than a kid, less baby-faced features, and pre-teen clothing fit"
+        ),
+        "teenager": (
+            "make the body unmistakably that of a 17-year-old teenager: clearly taller adolescent height, longer limbs, more mature face, more mature shoulder and torso proportions, and teenage clothing fit that does not read as a child"
+        ),
+    }.get(normalized_age, "make the requested age visually obvious in the full body")
+
+
 def profile_race_phrase(skin_color: str, gender: str, age: str) -> str:
     normalized_skin = str(skin_color or "").strip().lower()
     if normalized_skin == "asian":
@@ -239,11 +292,11 @@ def profile_edit_instruction(target: dict[str, str], source: dict[str, str] | No
     changes: list[str] = []
     if target_age and target_age != source_age:
         changes.append(
-            f"Make this picture {profile_age_phrase(target_age)}. Make sure that the body and head are {profile_age_phrase(target_age)} appropriate and the size of the other objects near the human changes accordingly."
+            f"Make this picture {profile_age_phrase(target_age)}. {profile_age_edit_guidance(target_age)}. Adjust height relative to nearby objects, body proportions, head-to-body ratio, limb length, hand and foot size, shoulder width, face maturity, and clothing fit so the requested age is obvious in the full body, not only in the face."
         )
     if target_gender and target_gender != source_gender:
         changes.append(
-            f"Make this picture {profile_gender_phrase(target_gender, target_age or source_age or DEFAULT_AGE)}. Make sure that the body and head are age appropriate and the size of the other objects near the human changes accordingly."
+            f"Make this picture {profile_gender_phrase(target_gender, target_age or source_age or DEFAULT_AGE)}. Keep the same scene and person identity, but make the gender readable at a glance through face, hairstyle, body presentation, and especially clothing. {profile_clothing_guidance(target_gender, target_age or source_age or DEFAULT_AGE)}. Do not keep the same outfit if it makes the result look unisex or like the previous gender."
         )
     if target_skin and target_skin != source_skin:
         changes.append(
@@ -256,7 +309,10 @@ def profile_edit_instruction(target: dict[str, str], source: dict[str, str] | No
         changes.append(
             "Keep the same person identity and concept, with only the minimum changes needed to match the requested profile."
         )
-    return " ".join(changes)
+    return (
+        "Preserve the exact same scene, composition, action, and core concept while changing only the person profile details that were requested. "
+        + " ".join(changes)
+    )
 
 
 def all_selected_profiles(entry: Any) -> list[dict[str, str]]:

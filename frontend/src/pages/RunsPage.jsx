@@ -80,6 +80,15 @@ function csvStepLabel(stepName) {
   return CSV_STEP_LABELS[String(stepName || '').trim()] || String(stepName || 'Unknown step')
 }
 
+function csvIsVariantJob(job) {
+  return Boolean(String(job?.continued_from_job_id || '').trim())
+}
+
+function csvHasFollowUpJob(jobs, jobId) {
+  if (!jobId) return false
+  return (Array.isArray(jobs) ? jobs : []).some((job) => String(job?.continued_from_job_id || '').trim() === String(jobId))
+}
+
 function csvJobMainStatus(jobOrStatus) {
   if (jobOrStatus && typeof jobOrStatus === 'object') {
     const displayStatus = String(jobOrStatus.display_status || '').trim()
@@ -249,7 +258,7 @@ function csvJobWordSummary(items, tasks) {
   return counts
 }
 
-function csvItemImages(item, tasks) {
+function csvItemImages(item, tasks, { includeBaseOutputs = true } = {}) {
   const images = []
   const seen = new Set()
   const addImage = (payload) => {
@@ -258,24 +267,26 @@ function csvItemImages(item, tasks) {
     seen.add(key)
     images.push(payload)
   }
-  addImage({
-    id: item?.base_regular_asset_id || '',
-    label: 'Quality image',
-    kind: 'quality',
-    missing: !item?.base_regular_asset_id,
-  })
-  addImage({
-    id: item?.base_soften_asset_id || '',
-    label: 'Soften image',
-    kind: 'soften',
-    missing: !item?.base_soften_asset_id,
-  })
-  addImage({
-    id: item?.base_white_bg_asset_id || '',
-    label: 'White background image',
-    kind: 'white_bg',
-    missing: !item?.base_white_bg_asset_id,
-  })
+  if (includeBaseOutputs) {
+    addImage({
+      id: item?.base_regular_asset_id || '',
+      label: 'Quality image',
+      kind: 'quality',
+      missing: !item?.base_regular_asset_id,
+    })
+    addImage({
+      id: item?.base_soften_asset_id || '',
+      label: 'Soften image',
+      kind: 'soften',
+      missing: !item?.base_soften_asset_id,
+    })
+    addImage({
+      id: item?.base_white_bg_asset_id || '',
+      label: 'White background image',
+      kind: 'white_bg',
+      missing: !item?.base_white_bg_asset_id,
+    })
+  }
   ;(Array.isArray(tasks) ? tasks : []).forEach((task) => {
     const profile = csvProfileSummary(task.profile_key)
     const baseLabel = `${profile || csvStepLabel(task.step_name)}`
@@ -317,8 +328,8 @@ function csvItemProfileColumnText(item) {
   return '-'
 }
 
-function csvCombinedImages(item, tasks) {
-  const images = csvItemImages(item, tasks)
+function csvCombinedImages(item, tasks, options = {}) {
+  const images = csvItemImages(item, tasks, options)
   const seen = new Set(images.map((image) => `${image.id}:${image.kind}`))
   csvAvailableProfiles(item).forEach((profile) => {
     if (profile.regular_asset_id) {
@@ -497,6 +508,7 @@ export default function RunsPage() {
   const [selectedCsvStatusFilter, setSelectedCsvStatusFilter] = useState('')
   const [showCsvScoreHistory, setShowCsvScoreHistory] = useState(false)
   const [showCsvPromptHistory, setShowCsvPromptHistory] = useState(false)
+  const [continuingCsvJobId, setContinuingCsvJobId] = useState('')
   const [continueSelections, setContinueSelections] = useState({
     person_gender_options: [],
     person_age_options: [],
@@ -657,9 +669,11 @@ export default function RunsPage() {
   const csvSelectedItemHasProviderCost =
     selectedCsvItem?.estimated_total_cost_usd != null || csvShadowRunDetail?.cost_summary?.estimated_total_cost_usd != null
   const selectedCsvItemProgress = selectedCsvItem || null
+  const selectedCsvJob = csvJobOverview?.job || csvJobs.find((job) => job.id === selectedCsvJobId) || null
+  const showBaseCsvOutputs = !csvIsVariantJob(selectedCsvJob)
   const selectedCsvItemImages = useMemo(
-    () => csvCombinedImages(selectedCsvItem, selectedCsvItemTasks),
-    [selectedCsvItem, selectedCsvItemTasks]
+    () => csvCombinedImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: showBaseCsvOutputs }),
+    [selectedCsvItem, selectedCsvItemTasks, showBaseCsvOutputs]
   )
   const selectedCsvTaskDiagnostics = useMemo(
     () => csvTaskDiagnostics(csvJobTasks, selectedCsvItem?.id),
@@ -670,7 +684,7 @@ export default function RunsPage() {
     csvJobOverview?.job &&
     isTerminalCsvJobStatus(csvJobOverview.job.status)
   )
-  const selectedCsvJob = csvJobOverview?.job || csvJobs.find((job) => job.id === selectedCsvJobId) || null
+  const selectedCsvJobAlreadyContinued = csvHasFollowUpJob(csvJobs, selectedCsvJobId)
   const shouldFastPollCsv =
     Boolean(selectedCsvJobId) &&
     !!selectedCsvJob &&
@@ -1084,6 +1098,10 @@ export default function RunsPage() {
       setMessage('Select a completed CSV job first')
       return
     }
+    if (csvHasFollowUpJob(csvJobs, selectedCsvJobId)) {
+      setMessage('This CSV job already has a follow-up variants run in progress or saved in history')
+      return
+    }
     if (
       !continueSelections.person_gender_options.length ||
       !continueSelections.person_age_options.length ||
@@ -1092,8 +1110,10 @@ export default function RunsPage() {
       setMessage('Choose at least one gender, one age, and one skin color for the next variants')
       return
     }
+    const sourceJobId = selectedCsvJobId
+    setContinuingCsvJobId(sourceJobId)
     try {
-      const result = await continueCsvJob(selectedCsvJobId, continueSelections)
+      const result = await continueCsvJob(sourceJobId, continueSelections)
       setMessage(`Started follow-up CSV job ${result.batch_id}`)
       selectedCsvJobIdRef.current = result.job_id
       setSelectedCsvJobId(result.job_id)
@@ -1103,6 +1123,7 @@ export default function RunsPage() {
       refreshCsvJobs()
       loadCsvJobDetail(result.job_id)
     } catch (error) {
+      setContinuingCsvJobId((current) => (current === sourceJobId ? '' : current))
       setMessage(`Error: ${error.message}`)
     }
   }
@@ -1628,8 +1649,15 @@ export default function RunsPage() {
                     />
                     <span>Override existing images for the requested variants</span>
                   </label>
-                  <button type="button" className="button-primary" onClick={onContinueCsvJob}>
-                    Continue Process
+                  <button
+                    type="button"
+                    className="button-primary"
+                    onClick={onContinueCsvJob}
+                    disabled={continuingCsvJobId === selectedCsvJobId || selectedCsvJobAlreadyContinued}
+                  >
+                    {continuingCsvJobId === selectedCsvJobId || selectedCsvJobAlreadyContinued
+                      ? 'Continue Process Started'
+                      : 'Continue Process'}
                   </button>
                 </div>
               ) : null}
@@ -1796,30 +1824,32 @@ export default function RunsPage() {
                     )}
                   </div>
                 ) : null}
-                <div className="table-wrap runs-table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Output</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>Quality image</td>
-                        <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_regular_asset_id)}</td>
-                      </tr>
-                      <tr>
-                        <td>Soften image</td>
-                        <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_soften_asset_id)}</td>
-                      </tr>
-                      <tr>
-                        <td>White background image</td>
-                        <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_white_bg_asset_id)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                {showBaseCsvOutputs ? (
+                  <div className="table-wrap runs-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Output</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Quality image</td>
+                          <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_regular_asset_id)}</td>
+                        </tr>
+                        <tr>
+                          <td>Soften image</td>
+                          <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_soften_asset_id)}</td>
+                        </tr>
+                        <tr>
+                          <td>White background image</td>
+                          <td>{csvAssetAvailabilityLabel(selectedCsvItem.base_white_bg_asset_id)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
                 <div className="table-wrap runs-table-wrap">
                   <table>
                     <thead>
