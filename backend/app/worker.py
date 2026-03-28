@@ -22,7 +22,6 @@ WORKER_EXECUTOR_MAX = 64
 WORKER_CLAIM_BURST_MAX = 2
 WORKER_CLAIM_SETTLE_SECONDS = 0.5
 WORKER_ERROR_BACKOFF_MAX_SECONDS = 15.0
-CSV_TASK_PARALLEL_HARD_CAP = 4
 
 
 def _process_single_run(run_id: str) -> None:
@@ -63,7 +62,7 @@ def run_worker() -> None:
                     repo = Repository(db)
                     config = repo.get_runtime_config()
                     max_parallel_runs = max(1, int(config.max_parallel_runs or 1))
-                    max_parallel_csv_tasks = max(1, min(max_parallel_runs, CSV_TASK_PARALLEL_HARD_CAP))
+                    max_parallel_csv_tasks = max_parallel_runs
                     poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
                     timed_out_task_ids = repo.fail_stale_running_csv_tasks(timeout_seconds=CSV_TASK_TIMEOUT_SECONDS)
 
