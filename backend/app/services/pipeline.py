@@ -787,6 +787,7 @@ class PipelineRunner:
             stage_name = str(getattr(exc, "stage_name", "") or run.current_stage or "stage1_prompt")
             return self._set_canceled(run, stage_name, str(exc))
         except Exception as exc:  # noqa: BLE001
+            self.db.rollback()
             self._set_failed_technical(run, run.current_stage, str(exc))
             self._record_event(
                 run_id=run.id,
@@ -2984,7 +2985,7 @@ class PipelineRunner:
             attempt=winner_attempt,
             prompt_text=critique_prompt_text,
             needs_person="",
-            source="post_quality_accessibility_critique",
+            source="post_quality_aac_critique",
             raw_response_json={
                 "analysis": analysis,
                 "analysis_raw": analysis_raw,
@@ -3069,7 +3070,7 @@ class PipelineRunner:
                 attempt=winner_attempt,
                 prompt_text=str(request_summary.get("prompt") or ""),
                 needs_person="",
-                source="post_quality_accessibility_generate",
+                source="post_quality_aac_generate",
                 raw_response_json=request_summary,
             )
         self._record_event(

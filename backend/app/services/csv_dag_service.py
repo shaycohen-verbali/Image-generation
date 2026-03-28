@@ -1049,6 +1049,7 @@ class CsvDagService:
                     finished_at=datetime.utcnow(),
                 )
         except Exception as exc:  # noqa: BLE001
+            self.db.rollback()
             current_task = self.repo.get_csv_task(task.id)
             if current_task is None or current_task.status != "running":
                 return current_task or task
