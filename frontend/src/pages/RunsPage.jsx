@@ -358,6 +358,36 @@ function csvCombinedImages(item, tasks, options = {}) {
   return images
 }
 
+function csvInventoryImages(item) {
+  const images = []
+  const seen = new Set()
+  csvAvailableProfiles(item).forEach((profile) => {
+    if (profile.regular_asset_id) {
+      const key = `${profile.regular_asset_id}:regular`
+      if (!seen.has(key)) {
+        seen.add(key)
+        images.push({
+          id: profile.regular_asset_id,
+          label: `${csvProfileDisplay(profile.profile_key)} regular`,
+          kind: 'regular',
+        })
+      }
+    }
+    if (profile.white_bg_asset_id) {
+      const key = `${profile.white_bg_asset_id}:white_bg`
+      if (!seen.has(key)) {
+        seen.add(key)
+        images.push({
+          id: profile.white_bg_asset_id,
+          label: `${csvProfileDisplay(profile.profile_key)} white background`,
+          kind: 'white_bg',
+        })
+      }
+    }
+  })
+  return images
+}
+
 function csvTaskDiagnostics(tasks, selectedId) {
   const relevant = (Array.isArray(tasks) ? tasks : []).filter((task) => task.csv_job_item_id === selectedId)
   const taskById = new Map(relevant.map((task) => [task.id, task]))
@@ -672,7 +702,14 @@ export default function RunsPage() {
   const selectedCsvJob = csvJobOverview?.job || csvJobs.find((job) => job.id === selectedCsvJobId) || null
   const showBaseCsvOutputs = !csvIsVariantJob(selectedCsvJob)
   const selectedCsvItemImages = useMemo(
-    () => csvItemImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: showBaseCsvOutputs }),
+    () => {
+      if (showBaseCsvOutputs) {
+        return csvItemImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: true })
+      }
+      const inventoryImages = csvInventoryImages(selectedCsvItem)
+      if (inventoryImages.length) return inventoryImages
+      return csvItemImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: false })
+    },
     [selectedCsvItem, selectedCsvItemTasks, showBaseCsvOutputs]
   )
   const selectedCsvTaskDiagnostics = useMemo(
