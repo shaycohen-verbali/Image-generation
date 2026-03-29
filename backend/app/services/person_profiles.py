@@ -124,14 +124,14 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
             "toddler": "female toddler girl",
             "kid": "school-age girl",
             "tween": "pre-teen girl",
-            "teenager": "20-year-old young woman",
+            "teenager": "older-teen to young-adult woman",
         }.get(age, "female person")
     else:
         subject = {
             "toddler": "male toddler boy",
             "kid": "school-age boy",
             "tween": "pre-teen boy",
-            "teenager": "20-year-old young man",
+            "teenager": "older-teen to young-adult man",
         }.get(age, "male person")
 
     age_guidance = {
@@ -148,7 +148,7 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
             "a longer leg-to-torso ratio, a less baby-faced look, longer hands and feet than a kid, a more elongated torso, and age cues that read older than a kid but younger than a teenager; do not let the result read as a small child or as a full teenager"
         ),
         "teenager": (
-            "make the age unmistakably a 20-year-old early adult, with clearly mature early-adult proportions, adult height, adult leg length, a longer torso, a clearly adult head-to-body ratio, mature shoulders, mature hands and feet, no baby-faced cheeks, and visual energy that reads like a 20-year-old rather than a child, tween, or high-school teen; "
+            "make the age read as a mature older-teen to young-adult person, with clearly mature proportions, adult-leaning height, longer legs, a longer torso, a clearly adult head-to-body ratio, mature shoulders, mature hands and feet, less childlike facial fullness, and visual energy that reads older than a tween or school-age child; "
             "the person must not look like a little kid in the body, clothing, posture, or styling; never allow a mature face on a child body, an oversized child head ratio, child-short limbs, a child-sized torso, or childish styling"
         ),
     }.get(age, "make the age visually obvious")
@@ -156,7 +156,7 @@ def profile_prompt_fragment(profile: dict[str, str]) -> str:
     if gender == "female" and age == "teenager":
         gender_guidance = (
             "make the person visibly female in an age-appropriate, non-stereotyped way, and keep the face, hairstyle, body proportions, "
-            "clothing fit, and overall presentation clearly readable as a 20-year-old young woman; the result must not read as male, pre-teen, little girl, or gender-ambiguous at a glance"
+            "clothing fit, and overall presentation clearly readable as an older-teen to young-adult woman; the result must not read as male, pre-teen, little girl, or gender-ambiguous at a glance"
         )
     else:
         gender_guidance = {
@@ -192,7 +192,7 @@ def profile_age_phrase(age: str) -> str:
         "toddler": "a toddler (3 yo)",
         "kid": "a kid (7 yo)",
         "tween": "a tween (12 yo)",
-        "teenager": "a 20-year-old young adult",
+        "teenager": "an older-teen to young-adult person",
     }.get(normalized, "the requested age")
 
 
@@ -204,13 +204,13 @@ def profile_gender_phrase(gender: str, age: str) -> str:
             "toddler": "a female toddler (3 yo)",
             "kid": "a female kid (7 yo)",
             "tween": "a female tween (12 yo)",
-            "teenager": "a 20-year-old young adult woman",
+            "teenager": "an older-teen to young-adult woman",
         }.get(normalized_age, "a female person")
     return {
         "toddler": "a male toddler (3 yo)",
         "kid": "a male kid (7 yo)",
         "tween": "a male tween (12 yo)",
-        "teenager": "a 20-year-old young adult man",
+        "teenager": "an older-teen to young-adult man",
     }.get(normalized_age, "a male person")
 
 
@@ -229,7 +229,7 @@ def profile_clothing_guidance(gender: str, age: str) -> str:
                 "use clearly female pre-teen clothing and styling with tween-appropriate outfit cuts, fit, and silhouette; make the result read as a pre-teen girl at a glance, not as a boy or an ambiguous child"
             ),
             "teenager": (
-                "use clearly female 20-year-old clothing and styling with unmistakably early-adult-woman fit, silhouette, and presentation; the clothing should feel appropriate for a 20-year-old and must not look childish, school-age, tween-coded, or generic-unisex; avoid little-girl styling, childlike cuts, and child-coded outfits"
+                "use clearly female older-teen to young-adult clothing and styling with mature fit, silhouette, and presentation; the clothing should feel appropriate for an older teen or young adult and must not look childish, school-age, tween-coded, or generic-unisex; avoid little-girl styling, childlike cuts, and child-coded outfits"
             ),
         }.get(normalized_age, "use clearly female clothing and styling cues that read female at a glance")
     return {
@@ -243,7 +243,7 @@ def profile_clothing_guidance(gender: str, age: str) -> str:
             "use clearly male pre-teen clothing and styling with tween-appropriate outfit cuts, fit, and silhouette; make the result read as a pre-teen boy at a glance"
         ),
         "teenager": (
-            "use clearly male 20-year-old clothing and styling with unmistakably early-adult-man fit, silhouette, and presentation; the clothing should feel appropriate for a 20-year-old and must not look childish, school-age, tween-coded, or generic-unisex; avoid little-boy styling, childlike cuts, and child-coded outfits"
+            "use clearly male older-teen to young-adult clothing and styling with mature fit, silhouette, and presentation; the clothing should feel appropriate for an older teen or young adult and must not look childish, school-age, tween-coded, or generic-unisex; avoid little-boy styling, childlike cuts, and child-coded outfits"
         ),
     }.get(normalized_age, "use clearly male clothing and styling cues that read male at a glance")
 
@@ -261,7 +261,7 @@ def profile_age_edit_guidance(age: str) -> str:
             "make the body unmistakably that of a tween: taller pre-teen height, longer limbs, more elongated torso and legs than a kid, less baby-faced features, and pre-teen clothing fit"
         ),
         "teenager": (
-            "make the body unmistakably that of a 20-year-old early adult: clearly adult height, longer limbs, longer torso, mature shoulder and torso proportions, larger hands and feet, an adult head-to-body ratio, and clothing fit that does not read as a child, tween, or high-school teen; the whole body should give 20-year-old energy"
+            "make the body unmistakably that of a mature older-teen to young-adult person: clearly older height, longer limbs, longer torso, mature shoulder and torso proportions, larger hands and feet, an adult-leaning head-to-body ratio, and clothing fit that does not read as a child or tween; the whole body should give mature older-teen to young-adult energy"
         ),
     }.get(normalized_age, "make the requested age visually obvious in the full body")
 
@@ -291,7 +291,7 @@ def profile_edit_instruction(target: dict[str, str], source: dict[str, str] | No
     changes: list[str] = []
     if target_age and target_age != source_age:
         changes.append(
-            f"Make this picture {profile_age_phrase(target_age)}. {profile_age_edit_guidance(target_age)}. Adjust height relative to nearby objects, body proportions, head-to-body ratio, limb length, torso length, hand and foot size, shoulder width, face maturity, posture, and clothing fit so the requested age is obvious in the full body, not only in the face. Body age and face age must match. Do not leave a teenager face on a child body or a child height with mature facial features. For teenager targets, the result must give clear 20-year-old energy and must not read as a little kid."
+            f"Make this picture {profile_age_phrase(target_age)}. {profile_age_edit_guidance(target_age)}. Adjust height relative to nearby objects, body proportions, head-to-body ratio, limb length, torso length, hand and foot size, shoulder width, face maturity, posture, and clothing fit so the requested age is obvious in the full body, not only in the face. Body age and face age must match. Do not leave a teenager face on a child body or a child height with mature facial features. For teenager targets, the result must give clear mature older-teen to young-adult energy and must not read as a little kid."
         )
     if target_gender and target_gender != source_gender:
         changes.append(

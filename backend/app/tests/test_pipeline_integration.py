@@ -955,7 +955,7 @@ def test_variant_age_mismatch_triggers_single_repair_pass_for_teenager(db_sessio
     assert any(not item.get("skipped") for item in correction_response["profiles"])
     assert any(prompt.stage_name == "stage4_variant_correction" and "20-year-old" in prompt.prompt_text.lower() for prompt in prompts)
     assert any(
-        not submission["white_background"] and "20-year-old" in str(submission.get("edit_instruction") or "").lower()
+        not submission["white_background"] and "older-teen to young-adult" in str(submission.get("edit_instruction") or "").lower()
         for submission in mock_google.variant_submissions
     )
 

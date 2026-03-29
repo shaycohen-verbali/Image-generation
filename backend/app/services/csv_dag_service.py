@@ -70,6 +70,7 @@ def _dependency_profile_for(profile: dict[str, str]) -> dict[str, str] | None:
       white female kid        → white male kid
       {non-white} female kid  → white female kid
       {any} male {non-kid}    → {same-race} male kid
+      white female teenager   → white male teenager
       {any} female {non-kid}  → {same-race} female kid
     """
     gender = profile.get("gender", "")
@@ -87,8 +88,38 @@ def _dependency_profile_for(profile: dict[str, str]) -> dict[str, str] | None:
             return {"gender": DEFAULT_GENDER, "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
         return {"gender": "female", "age": DEFAULT_AGE, "skin_color": DEFAULT_SKIN_COLOR}
 
+    if gender == "female" and age == "teenager" and skin == DEFAULT_SKIN_COLOR:
+        return {"gender": DEFAULT_GENDER, "age": "teenager", "skin_color": DEFAULT_SKIN_COLOR}
+
     # non-kid: depends on same-race same-gender kid
     return {"gender": gender, "age": DEFAULT_AGE, "skin_color": skin}
+
+
+def _extract_google_image_safety_details(response_json: dict[str, Any]) -> dict[str, str]:
+    if not isinstance(response_json, dict):
+        return {}
+    candidates = response_json.get("candidates")
+    if not isinstance(candidates, list):
+        return {}
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        finish_reason = str(candidate.get("finishReason") or "").strip()
+        finish_message = str(candidate.get("finishMessage") or "").strip()
+        if finish_reason == "IMAGE_SAFETY" or "filtered out because it violated Google's" in finish_message:
+            return {
+                "provider": "google",
+                "finish_reason": finish_reason or "IMAGE_SAFETY",
+                "finish_message": finish_message,
+            }
+    return {}
+
+
+def _friendly_variant_error_summary(profile_key_value: str, error_text: str, response_json: dict[str, Any]) -> str:
+    moderation = _extract_google_image_safety_details(response_json)
+    if moderation:
+        return f"Blocked by image safety policy for {profile_key_value.replace(':', '_')}"
+    return error_text
 
 
 def _branch_role_for(profile: dict[str, str]) -> str:
@@ -1128,19 +1159,29 @@ class CsvDagService:
             current_task = self.repo.get_csv_task(task.id)
             if current_task is None or current_task.status != "running":
                 return current_task or task
+            request_json = getattr(exc, "request_json", {}) if isinstance(getattr(exc, "request_json", {}), dict) else {}
+            response_json = getattr(exc, "response_json", {}) if isinstance(getattr(exc, "response_json", {}), dict) else {}
+            moderation = _extract_google_image_safety_details(response_json)
+            error_summary = _friendly_variant_error_summary(task.profile_key, str(exc), response_json)
+            attempt_response_json = dict(response_json)
+            if moderation:
+                attempt_response_json["moderation"] = moderation
+            attempt_request_json = dict(request_json)
+            attempt_request_json.setdefault("profile_key", task.profile_key)
+            attempt_request_json.setdefault("source_profile_key", task.source_profile_key)
             self.repo.add_csv_task_attempt(
                 csv_task_node_id=task.id,
                 attempt_number=attempt_number,
                 status="failed",
-                request_json=getattr(exc, "request_json", {}) if isinstance(getattr(exc, "request_json", {}), dict) else {},
-                response_json=getattr(exc, "response_json", {}) if isinstance(getattr(exc, "response_json", {}), dict) else {},
+                request_json=attempt_request_json,
+                response_json=attempt_response_json,
                 error_detail=str(exc),
                 finished_at=datetime.utcnow(),
             )
             finished_task = self.repo.update_csv_task(
                 task,
                 status="failed",
-                error_summary=str(exc),
+                error_summary=error_summary,
                 finished_at=datetime.utcnow(),
             )
         finally:

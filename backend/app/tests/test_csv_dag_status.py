@@ -1,4 +1,9 @@
-from app.services.csv_dag_service import CsvDagService
+from app.services.csv_dag_service import (
+    CsvDagService,
+    _dependency_profile_for,
+    _extract_google_image_safety_details,
+    _friendly_variant_error_summary,
+)
 from app.services.repository import Repository
 
 
@@ -126,6 +131,9 @@ def test_item_progress_uses_item_status_when_no_tasks_exist(db_session) -> None:
         entry_id=entry.id,
         row_index=1,
         source_row={"word": "aggressive"},
+    )
+    item = repo.update_csv_job_item(
+        item,
         status="completed",
         error_detail="Requested variants already exist in inventory",
     )
@@ -153,18 +161,42 @@ def test_finalize_job_does_not_mark_pending_taskless_items_completed(db_session)
         execution_mode="csv_dag",
         config_snapshot={},
     )
-    repo.create_csv_job_item(
+    item = repo.create_csv_job_item(
         csv_job_id=job.id,
         entry_id=entry.id,
         row_index=1,
         source_row={"word": "abbey"},
-        status="pending",
     )
+    repo.update_csv_job_item(item, status="pending")
 
     finalized = repo.finalize_csv_job_status(job.id)
 
     assert finalized is not None
     assert finalized.status == "imported"
+
+
+def test_white_female_teenager_depends_on_white_male_teenager() -> None:
+    dependency = _dependency_profile_for({"gender": "female", "age": "teenager", "skin_color": "white"})
+    assert dependency == {"gender": "male", "age": "teenager", "skin_color": "white"}
+
+
+def test_google_image_safety_failure_gets_user_facing_summary() -> None:
+    response_json = {
+        "candidates": [
+            {
+                "finishReason": "IMAGE_SAFETY",
+                "finishMessage": "Unable to show the generated image. The image was filtered out because it violated Google's policy.",
+            }
+        ]
+    }
+    moderation = _extract_google_image_safety_details(response_json)
+    assert moderation["finish_reason"] == "IMAGE_SAFETY"
+    summary = _friendly_variant_error_summary(
+        "female:teenager:white",
+        "variant generation failed for female_teenager_white: failed",
+        response_json,
+    )
+    assert summary == "Blocked by image safety policy for female_teenager_white"
 
 
 def test_variant_task_prefers_softened_base_asset_when_present(db_session, monkeypatch) -> None:
@@ -192,8 +224,8 @@ def test_variant_task_prefers_softened_base_asset_when_present(db_session, monke
         entry_id=entry.id,
         row_index=1,
         source_row={"word": "abbey"},
-        shadow_run_id=shadow_run.id,
     )
+    item = repo.update_csv_job_item(item, shadow_run_id=shadow_run.id)
     quality_asset = repo.add_asset(
         run_id=shadow_run.id,
         stage_name="stage3_upgraded",
@@ -263,6 +295,9 @@ def test_variant_task_prefers_softened_base_asset_when_present(db_session, monke
         dependency_keys=[],
         dependency_task_ids=[],
         status="completed",
+    )
+    base_task = repo.update_csv_task(
+        base_task,
         regular_asset_id=quality_asset.id,
         white_bg_asset_id=variant_white_bg_asset.id,
     )
@@ -284,6 +319,7 @@ def test_variant_task_prefers_softened_base_asset_when_present(db_session, monke
     class FakePipelineRunner:
         def __init__(self, db):
             self.db = db
+            self.google_images = type("GoogleImages", (), {"close": lambda self: None})()
 
         def create_profile_variant_pair(self, **kwargs):
             source_asset = kwargs["source_asset"]
@@ -367,9 +403,8 @@ def test_job_overview_recovers_completed_base_shadow_run(db_session) -> None:
         entry_id=entry.id,
         row_index=1,
         source_row={"word": "ladder"},
-        shadow_run_id=shadow_run.id,
-        status="running",
     )
+    item = repo.update_csv_job_item(item, shadow_run_id=shadow_run.id, status="running")
     repo.create_csv_task_node(
         csv_job_id=job.id,
         csv_job_item_id=item.id,
