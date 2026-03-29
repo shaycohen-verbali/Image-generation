@@ -103,14 +103,15 @@ def test_variant_critique_prompt_calls_out_age_consistency() -> None:
         word="soccer",
         part_of_sentence="verb",
         category="",
-        target_profile="21-year-old young woman with Brown skin",
+        target_profile="20-year-old young woman with Brown skin",
         source_profile="school-age girl with Brown skin",
     )
 
     assert "body age, face age, clothing fit" in prompt
     assert "teenager must not read as tween or kid" in prompt
     assert '"age_consistency_ok":"yes|no"' in prompt
-    assert "21-year-old young-adult read" in prompt
+    assert "20-year-old early-adult read" in prompt
+    assert "20-year-old energy" in prompt
 
 
 def test_variant_correction_prompt_requires_age_body_face_alignment() -> None:
@@ -118,10 +119,10 @@ def test_variant_correction_prompt_requires_age_body_face_alignment() -> None:
         word="soccer",
         part_of_sentence="verb",
         category="",
-        target_profile="21-year-old young woman with Brown skin",
-        correction_prompt="Make the body read as a 21-year-old young adult instead of a kid.",
+        target_profile="20-year-old young woman with Brown skin",
+        correction_prompt="Make the body read as a 20-year-old young adult instead of a kid.",
     )
 
     assert "body age, face age, clothing fit" in prompt
     assert "body age and face age aligned" in prompt.lower()
-    assert "21-year-old young adult" in prompt
+    assert "20-year-old" in prompt

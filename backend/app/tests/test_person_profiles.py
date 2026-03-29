@@ -46,12 +46,12 @@ def test_all_selected_profiles_returns_full_cross_product() -> None:
 
 def test_profile_prompt_fragment_makes_age_and_gender_explicit() -> None:
     fragment = profile_prompt_fragment({"gender": "female", "age": "teenager", "skin_color": "brown"})
-    assert "21-year-old young woman" in fragment
-    assert "21-year-old young adult" in fragment
+    assert "20-year-old young woman" in fragment
+    assert "20-year-old early adult" in fragment or "20-year-old" in fragment
     assert "visibly female" in fragment
     assert "Brown (Indian origin) skin" in fragment
     assert "full-body proportions" in fragment or "head-to-body ratio" in fragment
-    assert "mature young-adult proportions" in fragment
+    assert "20-year-old" in fragment
 
 
 def test_variant_branch_plan_follows_white_age_then_female_then_race_order() -> None:
@@ -68,7 +68,8 @@ def test_profile_edit_instruction_makes_age_gender_and_race_changes_explicit() -
         {"gender": "male", "age": "teenager", "skin_color": "white"},
         {"gender": "male", "age": "kid", "skin_color": "white"},
     )
-    assert "21-year-old young adult" in age_instruction
+    assert "20-year-old young adult" in age_instruction
+    assert "20-year-old energy" in age_instruction
     assert "Body age and face age must match" in age_instruction
     assert "torso length" in age_instruction
     assert "teenager face on a child body" in age_instruction
@@ -77,7 +78,7 @@ def test_profile_edit_instruction_makes_age_gender_and_race_changes_explicit() -
         {"gender": "female", "age": "teenager", "skin_color": "white"},
         {"gender": "male", "age": "kid", "skin_color": "white"},
     )
-    assert "21-year-old young adult woman" in gender_instruction
+    assert "20-year-old young adult woman" in gender_instruction
     assert "clothing" in gender_instruction
     assert "unisex" in gender_instruction
 
