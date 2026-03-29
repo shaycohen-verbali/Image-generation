@@ -672,7 +672,7 @@ export default function RunsPage() {
   const selectedCsvJob = csvJobOverview?.job || csvJobs.find((job) => job.id === selectedCsvJobId) || null
   const showBaseCsvOutputs = !csvIsVariantJob(selectedCsvJob)
   const selectedCsvItemImages = useMemo(
-    () => csvCombinedImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: showBaseCsvOutputs }),
+    () => csvItemImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: showBaseCsvOutputs }),
     [selectedCsvItem, selectedCsvItemTasks, showBaseCsvOutputs]
   )
   const selectedCsvTaskDiagnostics = useMemo(
