@@ -386,7 +386,7 @@ class GoogleImageClient:
                 "Body age and face age must agree. The result must not have a teenager face on a kid body or a child body with mature facial features. "
                 "When the person's age changes, make nearby objects scale appropriately relative to the person's body so the scene still reads naturally. "
                 "Compare against neighboring age buckets: toddler must not read as kid, kid must not read as tween, tween must not read as teenager, and teenager must not read as tween or kid. "
-                "If the requested age is a teenager, the result must read as an older adolescent with longer limbs, a longer torso, larger hands and feet, a less childlike head ratio, and clearly older-teen clothing fit; it must not look like a younger child or pre-teen. "
+                "If the requested age is a teenager, the result must read as a 21-year-old young adult with mature body proportions, longer limbs, a longer torso, larger hands and feet, an adult head ratio, and clearly age-appropriate 21-year-old clothing fit; it must not look like a younger child, tween, or mid-teen. "
                 "Keep the same background scene, composition, lighting, and props. Keep exactly one clear central person. "
                 "Keep the same single avatar identity across matching final and white-background outputs; do not invent a different child. "
                 "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "

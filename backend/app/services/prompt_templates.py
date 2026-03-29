@@ -518,7 +518,7 @@ def build_variant_critique_prompt(
         "Check whether the body age, face age, clothing fit, and visible styling all match the target age/gender while preserving the same scene, pose, action, props, and composition. "
         "Age must be readable from the whole body, not only the face. Check height relative to nearby objects, head-to-body ratio, torso length, limb length, shoulder width, hand and foot size, facial maturity, and clothing fit. "
         "Compare against neighboring age buckets: toddler must not read as kid, kid must not read as tween, tween must not read as teenager, and teenager must not read as tween or kid. "
-        "For teenager targets, require an older-adolescent read that stays modest and child-safe; it must not look sexualized, adult-coded, or like a younger child with a mature face. "
+        "For teenager targets, require a clear 21-year-old young-adult read with mature body proportions and age-appropriate clothing; it must not look like a younger child, tween, or mid-teen with a mature face. "
         "Set correction_needed=yes when body age and face age disagree, when the body reads as the wrong age bucket, or when clothing/styling weakens the requested age/gender read. "
         "Do not ask for scene changes. If changes are needed, make them minimal and local to the person. "
         "If the image already works, return correction_needed=no and an empty correction_prompt."
@@ -539,7 +539,7 @@ def build_variant_correction_prompt(
         f'Concept word: "{word}". Part of sentence: {part_of_sentence}. Category: {category}. '
         "Make only the smallest changes needed so the person's body age, face age, clothing fit, and visible styling fit the target profile naturally in this same scene. "
         "Age must read correctly in the whole body, not only the face. Keep body age and face age aligned. "
-        "If the target is a teenager, the result must read as an older adolescent with modest, child-safe styling; do not leave the person with kid proportions, tween proportions, or a child-sized head-to-body ratio. "
+        "If the target is a teenager, the result must read as a 21-year-old young adult with mature proportions and age-appropriate 21-year-old clothing; do not leave the person with kid proportions, tween proportions, or a child-sized head-to-body ratio. "
         "Do not change the scene, pose, camera angle, or background. "
         "Do not add extra people, extra limbs, or extra props. "
         f"Correction request: {correction_prompt}"

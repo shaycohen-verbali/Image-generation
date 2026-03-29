@@ -154,7 +154,7 @@ class AgeMismatchVariantOpenAI(PersonVariantOpenAI):
             return {
                 "correction_needed": "yes",
                 "issues": "The face reads older than the body; the torso, limb lengths, and head ratio still read as a younger child.",
-                "correction_prompt": "Keep the same scene and identity, but make the full body read as an older adolescent: longer legs, longer torso, larger hands and feet, less childlike head-to-body ratio, and modest older-teen clothing fit.",
+                "correction_prompt": "Keep the same scene and identity, but make the full body read as a 21-year-old young adult: longer legs, longer torso, larger hands and feet, an adult head-to-body ratio, and age-appropriate 21-year-old clothing fit.",
                 "reason": "Teenager face and body age do not match yet.",
                 "body_age_match": "no",
                 "face_age_match": "yes",
@@ -953,9 +953,9 @@ def test_variant_age_mismatch_triggers_single_repair_pass_for_teenager(db_sessio
     assert any(item["critique"].get("age_consistency_ok") == "no" for item in critique_response["profiles"])
     assert any(item["critique"].get("body_age_match") == "no" for item in critique_response["profiles"])
     assert any(not item.get("skipped") for item in correction_response["profiles"])
-    assert any(prompt.stage_name == "stage4_variant_correction" and "older adolescent" in prompt.prompt_text.lower() for prompt in prompts)
+    assert any(prompt.stage_name == "stage4_variant_correction" and "21-year-old young adult" in prompt.prompt_text.lower() for prompt in prompts)
     assert any(
-        not submission["white_background"] and "older adolescent" in str(submission.get("edit_instruction") or "").lower()
+        not submission["white_background"] and "21-year-old young adult" in str(submission.get("edit_instruction") or "").lower()
         for submission in mock_google.variant_submissions
     )
 
