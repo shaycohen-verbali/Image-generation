@@ -46,6 +46,7 @@ def _postgres_existing_columns(conn, table_name: str) -> set[str]:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     init_inventory_db()
+    _ensure_hot_indexes()
     _ensure_inventory_columns()
     _ensure_entry_columns()
     _ensure_run_columns()
@@ -176,6 +177,15 @@ def init_db() -> None:
                 existing.openai_model_vision = "gpt-5.4"
             db.add(existing)
             db.commit()
+
+
+def _ensure_hot_indexes() -> None:
+    with engine.begin() as conn:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assets_abs_path ON assets (abs_path)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_runs_execution_mode_created_at ON runs (execution_mode, created_at DESC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_jobs_status_created_at ON csv_jobs (status, created_at DESC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_job_status_created_at ON csv_task_nodes (csv_job_id, status, created_at ASC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_item_status ON csv_task_nodes (csv_job_item_id, status)"))
 
 
 def _ensure_runtime_config_columns() -> None:

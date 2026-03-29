@@ -974,6 +974,21 @@ class Repository:
     def list_csv_jobs(self) -> list[CsvJob]:
         return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.created_at))).scalars())
 
+    def queue_pending_csv_tasks(self, csv_job_id: str) -> int:
+        updated = self.db.execute(
+            update(CsvTaskNode)
+            .where(CsvTaskNode.csv_job_id == csv_job_id)
+            .where(CsvTaskNode.status == "pending")
+            .values(
+                status="queued",
+                error_summary="",
+                finished_at=None,
+                updated_at=datetime.utcnow(),
+            )
+        )
+        self.db.commit()
+        return int(updated.rowcount or 0)
+
     def get_csv_job_row_counts(self, job_ids: list[str]) -> dict[str, int]:
         normalized = [str(value or "").strip() for value in job_ids if str(value or "").strip()]
         if not normalized:
@@ -1185,40 +1200,57 @@ class Repository:
                 .order_by(CsvTaskNode.created_at.asc())
             ).scalars()
         )
+        dependency_ids: set[str] = set()
+        dependency_map: dict[str, list[str]] = {}
         for task in queued:
-            dependency_ids = [str(value) for value in _loads_list(task.dependency_task_ids_json) if str(value)]
-            if dependency_ids:
-                statuses = {
-                    row.id: row.status
-                    for row in self.db.execute(
-                        select(CsvTaskNode.id, CsvTaskNode.status).where(CsvTaskNode.id.in_(dependency_ids))
-                    )
-                }
-                if any(statuses.get(dep_id) != "completed" for dep_id in dependency_ids):
+            ids = [str(value) for value in _loads_list(task.dependency_task_ids_json) if str(value)]
+            dependency_map[task.id] = ids
+            dependency_ids.update(ids)
+        statuses_by_id = {}
+        if dependency_ids:
+            statuses_by_id = {
+                row.id: row.status
+                for row in self.db.execute(
+                    select(CsvTaskNode.id, CsvTaskNode.status).where(CsvTaskNode.id.in_(sorted(dependency_ids)))
+                )
+            }
+        for task in queued:
+            task_dependency_ids = dependency_map.get(task.id, [])
+            if task_dependency_ids:
+                if any(statuses_by_id.get(dep_id) != "completed" for dep_id in task_dependency_ids):
                     continue
 
+            now = datetime.utcnow()
             updated = self.db.execute(
                 update(CsvTaskNode)
                 .where(CsvTaskNode.id == task.id)
                 .where(CsvTaskNode.status.in_(["queued", "pending"]))
-                .values(status="running", started_at=datetime.utcnow())
+                .values(status="running", started_at=now, updated_at=now)
             )
             if updated.rowcount == 0:
                 self.db.rollback()
                 continue
+            self.db.execute(
+                update(CsvJob)
+                .where(CsvJob.id == task.csv_job_id)
+                .where(CsvJob.status.in_(["queued", "imported", "retry_queued"]))
+                .values(
+                    status="running",
+                    started_at=func.coalesce(CsvJob.started_at, now),
+                    error_detail="",
+                    updated_at=now,
+                )
+            )
+            self.db.execute(
+                update(CsvJobItem)
+                .where(CsvJobItem.id == task.csv_job_item_id)
+                .where(CsvJobItem.status.in_(["pending", "queued"]))
+                .values(status="running", error_detail="", updated_at=now)
+            )
             self.db.commit()
             claimed = self.get_csv_task(task.id)
-            if claimed is None:
-                continue
-            job = self.get_csv_job(claimed.csv_job_id)
-            if job and job.started_at is None:
-                self.update_csv_job(job, status="running", started_at=datetime.utcnow(), error_detail="")
-            elif job and job.status in {"queued", "imported", "retry_queued"}:
-                self.update_csv_job(job, status="running", error_detail="")
-            item = self.get_csv_job_item(claimed.csv_job_item_id)
-            if item is not None and item.status in {"pending", "queued"}:
-                self.update_csv_job_item(item, status="running", error_detail="")
-            return claimed
+            if claimed is not None:
+                return claimed
         return None
 
     def fail_stale_running_csv_tasks(self, *, timeout_seconds: int) -> list[str]:

@@ -567,7 +567,6 @@ class CsvDagService:
         return output
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
-        self.repo.finalize_csv_job_status(job_id)
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             return None
@@ -585,9 +584,7 @@ class CsvDagService:
         if not tasks:
             finalized = self.repo.finalize_csv_job_status(job_id) or job
             return finalized
-        for task in tasks:
-            if task.status == "pending":
-                self.repo.update_csv_task(task, status="queued", error_summary="", finished_at=None)
+        self.repo.queue_pending_csv_tasks(job_id)
         started_at = job.started_at or datetime.utcnow()
         return self.repo.update_csv_job(job, status="queued", error_detail="", finished_at=None, started_at=started_at)
 
@@ -1252,19 +1249,6 @@ class CsvDagService:
         return export_dir / self.export_zip_name(job.batch_id)
 
     def job_overview(self, job_id: str) -> dict[str, Any] | None:
-        try:
-            self.repo.finalize_csv_job_status(job_id)
-        except Exception:
-            if self.repo.get_csv_job(job_id) is None:
-                return None
-            raise
-        if self._reconcile_terminal_shadow_runs(job_id):
-            try:
-                self.repo.finalize_csv_job_status(job_id)
-            except Exception:
-                if self.repo.get_csv_job(job_id) is None:
-                    return None
-                raise
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             return None

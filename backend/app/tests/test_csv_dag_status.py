@@ -337,7 +337,7 @@ def test_variant_task_prefers_softened_base_asset_when_present(db_session, monke
     assert finished.status == "completed"
 
 
-def test_job_overview_recovers_completed_base_shadow_run(db_session) -> None:
+def test_job_overview_is_read_only_for_completed_base_shadow_run(db_session) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)
     entry = _make_entry(repo, word="ladder")
@@ -425,16 +425,16 @@ def test_job_overview_recovers_completed_base_shadow_run(db_session) -> None:
     refreshed_job = repo.get_csv_job(job.id)
 
     assert overview is not None
-    assert refreshed_task.status == "completed"
-    assert refreshed_task.regular_asset_id == quality_asset.id
-    assert refreshed_task.white_bg_asset_id == white_bg_asset.id
+    assert refreshed_task.status == "running"
+    assert refreshed_task.regular_asset_id is None
+    assert refreshed_task.white_bg_asset_id is None
     assert refreshed_item is not None
-    assert refreshed_item.status == "completed"
-    assert refreshed_item.base_regular_asset_id == quality_asset.id
-    assert refreshed_item.base_soften_asset_id == soften_asset.id
-    assert refreshed_item.base_white_bg_asset_id == white_bg_asset.id
+    assert refreshed_item.status == "running"
+    assert refreshed_item.base_regular_asset_id is None
+    assert refreshed_item.base_soften_asset_id is None
+    assert refreshed_item.base_white_bg_asset_id is None
     assert refreshed_job is not None
-    assert refreshed_job.status == "completed"
+    assert refreshed_job.status == "imported"
 
 
 def test_loop_count_uses_highest_scored_attempt_not_winner_attempt() -> None:
