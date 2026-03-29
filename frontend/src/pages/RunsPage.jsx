@@ -706,9 +706,7 @@ export default function RunsPage() {
       if (showBaseCsvOutputs) {
         return csvItemImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: true })
       }
-      const inventoryImages = csvInventoryImages(selectedCsvItem)
-      if (inventoryImages.length) return inventoryImages
-      return csvItemImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: false })
+      return csvCombinedImages(selectedCsvItem, selectedCsvItemTasks, { includeBaseOutputs: false })
     },
     [selectedCsvItem, selectedCsvItemTasks, showBaseCsvOutputs]
   )
@@ -784,6 +782,9 @@ export default function RunsPage() {
         }
       }
     } catch (error) {
+      if (selectedCsvJobIdRef.current) {
+        return
+      }
       if (isPolling && (runsRef.current.length > 0 || detailStateRef.current?.run)) {
         return
       }
@@ -875,15 +876,18 @@ export default function RunsPage() {
   }, [])
 
   useEffect(() => {
-    refreshRuns()
+    if (!showingCsvWords) {
+      refreshRuns()
+    }
     refreshCsvJobs()
     const timer = setInterval(() => {
       if (!pageVisible) return
+      if (selectedCsvJobIdRef.current) return
       if (!shouldPollRuns(runsRef.current)) return
       refreshRuns({ isPolling: true })
     }, RUNS_POLL_MS)
     return () => clearInterval(timer)
-  }, [query, pageVisible])
+  }, [query, pageVisible, showingCsvWords])
 
   useEffect(() => {
     refreshCsvJobs()
@@ -904,6 +908,9 @@ export default function RunsPage() {
       setDetail(null)
       return undefined
     }
+    if (showingCsvWords) {
+      return undefined
+    }
     const includeDebug = selectedDetailTab === 'debug'
     const currentStatus = detailStateRef.current?.run?.status
     const pollMs = includeDebug
@@ -922,7 +929,7 @@ export default function RunsPage() {
       loadRunDetail(activeRunId, { isPolling: true, includeDebug })
     }, pollMs)
     return () => clearInterval(timer)
-  }, [selectedRunId, selectedDetailTab, pageVisible, detail?.run?.status])
+  }, [selectedRunId, selectedDetailTab, pageVisible, detail?.run?.status, showingCsvWords])
 
   useEffect(() => {
     if (!selectedCsvJobId) {
@@ -991,10 +998,16 @@ export default function RunsPage() {
   useEffect(() => {
     if (!pageVisible) return undefined
     const handleFocus = () => {
-      refreshRuns({ isPolling: true })
-      if (selectedRunIdRef.current) {
+      if (!selectedCsvJobIdRef.current) {
+        refreshRuns({ isPolling: true })
+      }
+      if (!selectedCsvJobIdRef.current && selectedRunIdRef.current) {
         const includeDebug = selectedDetailTab === 'debug'
         loadRunDetail(selectedRunIdRef.current, { isPolling: true, includeDebug })
+      }
+      if (selectedCsvJobIdRef.current) {
+        refreshCsvJobs({ isPolling: true })
+        loadCsvJobDetail(selectedCsvJobIdRef.current, { isPolling: true })
       }
     }
     window.addEventListener('focus', handleFocus)
@@ -1423,6 +1436,7 @@ export default function RunsPage() {
                     <th>Rows</th>
                     <th>Duration</th>
                     <th>Started</th>
+                    <th>Finished</th>
                     <th>Start</th>
                     <th>Retry</th>
                     <th>Cancel</th>
@@ -1452,6 +1466,7 @@ export default function RunsPage() {
                       <td>{job.total_row_count}</td>
                       <td>{job.started_at ? `${csvJobElapsedSeconds(job, nowMs)}s` : '-'}</td>
                       <td>{formatLocalDateTime(job.started_at)}</td>
+                      <td>{formatLocalDateTime(job.finished_at)}</td>
                       <td>
                         <button
                           onClick={(event) => {
@@ -1535,6 +1550,10 @@ export default function RunsPage() {
                 <div>
                   <strong>Started</strong>
                   <p>{formatLocalDateTime(csvJobOverview.job.started_at)}</p>
+                </div>
+                <div>
+                  <strong>Finished</strong>
+                  <p>{formatLocalDateTime(csvJobOverview.job.finished_at)}</p>
                 </div>
               </div>
               <div className="csv-job-live-strip">
