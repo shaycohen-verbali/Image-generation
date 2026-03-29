@@ -211,7 +211,7 @@ def write_metadata(run_id: str, attempt: int, payload: dict) -> Path:
     return path
 
 
-def materialize_path(path_or_uri: str, *, cache_namespace: str = "assets") -> Path:
+def materialize_path(path_or_uri: str, *, cache_namespace: str = "assets", force_refresh: bool = False) -> Path:
     value = str(path_or_uri or "").strip()
     if not value:
         raise RuntimeError("Missing storage path")
@@ -221,7 +221,7 @@ def materialize_path(path_or_uri: str, *, cache_namespace: str = "assets") -> Pa
     bucket, object_key = _parse_supabase_uri(value)
     target = runtime_cache_root() / cache_namespace / bucket / object_key
     target.parent.mkdir(parents=True, exist_ok=True)
-    if not target.exists():
+    if force_refresh or not target.exists():
         target.write_bytes(_download_from_supabase(value))
     return target
 
