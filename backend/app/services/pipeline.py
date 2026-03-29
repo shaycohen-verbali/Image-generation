@@ -510,8 +510,8 @@ class PipelineRunner:
     @staticmethod
     def _local_asset_path(asset_or_path: Asset | str) -> Path:
         if isinstance(asset_or_path, Asset):
-            return materialize_path(asset_or_path.abs_path, cache_namespace="assets")
-        return materialize_path(str(asset_or_path), cache_namespace="assets")
+            return materialize_path(asset_or_path.abs_path, cache_namespace="assets", force_refresh=True)
+        return materialize_path(str(asset_or_path), cache_namespace="assets", force_refresh=True)
 
     def _get_latest_run(self, run_id: str) -> Run | None:
         return self.repo.get_run(run_id)
