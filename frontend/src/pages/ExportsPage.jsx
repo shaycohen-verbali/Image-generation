@@ -36,38 +36,42 @@ const LEGACY_EXPORT_FIELD_OPTIONS = [
 ]
 
 const CSV_JOB_EXPORT_BASE_FIELDS = [
-  { key: 'row_index', label: 'Row index' },
-  { key: 'word', label: 'Word' },
-  { key: 'part_of_sentence', label: 'Part of sentence' },
-  { key: 'category', label: 'Category' },
-  { key: 'context', label: 'Context' },
-  { key: 'job_status', label: 'Job status' },
-  { key: 'fully_complete', label: 'Fully complete' },
-  { key: 'missing_slots_json', label: 'Missing slots' },
-  { key: 'failure_reasons_json', label: 'Failure reasons' },
+  'row_index',
+  'word',
+  'part_of_sentence',
+  'category',
+  'context',
+  'job_status',
+  'fully_complete',
+  'missing_slots_json',
+  'failure_reasons_json',
 ]
 
-const CSV_JOB_EXPORT_AGES = ['toddler', 'kid', 'tween', 'teenager']
-const CSV_JOB_EXPORT_GENDERS = ['male', 'female']
-const CSV_JOB_EXPORT_SKIN_COLORS = ['white', 'black', 'asian', 'brown']
-const CSV_JOB_EXPORT_BACKGROUNDS = ['regular', 'white_bg']
-
-const CSV_JOB_EXPORT_FIELD_OPTIONS = [
-  ...CSV_JOB_EXPORT_BASE_FIELDS,
-  ...CSV_JOB_EXPORT_AGES.flatMap((age) =>
-    CSV_JOB_EXPORT_GENDERS.flatMap((gender) =>
-      CSV_JOB_EXPORT_SKIN_COLORS.flatMap((skin) =>
-        CSV_JOB_EXPORT_BACKGROUNDS.flatMap((background) => {
-          const base = `${age}_${gender}_${skin}_${background}`
-          return [
-            { key: `${base}_path`, label: `${age} ${gender} ${skin} ${background} image path` },
-            { key: `${base}_prompt`, label: `${age} ${gender} ${skin} ${background} prompt` },
-          ]
-        })
-      )
-    )
-  ),
+const CSV_JOB_AGE_OPTIONS = [
+  { value: 'all', label: 'All ages' },
+  { value: 'toddler', label: 'Toddler' },
+  { value: 'kid', label: 'Kid' },
+  { value: 'tween', label: 'Tween' },
+  { value: 'teenager', label: 'Teenager' },
 ]
+
+const CSV_JOB_GENDER_OPTIONS = [
+  { value: 'all', label: 'All genders' },
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+]
+
+const CSV_JOB_RACE_OPTIONS = [
+  { value: 'all', label: 'All races' },
+  { value: 'white', label: 'White' },
+  { value: 'black', label: 'Black' },
+  { value: 'asian', label: 'Asian' },
+  { value: 'brown', label: 'Brown' },
+]
+
+const CSV_JOB_EXPORT_ALL_AGES = CSV_JOB_AGE_OPTIONS.filter((item) => item.value !== 'all').map((item) => item.value)
+const CSV_JOB_EXPORT_ALL_GENDERS = CSV_JOB_GENDER_OPTIONS.filter((item) => item.value !== 'all').map((item) => item.value)
+const CSV_JOB_EXPORT_ALL_RACES = CSV_JOB_RACE_OPTIONS.filter((item) => item.value !== 'all').map((item) => item.value)
 
 function formatLocalDateTime(value) {
   if (!value) return '-'
@@ -114,6 +118,39 @@ function triggerDownload(path) {
   anchor.remove()
 }
 
+function csvExportFieldsFromSelection({ age, gender, race, includePrompt, includeWhiteBackground }) {
+  const ages = age === 'all' ? CSV_JOB_EXPORT_ALL_AGES : [age]
+  const genders = gender === 'all' ? CSV_JOB_EXPORT_ALL_GENDERS : [gender]
+  const races = race === 'all' ? CSV_JOB_EXPORT_ALL_RACES : [race]
+  const fields = [...CSV_JOB_EXPORT_BASE_FIELDS]
+
+  for (const ageValue of ages) {
+    for (const genderValue of genders) {
+      for (const raceValue of races) {
+        const base = `${ageValue}_${genderValue}_${raceValue}`
+        fields.push(`${base}_regular_path`)
+        if (includeWhiteBackground) fields.push(`${base}_white_bg_path`)
+        if (includePrompt) {
+          fields.push(`${base}_regular_prompt`)
+          if (includeWhiteBackground) fields.push(`${base}_white_bg_prompt`)
+        }
+      }
+    }
+  }
+
+  return fields
+}
+
+function csvExportSummary({ age, gender, race, includePrompt, includeWhiteBackground }) {
+  return [
+    `age: ${age}`,
+    `gender: ${gender}`,
+    `race: ${race}`,
+    `include prompt: ${includePrompt ? 'yes' : 'no'}`,
+    `include white background: ${includeWhiteBackground ? 'yes' : 'no'}`,
+  ].join(' | ')
+}
+
 export default function ExportsPage() {
   const [sourceMode, setSourceMode] = useState('csv_job')
   const [statusFilter, setStatusFilter] = useState('')
@@ -124,7 +161,11 @@ export default function ExportsPage() {
   const [preparedExport, setPreparedExport] = useState(null)
   const [message, setMessage] = useState('')
   const [selectedLegacyExportFields, setSelectedLegacyExportFields] = useState(() => LEGACY_EXPORT_FIELD_OPTIONS.map((item) => item.key))
-  const [selectedCsvExportFields, setSelectedCsvExportFields] = useState(() => CSV_JOB_EXPORT_FIELD_OPTIONS.map((item) => item.key))
+  const [selectedCsvExportAge, setSelectedCsvExportAge] = useState('all')
+  const [selectedCsvExportGender, setSelectedCsvExportGender] = useState('all')
+  const [selectedCsvExportRace, setSelectedCsvExportRace] = useState('all')
+  const [includeCsvExportPrompt, setIncludeCsvExportPrompt] = useState(false)
+  const [includeCsvExportWhiteBackground, setIncludeCsvExportWhiteBackground] = useState(true)
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -187,18 +228,23 @@ export default function ExportsPage() {
           setMessage('Select a CSV job first')
           return
         }
-        if (!selectedCsvExportFields.length) {
-          setMessage('Choose at least one CSV DAG export field')
-          return
+        const csvExportOptions = {
+          age: selectedCsvExportAge,
+          gender: selectedCsvExportGender,
+          race: selectedCsvExportRace,
+          includePrompt: includeCsvExportPrompt,
+          includeWhiteBackground: includeCsvExportWhiteBackground,
         }
-        const result = await exportCsvJob(selectedCsvJobId, { export_fields: selectedCsvExportFields })
+        const result = await exportCsvJob(selectedCsvJobId, {
+          export_fields: csvExportFieldsFromSelection(csvExportOptions),
+        })
         const nextPrepared = {
           kind: 'csv_job',
           id: result.job_id,
           batch_id: result.batch_id,
           file_name: result.file_name,
           package_download_url: result.download_url,
-          export_fields: [...selectedCsvExportFields],
+          export_summary: csvExportSummary(csvExportOptions),
         }
         setPreparedExport(nextPrepared)
         setMessage(`Prepared CSV job package for ${result.job_id}`)
@@ -231,12 +277,6 @@ export default function ExportsPage() {
 
   const toggleLegacyExportField = (fieldKey) => {
     setSelectedLegacyExportFields((current) =>
-      current.includes(fieldKey) ? current.filter((value) => value !== fieldKey) : [...current, fieldKey]
-    )
-  }
-
-  const toggleCsvExportField = (fieldKey) => {
-    setSelectedCsvExportFields((current) =>
       current.includes(fieldKey) ? current.filter((value) => value !== fieldKey) : [...current, fieldKey]
     )
   }
@@ -283,37 +323,55 @@ export default function ExportsPage() {
               )}
               <div>
                 <p className="config-help-text">
-                  Choose which inventory fields to include in the CSV DAG package's <code>word_inventory.csv</code>.
+                  Choose which variants to include in the CSV DAG package's <code>word_inventory.csv</code>.
                 </p>
+                <div className="form-grid">
+                  <label>
+                    Age
+                    <select value={selectedCsvExportAge} onChange={(e) => setSelectedCsvExportAge(e.target.value)}>
+                      {CSV_JOB_AGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Gender
+                    <select value={selectedCsvExportGender} onChange={(e) => setSelectedCsvExportGender(e.target.value)}>
+                      {CSV_JOB_GENDER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Race
+                    <select value={selectedCsvExportRace} onChange={(e) => setSelectedCsvExportRace(e.target.value)}>
+                      {CSV_JOB_RACE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
                 <div className="inline-fields">
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    onClick={() => setSelectedCsvExportFields(CSV_JOB_EXPORT_FIELD_OPTIONS.map((item) => item.key))}
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    onClick={() => setSelectedCsvExportFields([])}
-                  >
-                    Clear All
-                  </button>
-                  <span className="config-help-text">{selectedCsvExportFields.length} fields selected</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeCsvExportPrompt}
+                      onChange={(e) => setIncludeCsvExportPrompt(e.target.checked)}
+                    />
+                    <span>Include prompt</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeCsvExportWhiteBackground}
+                      onChange={(e) => setIncludeCsvExportWhiteBackground(e.target.checked)}
+                    />
+                    <span>Include white background images for chosen variants</span>
+                  </label>
                 </div>
-                <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-                  {CSV_JOB_EXPORT_FIELD_OPTIONS.map((field) => (
-                    <label key={field.key} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedCsvExportFields.includes(field.key)}
-                        onChange={() => toggleCsvExportField(field.key)}
-                      />
-                      <span>{field.label}</span>
-                    </label>
-                  ))}
-                </div>
+                <p className="config-help-text">
+                  Default fields always included: Row index, Word, Part of sentence, Category, Context, Job status, Fully complete, Missing slots, Failure reasons.
+                </p>
               </div>
             </>
           ) : (
@@ -408,10 +466,7 @@ export default function ExportsPage() {
                 <p className="config-help-text"><strong>Batch number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>
                 <p className="config-help-text"><strong>File name:</strong> {preparedExport.file_name}</p>
                 <p className="config-help-text">
-                  <strong>Selected fields:</strong>{' '}
-                  {Array.isArray(preparedExport.export_fields) && preparedExport.export_fields.length
-                    ? preparedExport.export_fields.join(', ')
-                    : 'All default fields'}
+                  <strong>Selection:</strong> {preparedExport.export_summary || 'All default fields'}
                 </p>
                 <div className="inline-fields">
                   <button type="button" onClick={() => triggerDownload(preparedExport.package_download_url)}>
