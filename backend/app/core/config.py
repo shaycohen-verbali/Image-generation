@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     supabase_image_bucket: str = Field(default="generated-images", alias="SUPABASE_IMAGE_BUCKET")
     supabase_export_bucket: str = Field(default="exports", alias="SUPABASE_EXPORT_BUCKET")
     supabase_csv_bucket: str = Field(default="csv-imports", alias="SUPABASE_CSV_BUCKET")
+    slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")
+    slack_signing_secret: str = Field(default="", alias="SLACK_SIGNING_SECRET")
+    slack_allowed_user_ids: str = Field(default="", alias="SLACK_ALLOWED_USER_IDS")
+    slack_alert_user_id: str = Field(default="", alias="SLACK_ALERT_USER_ID")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_assistant_id: str = Field(default="", alias="OPENAI_ASSISTANT_ID")

@@ -10,6 +10,7 @@ from app.api.entries import router as entries_router
 from app.api.exports import router as exports_router
 from app.api.health import router as health_router
 from app.api.runs import router as runs_router
+from app.api.slack import router as slack_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.init_db import init_db
@@ -34,6 +35,7 @@ app.include_router(assets_router)
 app.include_router(exports_router)
 app.include_router(config_router)
 app.include_router(csv_jobs_router)
+app.include_router(slack_router)
 
 
 @app.on_event("startup")
