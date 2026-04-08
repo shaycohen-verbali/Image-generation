@@ -4,7 +4,7 @@ import json
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import db_dependency
@@ -40,7 +40,7 @@ async def slack_events(request: Request, db: Session = Depends(db_dependency)) -
 
     payload = json.loads(body.decode("utf-8") or "{}")
     if payload.get("type") == "url_verification":
-        return JSONResponse({"challenge": payload.get("challenge", "")})
+        return PlainTextResponse(str(payload.get("challenge", "")))
 
     _verify_slack_request(service, request, body)
 
