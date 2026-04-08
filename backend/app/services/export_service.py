@@ -15,6 +15,30 @@ from app.services.repository import Repository
 from app.services.storage import exports_root, materialize_path, persist_export_artifact
 from app.services.utils import sanitize_filename
 
+EXPORT_FIELD_SPECS: tuple[dict[str, str], ...] = (
+    {"key": "word", "header": "word"},
+    {"key": "part_of_sentence", "header": "part of sentence"},
+    {"key": "category", "header": "category"},
+    {"key": "synonyms", "header": "synonyms"},
+    {"key": "base_asset_slug", "header": "Base_Asset_Slug - your filename key"},
+    {"key": "context", "header": "context"},
+    {"key": "need_a_person", "header": "need a person"},
+    {"key": "prompt_1", "header": "prompt 1"},
+    {"key": "file_name_1", "header": "file name 1"},
+    {"key": "image_1", "header": "image 1"},
+    {"key": "prompt_2", "header": "prompt 2"},
+    {"key": "file_name_2", "header": "file name 2"},
+    {"key": "image_2", "header": "image 2"},
+    {"key": "upgraded_prompt", "header": "upgraded prompt"},
+    {"key": "file_name_upgraded", "header": "file name upgraded"},
+    {"key": "upgraded_image_2", "header": "upgraded image 2"},
+    {"key": "file_name_without_background", "header": "file name without background"},
+    {"key": "image_without_background", "header": "image without background"},
+    {"key": "boy_or_girl", "header": "boy or girl"},
+)
+EXPORT_FIELD_HEADERS = {spec["key"]: spec["header"] for spec in EXPORT_FIELD_SPECS}
+DEFAULT_EXPORT_FIELD_KEYS = tuple(spec["key"] for spec in EXPORT_FIELD_SPECS)
+
 
 class ExportService:
     def __init__(self, db: Session) -> None:
@@ -22,20 +46,23 @@ class ExportService:
         self.repo = Repository(db)
 
     def create_export(self, filters: dict[str, Any]):
-        record = self.repo.create_export(filters)
+        normalized_filters = dict(filters)
+        normalized_filters["export_fields"] = self._normalize_export_fields(filters.get("export_fields"))
+        record = self.repo.create_export(normalized_filters)
         export_dir = exports_root() / record.id
         export_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            runs = self.repo.list_runs_for_export(filters)
-            manifest = self._build_manifest(runs)
+            runs = self.repo.list_runs_for_export(normalized_filters)
+            export_field_keys = normalized_filters["export_fields"]
+            manifest = self._build_manifest(runs, export_field_keys=export_field_keys)
             csv_path = export_dir / "export.csv"
             white_bg_zip_path = export_dir / "images_white_bg.zip"
             with_bg_zip_path = export_dir / "images_with_bg_last_attempt.zip"
             manifest_path = export_dir / "manifest.json"
             package_zip_path = export_dir / "export_package.zip"
 
-            self._write_csv(csv_path, runs)
+            self._write_csv(csv_path, runs, export_field_keys=export_field_keys)
             self._write_zip(white_bg_zip_path, runs, stage_name="stage4_white_bg")
             self._write_zip(with_bg_zip_path, runs, stage_name="stage3_upgraded")
             manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -66,6 +93,21 @@ class ExportService:
         return self.repo.get_export(record.id)
 
     @staticmethod
+    def _normalize_export_fields(raw_fields: Any) -> list[str]:
+        if not isinstance(raw_fields, list):
+            return list(DEFAULT_EXPORT_FIELD_KEYS)
+
+        selected: list[str] = []
+        seen: set[str] = set()
+        for raw in raw_fields:
+            key = str(raw or "").strip()
+            if not key or key in seen or key not in EXPORT_FIELD_HEADERS:
+                continue
+            selected.append(key)
+            seen.add(key)
+        return selected or list(DEFAULT_EXPORT_FIELD_KEYS)
+
+    @staticmethod
     def _write_package_zip(
         path: Path,
         *,
@@ -80,28 +122,9 @@ class ExportService:
             archive.write(with_bg_zip_path, arcname="images_with_bg_last_attempt.zip")
             archive.write(manifest_path, arcname="manifest.json")
 
-    def _write_csv(self, path: Path, runs_data: list[tuple]) -> None:
-        headers = [
-            "word",
-            "part of sentence",
-            "category",
-            "synonyms",
-            "Base_Asset_Slug – your filename key",
-            "context",
-            "need a person",
-            "prompt 1",
-            "file name 1",
-            "image 1",
-            "prompt 2",
-            "file name 2",
-            "image 2",
-            "upgraded prompt",
-            "file name upgraded",
-            "upgraded image 2",
-            "file name without background",
-            "image without background",
-            "boy or girl",
-        ]
+    def _write_csv(self, path: Path, runs_data: list[tuple], *, export_field_keys: list[str]) -> None:
+        selected_keys = self._normalize_export_fields(export_field_keys)
+        headers = [EXPORT_FIELD_HEADERS[key] for key in selected_keys]
 
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=headers)
@@ -160,29 +183,28 @@ class ExportService:
                 file_name_upgraded = self._unique_export_name(base_slug, run.id, selected_stage3) if selected_stage3 else ""
                 file_name_without_background = self._unique_export_name(base_slug, run.id, selected_stage4) if selected_stage4 else ""
 
-                writer.writerow(
-                    {
-                        "word": entry.word,
-                        "part of sentence": entry.part_of_sentence,
-                        "category": entry.category,
-                        "synonyms": "",
-                        "Base_Asset_Slug – your filename key": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category, entry.boy_or_girl),
-                        "context": entry.context,
-                        "need a person": need_person,
-                        "prompt 1": first_prompt,
-                        "file name 1": file_name_1,
-                        "image 1": last_stage2.abs_path if last_stage2 else "",
-                        "prompt 2": prompt2,
-                        "file name 2": file_name_2,
-                        "image 2": first_stage3.abs_path if first_stage3 else "",
-                        "upgraded prompt": upgraded_prompt,
-                        "file name upgraded": file_name_upgraded,
-                        "upgraded image 2": selected_stage3.abs_path if selected_stage3 else "",
-                        "file name without background": file_name_without_background,
-                        "image without background": selected_stage4.abs_path if selected_stage4 else "",
-                        "boy or girl": entry.boy_or_girl,
-                    }
-                )
+                full_row = {
+                    "word": entry.word,
+                    "part_of_sentence": entry.part_of_sentence,
+                    "category": entry.category,
+                    "synonyms": "",
+                    "base_asset_slug": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category, entry.boy_or_girl),
+                    "context": entry.context,
+                    "need_a_person": need_person,
+                    "prompt_1": first_prompt,
+                    "file_name_1": file_name_1,
+                    "image_1": last_stage2.abs_path if last_stage2 else "",
+                    "prompt_2": prompt2,
+                    "file_name_2": file_name_2,
+                    "image_2": first_stage3.abs_path if first_stage3 else "",
+                    "upgraded_prompt": upgraded_prompt,
+                    "file_name_upgraded": file_name_upgraded,
+                    "upgraded_image_2": selected_stage3.abs_path if selected_stage3 else "",
+                    "file_name_without_background": file_name_without_background,
+                    "image_without_background": selected_stage4.abs_path if selected_stage4 else "",
+                    "boy_or_girl": entry.boy_or_girl,
+                }
+                writer.writerow({EXPORT_FIELD_HEADERS[key]: full_row.get(key, "") for key in selected_keys})
 
     def _write_zip(self, path: Path, runs_data: list[tuple], *, stage_name: str) -> None:
         with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -242,7 +264,7 @@ class ExportService:
         safe_name = sanitize_filename(asset.file_name)
         return f"{base_slug}__{run_id}__{asset.id}__{safe_name}"
 
-    def _build_manifest(self, runs_data: list[tuple]) -> dict[str, Any]:
+    def _build_manifest(self, runs_data: list[tuple], *, export_field_keys: list[str]) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
         for run, entry in runs_data:
             _, stages, prompts, assets, scores = self.repo.run_details(run.id)
@@ -322,6 +344,7 @@ class ExportService:
 
         return {
             "schema_version": "v1",
+            "selected_export_fields": self._normalize_export_fields(export_field_keys),
             "artifacts": {
                 "csv": "export.csv",
                 "white_bg_zip": "images_white_bg.zip",

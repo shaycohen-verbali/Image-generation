@@ -251,6 +251,7 @@ class ExportCreateRequest(BaseModel):
     status: list[str] | None = None
     min_score: float | None = None
     max_score: float | None = None
+    export_fields: list[str] | None = None
 
 
 class ExportOut(BaseModel):
