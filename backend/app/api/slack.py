@@ -37,11 +37,12 @@ async def slack_commands(request: Request, db: Session = Depends(db_dependency))
 async def slack_events(request: Request, db: Session = Depends(db_dependency)) -> JSONResponse:
     service = SlackService(db)
     body = await request.body()
-    _verify_slack_request(service, request, body)
 
     payload = json.loads(body.decode("utf-8") or "{}")
     if payload.get("type") == "url_verification":
         return JSONResponse({"challenge": payload.get("challenge", "")})
+
+    _verify_slack_request(service, request, body)
 
     event = payload.get("event") or {}
     if payload.get("type") != "event_callback":
