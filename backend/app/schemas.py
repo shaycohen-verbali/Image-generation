@@ -428,6 +428,10 @@ class CsvJobInventorySyncResponse(BaseModel):
     inventory_enabled: bool
 
 
+class CsvJobExportRequest(BaseModel):
+    export_fields: list[str] | None = None
+
+
 class CsvJobExportResponse(BaseModel):
     job_id: str
     batch_id: str

@@ -12,6 +12,7 @@ from app.schemas import (
     CsvJobClearResponse,
     CsvJobContinueRequest,
     CsvJobContinueResponse,
+    CsvJobExportRequest,
     CsvJobExportResponse,
     CsvJobImportResponse,
     CsvJobInventorySyncResponse,
@@ -169,10 +170,14 @@ def cancel_csv_job(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobC
 
 
 @router.post("/{job_id}/export", response_model=CsvJobExportResponse)
-def export_csv_job(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobExportResponse:
+def export_csv_job(
+    job_id: str,
+    payload: CsvJobExportRequest | None = None,
+    db: Session = Depends(db_dependency),
+) -> CsvJobExportResponse:
     service = CsvDagService(db)
     try:
-        result = service.export_job(job_id)
+        result = service.export_job(job_id, export_fields=(payload.export_fields if payload is not None else None))
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CsvJobExportResponse(

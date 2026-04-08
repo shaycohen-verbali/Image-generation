@@ -20,6 +20,43 @@ from app.inventory_models import (
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry
 from app.services.repository import Repository
 
+CSV_JOB_EXPORT_BASE_FIELD_SPECS: tuple[dict[str, str], ...] = (
+    {"key": "row_index", "label": "Row index"},
+    {"key": "word", "label": "Word"},
+    {"key": "part_of_sentence", "label": "Part of sentence"},
+    {"key": "category", "label": "Category"},
+    {"key": "context", "label": "Context"},
+    {"key": "job_status", "label": "Job status"},
+    {"key": "fully_complete", "label": "Fully complete"},
+    {"key": "missing_slots_json", "label": "Missing slots"},
+    {"key": "failure_reasons_json", "label": "Failure reasons"},
+)
+
+
+def csv_job_export_field_specs() -> list[dict[str, str]]:
+    specs = list(CSV_JOB_EXPORT_BASE_FIELD_SPECS)
+    for column in word_inventory.columns:
+        name = str(column.name)
+        if name.endswith("_path") or name.endswith("_prompt"):
+            specs.append({"key": name, "label": name.replace("_", " ")})
+    return specs
+
+
+def normalize_csv_job_export_fields(raw_fields: list[str] | None) -> list[str]:
+    allowed = {spec["key"] for spec in csv_job_export_field_specs()}
+    if not isinstance(raw_fields, list):
+        return [spec["key"] for spec in csv_job_export_field_specs()]
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_fields:
+        key = str(raw or "").strip()
+        if not key or key in seen or key not in allowed:
+            continue
+        selected.append(key)
+        seen.add(key)
+    return selected or [spec["key"] for spec in csv_job_export_field_specs()]
+
 
 class InventorySyncService:
     def __init__(self, db: Session) -> None:

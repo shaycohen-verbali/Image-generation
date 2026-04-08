@@ -35,6 +35,40 @@ const LEGACY_EXPORT_FIELD_OPTIONS = [
   { key: 'boy_or_girl', label: 'Boy or girl' },
 ]
 
+const CSV_JOB_EXPORT_BASE_FIELDS = [
+  { key: 'row_index', label: 'Row index' },
+  { key: 'word', label: 'Word' },
+  { key: 'part_of_sentence', label: 'Part of sentence' },
+  { key: 'category', label: 'Category' },
+  { key: 'context', label: 'Context' },
+  { key: 'job_status', label: 'Job status' },
+  { key: 'fully_complete', label: 'Fully complete' },
+  { key: 'missing_slots_json', label: 'Missing slots' },
+  { key: 'failure_reasons_json', label: 'Failure reasons' },
+]
+
+const CSV_JOB_EXPORT_AGES = ['toddler', 'kid', 'tween', 'teenager']
+const CSV_JOB_EXPORT_GENDERS = ['male', 'female']
+const CSV_JOB_EXPORT_SKIN_COLORS = ['white', 'black', 'asian', 'brown']
+const CSV_JOB_EXPORT_BACKGROUNDS = ['regular', 'white_bg']
+
+const CSV_JOB_EXPORT_FIELD_OPTIONS = [
+  ...CSV_JOB_EXPORT_BASE_FIELDS,
+  ...CSV_JOB_EXPORT_AGES.flatMap((age) =>
+    CSV_JOB_EXPORT_GENDERS.flatMap((gender) =>
+      CSV_JOB_EXPORT_SKIN_COLORS.flatMap((skin) =>
+        CSV_JOB_EXPORT_BACKGROUNDS.flatMap((background) => {
+          const base = `${age}_${gender}_${skin}_${background}`
+          return [
+            { key: `${base}_path`, label: `${age} ${gender} ${skin} ${background} image path` },
+            { key: `${base}_prompt`, label: `${age} ${gender} ${skin} ${background} prompt` },
+          ]
+        })
+      )
+    )
+  ),
+]
+
 function formatLocalDateTime(value) {
   if (!value) return '-'
   const raw = String(value).trim()
@@ -89,7 +123,8 @@ export default function ExportsPage() {
   const [csvJobs, setCsvJobs] = useState([])
   const [preparedExport, setPreparedExport] = useState(null)
   const [message, setMessage] = useState('')
-  const [selectedExportFields, setSelectedExportFields] = useState(() => LEGACY_EXPORT_FIELD_OPTIONS.map((item) => item.key))
+  const [selectedLegacyExportFields, setSelectedLegacyExportFields] = useState(() => LEGACY_EXPORT_FIELD_OPTIONS.map((item) => item.key))
+  const [selectedCsvExportFields, setSelectedCsvExportFields] = useState(() => CSV_JOB_EXPORT_FIELD_OPTIONS.map((item) => item.key))
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -152,13 +187,18 @@ export default function ExportsPage() {
           setMessage('Select a CSV job first')
           return
         }
-        const result = await exportCsvJob(selectedCsvJobId)
+        if (!selectedCsvExportFields.length) {
+          setMessage('Choose at least one CSV DAG export field')
+          return
+        }
+        const result = await exportCsvJob(selectedCsvJobId, { export_fields: selectedCsvExportFields })
         const nextPrepared = {
           kind: 'csv_job',
           id: result.job_id,
           batch_id: result.batch_id,
           file_name: result.file_name,
           package_download_url: result.download_url,
+          export_fields: [...selectedCsvExportFields],
         }
         setPreparedExport(nextPrepared)
         setMessage(`Prepared CSV job package for ${result.job_id}`)
@@ -169,8 +209,8 @@ export default function ExportsPage() {
       const payload = {}
       if (statusFilter) payload.status = [statusFilter]
       if (selectedRunId) payload.run_ids = [selectedRunId]
-      payload.export_fields = selectedExportFields
-      if (!selectedExportFields.length) {
+      payload.export_fields = selectedLegacyExportFields
+      if (!selectedLegacyExportFields.length) {
         setMessage('Choose at least one export field')
         return
       }
@@ -189,8 +229,14 @@ export default function ExportsPage() {
     }
   }
 
-  const toggleExportField = (fieldKey) => {
-    setSelectedExportFields((current) =>
+  const toggleLegacyExportField = (fieldKey) => {
+    setSelectedLegacyExportFields((current) =>
+      current.includes(fieldKey) ? current.filter((value) => value !== fieldKey) : [...current, fieldKey]
+    )
+  }
+
+  const toggleCsvExportField = (fieldKey) => {
+    setSelectedCsvExportFields((current) =>
       current.includes(fieldKey) ? current.filter((value) => value !== fieldKey) : [...current, fieldKey]
     )
   }
@@ -235,6 +281,40 @@ export default function ExportsPage() {
               ) : (
                 <p className="config-help-text">Choose a CSV job to download its package zip directly.</p>
               )}
+              <div>
+                <p className="config-help-text">
+                  Choose which inventory fields to include in the CSV DAG package's <code>word_inventory.csv</code>.
+                </p>
+                <div className="inline-fields">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => setSelectedCsvExportFields(CSV_JOB_EXPORT_FIELD_OPTIONS.map((item) => item.key))}
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={() => setSelectedCsvExportFields([])}
+                  >
+                    Clear All
+                  </button>
+                  <span className="config-help-text">{selectedCsvExportFields.length} fields selected</span>
+                </div>
+                <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+                  {CSV_JOB_EXPORT_FIELD_OPTIONS.map((field) => (
+                    <label key={field.key} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedCsvExportFields.includes(field.key)}
+                        onChange={() => toggleCsvExportField(field.key)}
+                      />
+                      <span>{field.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </>
           ) : (
             <>
@@ -278,26 +358,26 @@ export default function ExportsPage() {
                   <button
                     type="button"
                     className="button-secondary"
-                    onClick={() => setSelectedExportFields(LEGACY_EXPORT_FIELD_OPTIONS.map((item) => item.key))}
+                    onClick={() => setSelectedLegacyExportFields(LEGACY_EXPORT_FIELD_OPTIONS.map((item) => item.key))}
                   >
                     Select All
                   </button>
                   <button
                     type="button"
                     className="button-secondary"
-                    onClick={() => setSelectedExportFields([])}
+                    onClick={() => setSelectedLegacyExportFields([])}
                   >
                     Clear All
                   </button>
-                  <span className="config-help-text">{selectedExportFields.length} fields selected</span>
+                  <span className="config-help-text">{selectedLegacyExportFields.length} fields selected</span>
                 </div>
                 <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                   {LEGACY_EXPORT_FIELD_OPTIONS.map((field) => (
                     <label key={field.key} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                       <input
                         type="checkbox"
-                        checked={selectedExportFields.includes(field.key)}
-                        onChange={() => toggleExportField(field.key)}
+                        checked={selectedLegacyExportFields.includes(field.key)}
+                        onChange={() => toggleLegacyExportField(field.key)}
                       />
                       <span>{field.label}</span>
                     </label>
@@ -327,6 +407,12 @@ export default function ExportsPage() {
                 <p className="config-help-text"><strong>CSV job number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.id}</span></p>
                 <p className="config-help-text"><strong>Batch number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>
                 <p className="config-help-text"><strong>File name:</strong> {preparedExport.file_name}</p>
+                <p className="config-help-text">
+                  <strong>Selected fields:</strong>{' '}
+                  {Array.isArray(preparedExport.export_fields) && preparedExport.export_fields.length
+                    ? preparedExport.export_fields.join(', ')
+                    : 'All default fields'}
+                </p>
                 <div className="inline-fields">
                   <button type="button" onClick={() => triggerDownload(preparedExport.package_download_url)}>
                     Download Package Again

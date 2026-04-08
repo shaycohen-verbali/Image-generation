@@ -115,8 +115,12 @@ export async function clearTerminalCsvJobs() {
   return parseResponse(response)
 }
 
-export async function exportCsvJob(jobId) {
-  const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/export`, { method: 'POST' })
+export async function exportCsvJob(jobId, payload = {}) {
+  const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
   return parseResponse(response)
 }
 

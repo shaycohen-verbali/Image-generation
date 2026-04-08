@@ -15,6 +15,7 @@ from app.schemas import ExecutionMode
 from app.services.cost_estimator import summarize_run_costs
 from app.services.csv_service import parse_entries_csv, validate_entry_row
 from app.services.inventory_sync import InventorySyncService
+from app.services.inventory_sync import normalize_csv_job_export_fields
 from app.services.person_profiles import DEFAULT_AGE, DEFAULT_GENDER, DEFAULT_SKIN_COLOR, profile_key
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
@@ -1468,7 +1469,7 @@ class CsvDagService:
             changed = True
         return changed
 
-    def export_job(self, job_id: str) -> dict[str, Any]:
+    def export_job(self, job_id: str, export_fields: list[str] | None = None) -> dict[str, Any]:
         inventory_service = InventorySyncService(self.db)
         inventory_service.sync_csv_job(job_id)
         overview = self.repo.csv_job_overview(job_id)
@@ -1547,21 +1548,17 @@ class CsvDagService:
                 )
 
         inventory_rows = inventory_service.build_export_rows(job_id)
-        inventory_fieldnames = list(inventory_rows[0].keys()) if inventory_rows else [
-            "row_index",
-            "word",
-            "part_of_sentence",
-            "category",
-            "job_status",
-        ]
+        selected_export_fields = normalize_csv_job_export_fields(export_fields)
+        inventory_fieldnames = list(selected_export_fields)
         with inventory_csv.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=inventory_fieldnames)
             writer.writeheader()
             for row in inventory_rows:
-                writer.writerow(row)
+                writer.writerow({field: row.get(field, "") for field in inventory_fieldnames})
 
         manifest_payload = {
             "job": self._serialize_job(job, overview),
+            "selected_export_fields": selected_export_fields,
             "step_counts": overview.get("step_counts", {}),
             "issues_by_step": overview.get("issues_by_step", {}),
             "items": [
