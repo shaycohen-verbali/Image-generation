@@ -1249,6 +1249,16 @@ class CsvDagService:
         export_dir.mkdir(parents=True, exist_ok=True)
         return export_dir / self.export_zip_name(job.batch_id)
 
+    @staticmethod
+    def _selected_export_image_fields(selected_export_fields: list[str]) -> list[str]:
+        return [field for field in selected_export_fields if field.endswith("_path")]
+
+    @staticmethod
+    def _export_arcname_for_row_asset(*, row_index: int, word: str, field_name: str, source_path: str) -> str:
+        prefix = f"row_{int(row_index or 0):04d}_{sanitize_filename(word or 'unknown-word')}"
+        background_dir = "white_bg" if field_name.endswith("_white_bg_path") else "regular"
+        return f"{background_dir}/{prefix}/{field_name}__{Path(str(source_path or '')).name}"
+
     def job_overview(self, job_id: str) -> dict[str, Any] | None:
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
@@ -1471,7 +1481,11 @@ class CsvDagService:
 
     def export_job(self, job_id: str, export_fields: list[str] | None = None) -> dict[str, Any]:
         inventory_service = InventorySyncService(self.db)
-        inventory_service.sync_csv_job(job_id)
+        export_warnings: list[str] = []
+        try:
+            inventory_service.sync_csv_job(job_id)
+        except Exception as exc:  # noqa: BLE001
+            export_warnings.append(f"Inventory sync skipped during export: {exc}")
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
@@ -1559,6 +1573,7 @@ class CsvDagService:
         manifest_payload = {
             "job": self._serialize_job(job, overview),
             "selected_export_fields": selected_export_fields,
+            "export_warnings": export_warnings,
             "step_counts": overview.get("step_counts", {}),
             "issues_by_step": overview.get("issues_by_step", {}),
             "items": [
@@ -1584,29 +1599,46 @@ class CsvDagService:
                 for item in rows
             ],
         }
+        zip_members: list[tuple[Path, str]] = [
+            (summary_csv, "job_summary.csv"),
+            (inventory_csv, "word_inventory.csv"),
+        ]
+        seen_arcnames: set[str] = set()
+        for row in inventory_rows:
+            row_index = int(row.get("row_index") or 0)
+            word = str(row.get("word") or "").strip()
+            for field_name in self._selected_export_image_fields(selected_export_fields):
+                source_path = str(row.get(field_name) or "").strip()
+                if not source_path:
+                    continue
+                arcname = self._export_arcname_for_row_asset(
+                    row_index=row_index,
+                    word=word,
+                    field_name=field_name,
+                    source_path=source_path,
+                )
+                if arcname in seen_arcnames:
+                    continue
+                try:
+                    materialized = materialize_path(source_path, cache_namespace="csv_job_export")
+                except Exception as exc:  # noqa: BLE001
+                    export_warnings.append(f"Skipped {field_name} for row {row_index}: {exc}")
+                    continue
+                if not materialized.exists():
+                    export_warnings.append(f"Skipped {field_name} for row {row_index}: file not found")
+                    continue
+                zip_members.append((materialized, arcname))
+                seen_arcnames.add(arcname)
+
         manifest_path.write_text(
             json.dumps(manifest_payload, ensure_ascii=False, indent=2, default=_json_default),
             encoding="utf-8",
         )
 
         with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.write(summary_csv, arcname="job_summary.csv")
-            archive.write(inventory_csv, arcname="word_inventory.csv")
             archive.write(manifest_path, arcname="manifest.json")
-            for item in rows:
-                entry = self.repo.get_entry(item.entry_id)
-                prefix = f"row_{item.row_index:04d}_{sanitize_filename(entry.word if entry else item.id)}"
-                for task in task_by_item.get(item.id, []):
-                    if task.regular_asset_id:
-                        regular_asset = self.repo.get_asset(task.regular_asset_id)
-                        if regular_asset is not None:
-                            regular_path = materialize_path(regular_asset.abs_path, cache_namespace="csv_job_export")
-                            archive.write(regular_path, arcname=f"regular/{prefix}/{regular_asset.file_name}")
-                    if task.white_bg_asset_id:
-                        white_bg_asset = self.repo.get_asset(task.white_bg_asset_id)
-                        if white_bg_asset is not None:
-                            white_bg_path = materialize_path(white_bg_asset.abs_path, cache_namespace="csv_job_export")
-                            archive.write(white_bg_path, arcname=f"white_bg/{prefix}/{white_bg_asset.file_name}")
+            for source_path, arcname in zip_members:
+                archive.write(source_path, arcname=arcname)
 
         stored_zip = persist_export_artifact(job.id, zip_filename, zip_path.read_bytes(), content_type="application/zip")
         persist_export_artifact(job.id, "job_summary.csv", summary_csv.read_bytes(), content_type="text/csv")

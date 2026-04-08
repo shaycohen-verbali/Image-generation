@@ -1,3 +1,7 @@
+import json
+import zipfile
+from pathlib import Path
+
 from app.services.csv_dag_service import (
     CsvDagService,
     _dependency_profile_for,
@@ -178,6 +182,151 @@ def test_finalize_job_does_not_mark_pending_taskless_items_completed(db_session)
 def test_white_female_teenager_depends_on_white_male_teenager() -> None:
     dependency = _dependency_profile_for({"gender": "female", "age": "teenager", "skin_color": "white"})
     assert dependency == {"gender": "male", "age": "teenager", "skin_color": "white"}
+
+
+def test_export_job_packages_inventory_selected_images(db_session, tmp_path, monkeypatch) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="fairly")
+    job = repo.create_csv_job(
+        batch_id="csv_test_export_inventory",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={
+            "person_gender_options": ["female"],
+            "person_age_options": ["teenager"],
+            "person_skin_color_options": ["white"],
+        },
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "fairly"},
+    )
+    repo.update_csv_job_item(item, status="completed")
+
+    image_path = tmp_path / "teen-regular.jpg"
+    image_path.write_bytes(b"teen-regular")
+
+    monkeypatch.setattr("app.services.csv_dag_service.InventorySyncService.sync_csv_job", lambda self, job_id: 0)
+    monkeypatch.setattr(
+        "app.services.csv_dag_service.InventorySyncService.build_export_rows",
+        lambda self, job_id: [
+            {
+                "row_index": 1,
+                "word": "fairly",
+                "part_of_sentence": "noun",
+                "category": "sport",
+                "context": "",
+                "job_status": "completed",
+                "fully_complete": True,
+                "missing_slots_json": "[]",
+                "failure_reasons_json": "[]",
+                "teenager_female_white_regular_path": image_path.as_posix(),
+            }
+        ],
+    )
+
+    result = service.export_job(
+        job.id,
+        export_fields=[
+            "row_index",
+            "word",
+            "part_of_sentence",
+            "category",
+            "context",
+            "job_status",
+            "fully_complete",
+            "missing_slots_json",
+            "failure_reasons_json",
+            "teenager_female_white_regular_path",
+        ],
+    )
+
+    zip_path = Path(result["local_zip_path"])
+    assert zip_path.exists()
+    with zipfile.ZipFile(zip_path) as archive:
+        names = archive.namelist()
+        assert "job_summary.csv" in names
+        assert "word_inventory.csv" in names
+        assert "manifest.json" in names
+        assert any(name.endswith("teenager_female_white_regular_path__teen-regular.jpg") for name in names)
+
+
+def test_export_job_skips_missing_images_and_records_warning(db_session, tmp_path, monkeypatch) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="gentle")
+    job = repo.create_csv_job(
+        batch_id="csv_test_export_missing",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={
+            "person_gender_options": ["female"],
+            "person_age_options": ["teenager"],
+            "person_skin_color_options": ["white"],
+        },
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "gentle"},
+    )
+    repo.update_csv_job_item(item, status="completed")
+
+    valid_image = tmp_path / "valid.jpg"
+    valid_image.write_bytes(b"valid-image")
+
+    monkeypatch.setattr(
+        "app.services.csv_dag_service.InventorySyncService.sync_csv_job",
+        lambda self, job_id: (_ for _ in ()).throw(RuntimeError("inventory unavailable")),
+    )
+    monkeypatch.setattr(
+        "app.services.csv_dag_service.InventorySyncService.build_export_rows",
+        lambda self, job_id: [
+            {
+                "row_index": 1,
+                "word": "gentle",
+                "part_of_sentence": "noun",
+                "category": "sport",
+                "context": "",
+                "job_status": "completed",
+                "fully_complete": True,
+                "missing_slots_json": "[]",
+                "failure_reasons_json": "[]",
+                "teenager_female_white_regular_path": valid_image.as_posix(),
+                "teenager_female_white_white_bg_path": (tmp_path / "missing.jpg").as_posix(),
+            }
+        ],
+    )
+
+    result = service.export_job(
+        job.id,
+        export_fields=[
+            "row_index",
+            "word",
+            "part_of_sentence",
+            "category",
+            "context",
+            "job_status",
+            "fully_complete",
+            "missing_slots_json",
+            "failure_reasons_json",
+            "teenager_female_white_regular_path",
+            "teenager_female_white_white_bg_path",
+        ],
+    )
+
+    zip_path = Path(result["local_zip_path"])
+    with zipfile.ZipFile(zip_path) as archive:
+        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        names = archive.namelist()
+    assert any("Inventory sync skipped during export" in warning for warning in manifest["export_warnings"])
+    assert any("Skipped teenager_female_white_white_bg_path" in warning for warning in manifest["export_warnings"])
+    assert any(name.endswith("teenager_female_white_regular_path__valid.jpg") for name in names)
+    assert not any(name.endswith("teenager_female_white_white_bg_path__missing.jpg") for name in names)
 
 
 def test_google_image_safety_failure_gets_user_facing_summary() -> None:
