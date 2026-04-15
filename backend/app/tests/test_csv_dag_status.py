@@ -1,5 +1,7 @@
+import csv
 import json
 import zipfile
+from io import StringIO
 from pathlib import Path
 
 from app.services.csv_dag_service import (
@@ -224,6 +226,7 @@ def test_export_job_packages_inventory_selected_images(db_session, tmp_path, mon
                 "missing_slots_json": "[]",
                 "failure_reasons_json": "[]",
                 "teenager_female_white_regular_path": image_path.as_posix(),
+                "teenager_female_white_regular_prompt": "Make a clear teenager image.",
             }
         ],
     )
@@ -248,10 +251,22 @@ def test_export_job_packages_inventory_selected_images(db_session, tmp_path, mon
     assert zip_path.exists()
     with zipfile.ZipFile(zip_path) as archive:
         names = archive.namelist()
-        assert "job_summary.csv" in names
-        assert "word_inventory.csv" in names
-        assert "manifest.json" in names
-        assert any(name.endswith("teenager_female_white_regular_path__teen-regular.jpg") for name in names)
+        images_rows = list(csv.DictReader(StringIO(archive.read("images.csv").decode("utf-8"))))
+        prompts_rows = list(csv.DictReader(StringIO(archive.read("prompts.csv").decode("utf-8"))))
+        assert "README.md" in names
+        assert "images.csv" in names
+        assert "prompts.csv" in names
+        assert "_metadata/job_summary.csv" in names
+        assert "_metadata/word_inventory_legacy.csv" in names
+        assert "_metadata/manifest.json" in names
+        assert "images/female/white/teenager/regular/0001__fairly__noun__sport__f_tn_w_reg.jpg" in names
+    assert images_rows[0]["image_relative_path"] == "images/female/white/teenager/regular/0001__fairly__noun__sport__f_tn_w_reg.jpg"
+    assert images_rows[0]["variant_abbrev"] == "f_tn_w_reg"
+    assert prompts_rows[0]["word"] == "fairly"
+    assert prompts_rows[0]["part_of_sentence"] == "noun"
+    assert prompts_rows[0]["category"] == "sport"
+    assert prompts_rows[0]["image_filename"] == "0001__fairly__noun__sport__f_tn_w_reg.jpg"
+    assert prompts_rows[0]["prompt_text"] == "Make a clear teenager image."
 
 
 def test_export_job_skips_missing_images_and_records_warning(db_session, tmp_path, monkeypatch) -> None:
@@ -321,12 +336,12 @@ def test_export_job_skips_missing_images_and_records_warning(db_session, tmp_pat
 
     zip_path = Path(result["local_zip_path"])
     with zipfile.ZipFile(zip_path) as archive:
-        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        manifest = json.loads(archive.read("_metadata/manifest.json").decode("utf-8"))
         names = archive.namelist()
     assert any("Inventory sync skipped during export" in warning for warning in manifest["export_warnings"])
     assert any("Skipped teenager_female_white_white_bg_path" in warning for warning in manifest["export_warnings"])
-    assert any(name.endswith("teenager_female_white_regular_path__valid.jpg") for name in names)
-    assert not any(name.endswith("teenager_female_white_white_bg_path__missing.jpg") for name in names)
+    assert "images/female/white/teenager/regular/0001__gentle__noun__sport__f_tn_w_reg.jpg" in names
+    assert not any(name.endswith("f_tn_w_wbg.jpg") for name in names)
 
 
 def test_google_image_safety_failure_gets_user_facing_summary() -> None:

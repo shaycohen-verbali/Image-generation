@@ -33,6 +33,44 @@ ALLOWED_GENDER_OPTIONS = ("male", "female")
 ALLOWED_AGE_OPTIONS = ("toddler", "kid", "tween", "teenager")
 ALLOWED_SKIN_OPTIONS = ("white", "black", "asian", "brown")
 TERMINAL_RUN_STATUSES = {"completed_pass", "completed_fail_threshold", "completed_base_assets", "failed_technical", "canceled"}
+EXPORT_GENDER_ABBREVIATIONS = {"male": "m", "female": "f"}
+EXPORT_AGE_ABBREVIATIONS = {"toddler": "td", "kid": "kd", "tween": "tw", "teenager": "tn"}
+EXPORT_SKIN_ABBREVIATIONS = {"white": "w", "black": "b", "asian": "as", "brown": "br"}
+EXPORT_BACKGROUND_ABBREVIATIONS = {"regular": "reg", "white_bg": "wbg"}
+EXPORT_IMAGES_CSV_FIELDS = [
+    "row_index",
+    "word",
+    "part_of_sentence",
+    "category",
+    "context",
+    "gender",
+    "age",
+    "skin_color",
+    "background_type",
+    "variant_abbrev",
+    "image_filename",
+    "image_relative_path",
+    "job_status",
+    "fully_complete",
+    "missing_slots_json",
+    "failure_reasons_json",
+]
+EXPORT_PROMPTS_CSV_FIELDS = [
+    "row_index",
+    "word",
+    "part_of_sentence",
+    "category",
+    "gender",
+    "age",
+    "skin_color",
+    "background_type",
+    "image_filename",
+    "image_relative_path",
+    "asset_id",
+    "prompt_stage",
+    "prompt_text",
+    "source_storage_path",
+]
 
 
 def _json_default(value):
@@ -1254,10 +1292,115 @@ class CsvDagService:
         return [field for field in selected_export_fields if field.endswith("_path")]
 
     @staticmethod
-    def _export_arcname_for_row_asset(*, row_index: int, word: str, field_name: str, source_path: str) -> str:
-        prefix = f"row_{int(row_index or 0):04d}_{sanitize_filename(word or 'unknown-word')}"
-        background_dir = "white_bg" if field_name.endswith("_white_bg_path") else "regular"
-        return f"{background_dir}/{prefix}/{field_name}__{Path(str(source_path or '')).name}"
+    def _parse_export_image_field(field_name: str) -> dict[str, str] | None:
+        parts = str(field_name or "").split("_")
+        if len(parts) < 5 or parts[-1] != "path":
+            return None
+        if parts[-3:-1] == ["white", "bg"]:
+            background = "white_bg"
+            core = parts[:-3]
+        else:
+            background = parts[-2]
+            core = parts[:-2]
+        if len(core) != 3:
+            return None
+        age, gender, skin_color = core
+        if background not in EXPORT_BACKGROUND_ABBREVIATIONS:
+            return None
+        return {
+            "age": age,
+            "gender": gender,
+            "skin_color": skin_color,
+            "background_type": background,
+        }
+
+    @staticmethod
+    def _export_variant_abbrev(*, gender: str, age: str, skin_color: str, background_type: str) -> str:
+        return "_".join(
+            [
+                EXPORT_GENDER_ABBREVIATIONS.get(gender, sanitize_filename(gender or "unknown")),
+                EXPORT_AGE_ABBREVIATIONS.get(age, sanitize_filename(age or "unknown")),
+                EXPORT_SKIN_ABBREVIATIONS.get(skin_color, sanitize_filename(skin_color or "unknown")),
+                EXPORT_BACKGROUND_ABBREVIATIONS.get(background_type, sanitize_filename(background_type or "unknown")),
+            ]
+        )
+
+    @staticmethod
+    def _export_image_filename(
+        *,
+        row_index: int,
+        word: str,
+        part_of_sentence: str,
+        category: str,
+        variant_abbrev: str,
+        source_path: str,
+    ) -> str:
+        suffix = Path(str(source_path or "")).suffix.lower() or ".jpg"
+        return "__".join(
+            [
+                f"{int(row_index or 0):04d}",
+                sanitize_filename(word or "unknown-word"),
+                sanitize_filename(part_of_sentence or "unknown-pos"),
+                sanitize_filename(category or "no-category"),
+                sanitize_filename(variant_abbrev or "variant"),
+            ]
+        ) + suffix
+
+    @staticmethod
+    def _export_image_relative_path(*, gender: str, skin_color: str, age: str, background_type: str, image_filename: str) -> str:
+        return "/".join(
+            [
+                "images",
+                sanitize_filename(gender or "unknown-gender"),
+                sanitize_filename(skin_color or "unknown-skin"),
+                sanitize_filename(age or "unknown-age"),
+                sanitize_filename(background_type or "regular"),
+                sanitize_filename(image_filename),
+            ]
+        )
+
+    @staticmethod
+    def _export_prompt_stage(background_type: str) -> str:
+        return "stage5_variant_white_bg" if background_type == "white_bg" else "stage4_variant_generate"
+
+    @staticmethod
+    def _export_readme_text(batch_id: str) -> str:
+        return f"""# Verbali CSV DAG Export
+
+Batch: {batch_id}
+
+## Primary files
+
+- `images.csv` is the CTO-friendly image index. It has one row per exported image and includes the package-relative image path.
+- `prompts.csv` is the prompt tracking index. It links each exported image filename/path back to its prompt text and source storage path.
+
+## Image folders
+
+Images are grouped as:
+
+`images/{{gender}}/{{skin_color}}/{{age}}/{{background_type}}/{{filename}}`
+
+Example:
+
+`images/female/white/teenager/regular/0001__fairly__adverb__no-category__f_tn_w_reg.jpg`
+
+## Filename format
+
+`{{row_index}}__{{word}}__{{part_of_sentence}}__{{category}}__{{variant_abbrev}}.jpg`
+
+The row index is included to prevent collisions when the same word/POS/category appears more than once.
+
+## Variant abbreviation legend
+
+- Gender: `m` = male, `f` = female
+- Age: `td` = toddler, `kd` = kid, `tw` = tween, `tn` = teenager
+- Skin color: `w` = white, `b` = black, `as` = asian, `br` = brown
+- Background: `reg` = regular, `wbg` = white background
+
+## Metadata
+
+Debugging and backwards-compatible files are under `_metadata/`.
+"""
 
     def job_overview(self, job_id: str) -> dict[str, Any] | None:
         overview = self.repo.csv_job_overview(job_id)
@@ -1514,7 +1657,10 @@ class CsvDagService:
         export_dir = exports_root() / sanitize_filename(job.id)
         export_dir.mkdir(parents=True, exist_ok=True)
         summary_csv = export_dir / "job_summary.csv"
-        inventory_csv = export_dir / "word_inventory.csv"
+        images_csv = export_dir / "images.csv"
+        prompts_csv = export_dir / "prompts.csv"
+        readme_path = export_dir / "README.md"
+        legacy_inventory_csv = export_dir / "word_inventory_legacy.csv"
         manifest_path = export_dir / "manifest.json"
         zip_filename = self.export_zip_name(job.batch_id)
         zip_path = export_dir / zip_filename
@@ -1563,17 +1709,136 @@ class CsvDagService:
 
         inventory_rows = inventory_service.build_export_rows(job_id)
         selected_export_fields = normalize_csv_job_export_fields(export_fields)
-        inventory_fieldnames = list(selected_export_fields)
-        with inventory_csv.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=inventory_fieldnames)
+        legacy_inventory_fieldnames = list(selected_export_fields)
+        with legacy_inventory_csv.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=legacy_inventory_fieldnames)
             writer.writeheader()
             for row in inventory_rows:
-                writer.writerow({field: row.get(field, "") for field in inventory_fieldnames})
+                writer.writerow({field: row.get(field, "") for field in legacy_inventory_fieldnames})
+
+        selected_image_fields = self._selected_export_image_fields(selected_export_fields)
+        source_paths = [
+            str(row.get(field_name) or "").strip()
+            for row in inventory_rows
+            for field_name in selected_image_fields
+            if str(row.get(field_name) or "").strip()
+        ]
+        assets_by_path = self.repo.get_assets_by_abs_paths(source_paths)
+        image_rows: list[dict[str, Any]] = []
+        prompt_rows: list[dict[str, Any]] = []
+        image_zip_members: list[tuple[Path, str]] = []
+        seen_arcnames: set[str] = set()
+        for row in inventory_rows:
+            row_index = int(row.get("row_index") or 0)
+            word = str(row.get("word") or "").strip()
+            part_of_sentence = str(row.get("part_of_sentence") or "").strip()
+            category = str(row.get("category") or "").strip()
+            context = str(row.get("context") or "").strip()
+            for field_name in selected_image_fields:
+                source_path = str(row.get(field_name) or "").strip()
+                if not source_path:
+                    continue
+                profile = self._parse_export_image_field(field_name)
+                if profile is None:
+                    export_warnings.append(f"Skipped unsupported image field {field_name} for row {row_index}")
+                    continue
+                variant_abbrev = self._export_variant_abbrev(**profile)
+                image_filename = self._export_image_filename(
+                    row_index=row_index,
+                    word=word,
+                    part_of_sentence=part_of_sentence,
+                    category=category,
+                    variant_abbrev=variant_abbrev,
+                    source_path=source_path,
+                )
+                image_relative_path = self._export_image_relative_path(
+                    gender=profile["gender"],
+                    skin_color=profile["skin_color"],
+                    age=profile["age"],
+                    background_type=profile["background_type"],
+                    image_filename=image_filename,
+                )
+                if image_relative_path in seen_arcnames:
+                    continue
+                try:
+                    materialized = materialize_path(source_path, cache_namespace="csv_job_export")
+                except Exception as exc:  # noqa: BLE001
+                    export_warnings.append(f"Skipped {field_name} for row {row_index}: {exc}")
+                    continue
+                if not materialized.exists():
+                    export_warnings.append(f"Skipped {field_name} for row {row_index}: file not found")
+                    continue
+
+                asset = assets_by_path.get(source_path)
+                prompt_field = field_name.removesuffix("_path") + "_prompt"
+                image_row = {
+                    "row_index": row_index,
+                    "word": word,
+                    "part_of_sentence": part_of_sentence,
+                    "category": category,
+                    "context": context,
+                    "gender": profile["gender"],
+                    "age": profile["age"],
+                    "skin_color": profile["skin_color"],
+                    "background_type": profile["background_type"],
+                    "variant_abbrev": variant_abbrev,
+                    "image_filename": image_filename,
+                    "image_relative_path": image_relative_path,
+                    "job_status": row.get("job_status", ""),
+                    "fully_complete": row.get("fully_complete", ""),
+                    "missing_slots_json": row.get("missing_slots_json", "[]"),
+                    "failure_reasons_json": row.get("failure_reasons_json", "[]"),
+                }
+                prompt_row = {
+                    "row_index": row_index,
+                    "word": word,
+                    "part_of_sentence": part_of_sentence,
+                    "category": category,
+                    "gender": profile["gender"],
+                    "age": profile["age"],
+                    "skin_color": profile["skin_color"],
+                    "background_type": profile["background_type"],
+                    "image_filename": image_filename,
+                    "image_relative_path": image_relative_path,
+                    "asset_id": asset.id if asset is not None else "",
+                    "prompt_stage": self._export_prompt_stage(profile["background_type"]),
+                    "prompt_text": row.get(prompt_field, ""),
+                    "source_storage_path": source_path,
+                }
+                image_rows.append(image_row)
+                prompt_rows.append(prompt_row)
+                image_zip_members.append((materialized, image_relative_path))
+                seen_arcnames.add(image_relative_path)
+
+        with images_csv.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=EXPORT_IMAGES_CSV_FIELDS)
+            writer.writeheader()
+            for row in image_rows:
+                writer.writerow({field: row.get(field, "") for field in EXPORT_IMAGES_CSV_FIELDS})
+
+        with prompts_csv.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=EXPORT_PROMPTS_CSV_FIELDS)
+            writer.writeheader()
+            for row in prompt_rows:
+                writer.writerow({field: row.get(field, "") for field in EXPORT_PROMPTS_CSV_FIELDS})
+
+        readme_path.write_text(self._export_readme_text(job.batch_id), encoding="utf-8")
 
         manifest_payload = {
             "job": self._serialize_job(job, overview),
             "selected_export_fields": selected_export_fields,
             "export_warnings": export_warnings,
+            "primary_files": {
+                "image_index": "images.csv",
+                "prompt_index": "prompts.csv",
+                "readme": "README.md",
+            },
+            "metadata_files": {
+                "job_summary": "_metadata/job_summary.csv",
+                "legacy_word_inventory": "_metadata/word_inventory_legacy.csv",
+                "manifest": "_metadata/manifest.json",
+            },
+            "image_count": len(image_rows),
             "step_counts": overview.get("step_counts", {}),
             "issues_by_step": overview.get("issues_by_step", {}),
             "items": [
@@ -1600,35 +1865,13 @@ class CsvDagService:
             ],
         }
         zip_members: list[tuple[Path, str]] = [
-            (summary_csv, "job_summary.csv"),
-            (inventory_csv, "word_inventory.csv"),
+            (readme_path, "README.md"),
+            (images_csv, "images.csv"),
+            (prompts_csv, "prompts.csv"),
+            (summary_csv, "_metadata/job_summary.csv"),
+            (legacy_inventory_csv, "_metadata/word_inventory_legacy.csv"),
+            *image_zip_members,
         ]
-        seen_arcnames: set[str] = set()
-        for row in inventory_rows:
-            row_index = int(row.get("row_index") or 0)
-            word = str(row.get("word") or "").strip()
-            for field_name in self._selected_export_image_fields(selected_export_fields):
-                source_path = str(row.get(field_name) or "").strip()
-                if not source_path:
-                    continue
-                arcname = self._export_arcname_for_row_asset(
-                    row_index=row_index,
-                    word=word,
-                    field_name=field_name,
-                    source_path=source_path,
-                )
-                if arcname in seen_arcnames:
-                    continue
-                try:
-                    materialized = materialize_path(source_path, cache_namespace="csv_job_export")
-                except Exception as exc:  # noqa: BLE001
-                    export_warnings.append(f"Skipped {field_name} for row {row_index}: {exc}")
-                    continue
-                if not materialized.exists():
-                    export_warnings.append(f"Skipped {field_name} for row {row_index}: file not found")
-                    continue
-                zip_members.append((materialized, arcname))
-                seen_arcnames.add(arcname)
 
         manifest_path.write_text(
             json.dumps(manifest_payload, ensure_ascii=False, indent=2, default=_json_default),
@@ -1636,13 +1879,17 @@ class CsvDagService:
         )
 
         with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.write(manifest_path, arcname="manifest.json")
+            archive.write(manifest_path, arcname="_metadata/manifest.json")
             for source_path, arcname in zip_members:
                 archive.write(source_path, arcname=arcname)
 
         stored_zip = persist_export_artifact(job.id, zip_filename, zip_path.read_bytes(), content_type="application/zip")
+        persist_export_artifact(job.id, "README.md", readme_path.read_bytes(), content_type="text/markdown")
+        persist_export_artifact(job.id, "images.csv", images_csv.read_bytes(), content_type="text/csv")
+        persist_export_artifact(job.id, "prompts.csv", prompts_csv.read_bytes(), content_type="text/csv")
         persist_export_artifact(job.id, "job_summary.csv", summary_csv.read_bytes(), content_type="text/csv")
-        persist_export_artifact(job.id, "word_inventory.csv", inventory_csv.read_bytes(), content_type="text/csv")
+        persist_export_artifact(job.id, "word_inventory.csv", legacy_inventory_csv.read_bytes(), content_type="text/csv")
+        persist_export_artifact(job.id, "word_inventory_legacy.csv", legacy_inventory_csv.read_bytes(), content_type="text/csv")
         persist_export_artifact(job.id, "manifest.json", manifest_path.read_bytes(), content_type="application/json")
         return {
             "job_id": job.id,

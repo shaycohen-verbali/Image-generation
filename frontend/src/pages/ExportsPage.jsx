@@ -323,7 +323,7 @@ export default function ExportsPage() {
               )}
               <div>
                 <p className="config-help-text">
-                  Choose which variants to include in the CSV DAG package's <code>word_inventory.csv</code>.
+                  Choose which variants to include in the CSV DAG package. The package includes <code>images.csv</code>, <code>prompts.csv</code>, and organized image folders.
                 </p>
                 <div className="form-grid">
                   <label>
@@ -370,7 +370,7 @@ export default function ExportsPage() {
                   </label>
                 </div>
                 <p className="config-help-text">
-                  Default fields always included: Row index, Word, Part of sentence, Category, Context, Job status, Fully complete, Missing slots, Failure reasons.
+                  Images are grouped by gender, race, age, and background type. Legacy debug files stay under <code>_metadata</code>.
                 </p>
               </div>
             </>
