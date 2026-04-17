@@ -182,24 +182,21 @@ function formatLocalDateTime(value) {
   }).format(date)
 }
 
-function elapsedSeconds(startedAt, finishedAt, nowMs) {
+function elapsedSeconds(startedAt, finishedAt) {
   if (!startedAt) return 0
   const start = new Date(startedAt).getTime()
   if (Number.isNaN(start)) return 0
-  const end = finishedAt ? new Date(finishedAt).getTime() : nowMs
+  if (!finishedAt) return 0
+  const end = new Date(finishedAt).getTime()
   if (Number.isNaN(end)) return 0
   return Math.max(0, Math.round((end - start) / 1000))
 }
 
-function csvJobElapsedSeconds(job, nowMs) {
-  if (!job) return 0
-  if (job.finished_at) {
-    return elapsedSeconds(job.started_at, job.finished_at, nowMs)
+function csvJobDurationLabel(job) {
+  if (!job?.started_at || !job?.finished_at) {
+    return '-'
   }
-  if (isTerminalCsvJobStatus(job.status) && typeof job.duration_seconds === 'number') {
-    return Math.max(0, Math.round(job.duration_seconds))
-  }
-  return elapsedSeconds(job.started_at, job.finished_at, nowMs)
+  return `${elapsedSeconds(job.started_at, job.finished_at)}s`
 }
 
 function csvTaskProgressSummary(tasks, itemId) {
@@ -545,7 +542,6 @@ export default function RunsPage() {
     person_skin_color_options: [],
     override_existing_variants: false,
   })
-  const [nowMs, setNowMs] = useState(() => Date.now())
   const [pageVisible, setPageVisible] = useState(() => {
     if (typeof document === 'undefined') return true
     return document.visibilityState !== 'hidden'
@@ -590,12 +586,6 @@ export default function RunsPage() {
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
-
-  useEffect(() => {
-    if (!pageVisible) return undefined
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [pageVisible])
 
   const query = useMemo(() => {
     const next = {}
@@ -1464,7 +1454,7 @@ export default function RunsPage() {
                         </div>
                       </td>
                       <td>{job.total_row_count}</td>
-                      <td>{job.started_at ? `${csvJobElapsedSeconds(job, nowMs)}s` : '-'}</td>
+                      <td>{csvJobDurationLabel(job)}</td>
                       <td>{formatLocalDateTime(job.started_at)}</td>
                       <td>{formatLocalDateTime(job.finished_at)}</td>
                       <td>
@@ -1532,12 +1522,8 @@ export default function RunsPage() {
                   <small>{csvJobMainStatus(csvJobOverview.job).sub}</small>
                 </div>
                 <div>
-                    <strong>Timer</strong>
-                    <p>
-                      {csvJobOverview.job.started_at
-                      ? `${csvJobElapsedSeconds(csvJobOverview.job, nowMs)}s`
-                      : '-'}
-                    </p>
+                    <strong>Duration</strong>
+                    <p>{csvJobDurationLabel(csvJobOverview.job)}</p>
                 </div>
                 <div>
                   <strong>Rows</strong>
