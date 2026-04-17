@@ -1347,14 +1347,12 @@ class CsvDagService:
         ) + suffix
 
     @staticmethod
-    def _export_image_relative_path(*, gender: str, skin_color: str, age: str, background_type: str, image_filename: str) -> str:
+    def _export_image_relative_path(*, background_type: str, image_filename: str) -> str:
+        background_dir = "white_background" if background_type == "white_bg" else "regular"
         return "/".join(
             [
                 "images",
-                sanitize_filename(gender or "unknown-gender"),
-                sanitize_filename(skin_color or "unknown-skin"),
-                sanitize_filename(age or "unknown-age"),
-                sanitize_filename(background_type or "regular"),
+                background_dir,
                 sanitize_filename(image_filename),
             ]
         )
@@ -1376,13 +1374,17 @@ Batch: {batch_id}
 
 ## Image folders
 
-Images are grouped as:
+Images are grouped by background type:
 
-`images/{{gender}}/{{skin_color}}/{{age}}/{{background_type}}/{{filename}}`
+`images/regular/{{filename}}`
 
-Example:
+`images/white_background/{{filename}}`
 
-`images/female/white/teenager/regular/0001__fairly__adverb__no-category__f_tn_w_reg.jpg`
+Examples:
+
+`images/regular/0001__fairly__adverb__no-category__f_tn_w_reg.jpg`
+
+`images/white_background/0001__fairly__adverb__no-category__f_tn_w_wbg.jpg`
 
 ## Filename format
 
@@ -1752,9 +1754,6 @@ Debugging and backwards-compatible files are under `_metadata/`.
                     source_path=source_path,
                 )
                 image_relative_path = self._export_image_relative_path(
-                    gender=profile["gender"],
-                    skin_color=profile["skin_color"],
-                    age=profile["age"],
                     background_type=profile["background_type"],
                     image_filename=image_filename,
                 )

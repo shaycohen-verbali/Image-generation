@@ -259,8 +259,8 @@ def test_export_job_packages_inventory_selected_images(db_session, tmp_path, mon
         assert "_metadata/job_summary.csv" in names
         assert "_metadata/word_inventory_legacy.csv" in names
         assert "_metadata/manifest.json" in names
-        assert "images/female/white/teenager/regular/0001__fairly__noun__sport__f_tn_w_reg.jpg" in names
-    assert images_rows[0]["image_relative_path"] == "images/female/white/teenager/regular/0001__fairly__noun__sport__f_tn_w_reg.jpg"
+        assert "images/regular/0001__fairly__noun__sport__f_tn_w_reg.jpg" in names
+    assert images_rows[0]["image_relative_path"] == "images/regular/0001__fairly__noun__sport__f_tn_w_reg.jpg"
     assert images_rows[0]["variant_abbrev"] == "f_tn_w_reg"
     assert prompts_rows[0]["word"] == "fairly"
     assert prompts_rows[0]["part_of_sentence"] == "noun"
@@ -340,7 +340,7 @@ def test_export_job_skips_missing_images_and_records_warning(db_session, tmp_pat
         names = archive.namelist()
     assert any("Inventory sync skipped during export" in warning for warning in manifest["export_warnings"])
     assert any("Skipped teenager_female_white_white_bg_path" in warning for warning in manifest["export_warnings"])
-    assert "images/female/white/teenager/regular/0001__gentle__noun__sport__f_tn_w_reg.jpg" in names
+    assert "images/regular/0001__gentle__noun__sport__f_tn_w_reg.jpg" in names
     assert not any(name.endswith("f_tn_w_wbg.jpg") for name in names)
 
 

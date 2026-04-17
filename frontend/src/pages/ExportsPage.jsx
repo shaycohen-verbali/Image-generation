@@ -370,7 +370,7 @@ export default function ExportsPage() {
                   </label>
                 </div>
                 <p className="config-help-text">
-                  Images are grouped by gender, race, age, and background type. Legacy debug files stay under <code>_metadata</code>.
+                  Images are grouped into <code>images/regular</code> and <code>images/white_background</code>. Legacy debug files stay under <code>_metadata</code>.
                 </p>
               </div>
             </>
