@@ -294,12 +294,16 @@ class WordSourceOut(BaseModel):
 
 class WordSourceRowOut(BaseModel):
     id: str
+    position: int
     word: str
     part_of_sentence: str
+    part_of_speech: str
+    sense_id: str
     category: str = ""
     context: str = ""
     job_status: str = ""
     fully_complete: bool = False
+    has_existing_image: bool = False
     updated_at: str | None = None
 
 
@@ -309,10 +313,15 @@ class WordSourceRowsOut(BaseModel):
     total: int
     limit: int
     offset: int
+    parts_of_speech: list[str] = Field(default_factory=list)
 
 
 class WordSourceImportRequest(BaseModel):
-    row_ids: list[str] = Field(min_length=1, max_length=500)
+    selection_mode: Literal["single", "range", "all"] = "single"
+    row_id: str | None = None
+    range_start: int | None = Field(default=None, ge=1)
+    range_end: int | None = Field(default=None, ge=1, le=100_000)
+    parts_of_speech: list[str] = Field(default_factory=list)
     person_gender_options: list[str] = Field(default_factory=list)
     person_age_options: list[str] = Field(default_factory=list)
     person_skin_color_options: list[str] = Field(default_factory=list)

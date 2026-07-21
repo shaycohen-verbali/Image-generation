@@ -60,6 +60,11 @@ export default function SubmitPage() {
   const [selectedWordSourceRowIds, setSelectedWordSourceRowIds] = useState([])
   const [wordSourceSearch, setWordSourceSearch] = useState('')
   const [wordSourceTotal, setWordSourceTotal] = useState(0)
+  const [wordSourceSelectionMode, setWordSourceSelectionMode] = useState('single')
+  const [wordSourceRangeStart, setWordSourceRangeStart] = useState(1)
+  const [wordSourceRangeEnd, setWordSourceRangeEnd] = useState(1000)
+  const [wordSourcePartsOfSpeech, setWordSourcePartsOfSpeech] = useState([])
+  const [selectedWordSourcePartsOfSpeech, setSelectedWordSourcePartsOfSpeech] = useState([])
   const [wordSourceLoading, setWordSourceLoading] = useState(false)
   const [overrideExistingVariants, setOverrideExistingVariants] = useState(false)
   const [runWorkerCount, setRunWorkerCount] = useState(1)
@@ -351,13 +356,18 @@ export default function SubmitPage() {
     setMessage(`Loading ${selectedWordSource} from Supabase...`)
     try {
       const result = await listWordSourceRows(selectedWordSource, {
-        search: wordSourceSearch,
+        search: wordSourceSelectionMode === 'single' ? wordSourceSearch : '',
+        selection_mode: wordSourceSelectionMode === 'single' ? 'all' : wordSourceSelectionMode,
+        range_start: wordSourceSelectionMode === 'range' ? wordSourceRangeStart : undefined,
+        range_end: wordSourceSelectionMode === 'range' ? wordSourceRangeEnd : undefined,
+        parts_of_speech: wordSourceSelectionMode === 'single' ? [] : selectedWordSourcePartsOfSpeech,
         limit: 200,
       })
       setWordSourceRows(Array.isArray(result.rows) ? result.rows : [])
       setWordSourceTotal(Number(result.total || 0))
+      setWordSourcePartsOfSpeech(Array.isArray(result.parts_of_speech) ? result.parts_of_speech : [])
       setSelectedWordSourceRowIds([])
-      setMessage(`Loaded ${result.rows?.length || 0} of ${result.total || 0} rows from ${selectedWordSource}`)
+      setMessage(`Matched ${result.total || 0} rows in ${selectedWordSource}; showing the first ${result.rows?.length || 0}`)
     } catch (error) {
       setMessage(`Error: ${error.message}`)
     } finally {
@@ -366,29 +376,31 @@ export default function SubmitPage() {
   }
 
   const toggleWordSourceRow = (rowId) => {
-    setSelectedWordSourceRowIds((current) => (
-      current.includes(rowId)
-        ? current.filter((id) => id !== rowId)
-        : [...current, rowId]
-    ))
+    setSelectedWordSourceRowIds((current) => current.includes(rowId) ? [] : [rowId])
   }
 
-  const toggleAllVisibleWordSourceRows = () => {
-    const visibleIds = wordSourceRows.map((row) => row.id)
-    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedWordSourceRowIds.includes(id))
-    setSelectedWordSourceRowIds(allSelected ? [] : visibleIds)
+  const toggleWordSourcePartOfSpeech = (partOfSpeech) => {
+    setSelectedWordSourcePartsOfSpeech((current) => (
+      current.includes(partOfSpeech)
+        ? current.filter((value) => value !== partOfSpeech)
+        : [...current, partOfSpeech]
+    ))
   }
 
   const importSelectedWordSourceRows = async () => {
     if (!validateCsvDagSelections()) return
-    if (!selectedWordSourceRowIds.length) {
-      setMessage('Select at least one word from the Supabase table')
+    if (wordSourceSelectionMode === 'single' && !selectedWordSourceRowIds.length) {
+      setMessage('Choose one exact word + POS + sense ID row')
       return
     }
-    beginCsvActivity(`Importing ${selectedWordSourceRowIds.length} words from ${selectedWordSource}...`)
+    beginCsvActivity(`Importing the selected words from ${selectedWordSource}...`)
     try {
       const result = await importWordSourceRows(selectedWordSource, {
-        row_ids: selectedWordSourceRowIds,
+        selection_mode: wordSourceSelectionMode,
+        row_id: wordSourceSelectionMode === 'single' ? selectedWordSourceRowIds[0] : undefined,
+        range_start: wordSourceSelectionMode === 'range' ? Number(wordSourceRangeStart) : undefined,
+        range_end: wordSourceSelectionMode === 'range' ? Number(wordSourceRangeEnd) : undefined,
+        parts_of_speech: wordSourceSelectionMode === 'single' ? [] : selectedWordSourcePartsOfSpeech,
         person_gender_options: form.person_gender_options,
         person_age_options: form.person_age_options,
         person_skin_color_options: form.person_skin_color_options,
@@ -831,19 +843,74 @@ export default function SubmitPage() {
                   </select>
                 </label>
                 <label>
-                  Search words
-                  <input
-                    value={wordSourceSearch}
-                    onChange={(e) => setWordSourceSearch(e.target.value)}
-                    placeholder="Word, part of sentence, or category"
-                  />
+                  Select words
+                  <select
+                    value={wordSourceSelectionMode}
+                    onChange={(e) => {
+                      setWordSourceSelectionMode(e.target.value)
+                      setWordSourceRows([])
+                      setSelectedWordSourceRowIds([])
+                      setWordSourceTotal(0)
+                    }}
+                  >
+                    <option value="single">One exact word</option>
+                    <option value="range">Position range</option>
+                    <option value="all">All words</option>
+                  </select>
                 </label>
+                {wordSourceSelectionMode === 'range' ? (
+                  <>
+                    <label>
+                      Start position
+                      <input
+                        type="number"
+                        min="1"
+                        value={wordSourceRangeStart}
+                        onChange={(e) => setWordSourceRangeStart(Math.max(1, Number(e.target.value) || 1))}
+                      />
+                    </label>
+                    <label>
+                      End position
+                      <input
+                        type="number"
+                        min={wordSourceRangeStart}
+                        value={wordSourceRangeEnd}
+                        onChange={(e) => setWordSourceRangeEnd(Math.max(1, Number(e.target.value) || 1))}
+                      />
+                    </label>
+                  </>
+                ) : null}
+                {wordSourceSelectionMode === 'single' ? (
+                  <label>
+                    Find a word, POS, or sense ID
+                    <input
+                      value={wordSourceSearch}
+                      onChange={(e) => setWordSourceSearch(e.target.value)}
+                      placeholder="Search word, POS, or sense ID"
+                    />
+                  </label>
+                ) : null}
               </div>
+              {wordSourceSelectionMode !== 'single' && wordSourcePartsOfSpeech.length ? (
+                <fieldset className="checkbox-group word-source-pos-options">
+                  <legend>Part of speech (leave all unchecked to include every POS)</legend>
+                  {wordSourcePartsOfSpeech.map((partOfSpeech) => (
+                    <label className="checkbox-option" key={partOfSpeech}>
+                      <input
+                        type="checkbox"
+                        checked={selectedWordSourcePartsOfSpeech.includes(partOfSpeech)}
+                        onChange={() => toggleWordSourcePartOfSpeech(partOfSpeech)}
+                      />
+                      {partOfSpeech}
+                    </label>
+                  ))}
+                </fieldset>
+              ) : null}
               <div className="inline-fields">
                 <button type="button" onClick={loadWordSourceRows} disabled={!selectedWordSourceAvailable || wordSourceLoading || csvActivity.active}>
-                  {wordSourceLoading ? 'Loading...' : 'Load words'}
+                  {wordSourceLoading ? 'Loading...' : (wordSourceSelectionMode === 'single' ? 'Find words' : 'Preview selection')}
                 </button>
-                <span>{wordSourceRows.length} shown · {wordSourceTotal} total</span>
+                <span>{wordSourceRows.length} shown · {wordSourceTotal} matched</span>
               </div>
               {!selectedWordSourceAvailable ? (
                 <p className="config-help-text">Configure INVENTORY_DATABASE_URL to enable the approved Supabase word source.</p>
@@ -853,35 +920,33 @@ export default function SubmitPage() {
                   <table>
                     <thead>
                       <tr>
-                        <th>
-                          <input
-                            type="checkbox"
-                            aria-label="Select all visible words"
-                            checked={wordSourceRows.every((row) => selectedWordSourceRowIds.includes(row.id))}
-                            onChange={toggleAllVisibleWordSourceRows}
-                          />
-                        </th>
+                        {wordSourceSelectionMode === 'single' ? <th>Choose</th> : null}
+                        <th>#</th>
                         <th>Word</th>
-                        <th>Part of sentence</th>
-                        <th>Category</th>
-                        <th>Status</th>
+                        <th>POS</th>
+                        <th>Sense ID</th>
+                        <th>Image</th>
                       </tr>
                     </thead>
                     <tbody>
                       {wordSourceRows.map((row) => (
                         <tr key={row.id}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              aria-label={`Select ${row.word}`}
-                              checked={selectedWordSourceRowIds.includes(row.id)}
-                              onChange={() => toggleWordSourceRow(row.id)}
-                            />
-                          </td>
+                          {wordSourceSelectionMode === 'single' ? (
+                            <td>
+                              <input
+                                type="radio"
+                                name="word-source-row"
+                                aria-label={`Select ${row.word}, ${row.part_of_speech}, ${row.sense_id}`}
+                                checked={selectedWordSourceRowIds.includes(row.id)}
+                                onChange={() => toggleWordSourceRow(row.id)}
+                              />
+                            </td>
+                          ) : null}
+                          <td>{row.position}</td>
                           <td>{row.word}</td>
-                          <td>{row.part_of_sentence}</td>
-                          <td>{row.category || '-'}</td>
-                          <td>{row.fully_complete ? 'Complete' : (row.job_status || 'Pending')}</td>
+                          <td>{row.part_of_speech}</td>
+                          <td>{row.sense_id}</td>
+                          <td>{row.has_existing_image ? 'Exists' : 'Missing'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -891,12 +956,15 @@ export default function SubmitPage() {
               <button
                 type="button"
                 onClick={importSelectedWordSourceRows}
-                disabled={!selectedWordSourceRowIds.length || csvActivity.active}
+                disabled={(wordSourceSelectionMode === 'single' && !selectedWordSourceRowIds.length) || csvActivity.active || !selectedWordSourceAvailable}
               >
-                Import {selectedWordSourceRowIds.length || ''} selected word{selectedWordSourceRowIds.length === 1 ? '' : 's'}
+                {wordSourceSelectionMode === 'single'
+                  ? 'Import selected word'
+                  : `Import ${wordSourceTotal || (wordSourceSelectionMode === 'all' ? 'all' : 'range')} words`}
               </button>
               <p className="config-help-text">
-                Generated paths, prompts, status, and completion fields will be written back to the selected word_inventory rows.
+                Ranges use stable alphabetical positions before the POS filter. Writeback targets the exact word + POS + sense ID row.
+                Existing images for a requested person profile are skipped unless Override existing inventory variants is checked.
               </p>
             </div>
           )}

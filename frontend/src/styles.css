@@ -153,6 +153,10 @@ body {
   text-align: center;
 }
 
+.word-source-pos-options {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
 .csv-upload-selected {
   margin: 0;
   font-size: 0.88rem;

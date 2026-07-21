@@ -316,7 +316,7 @@ class CsvDagService:
                 )
             )
 
-        def inventory_pair_available(p: dict[str, str]) -> bool:
+        def inventory_any_available(p: dict[str, str]) -> bool:
             return bool(
                 inventory_service.slot_path_for_entry_profile(
                     entry,
@@ -324,7 +324,7 @@ class CsvDagService:
                     background="regular",
                     source_row_id=source_row_id,
                 )
-                and inventory_service.slot_path_for_entry_profile(
+                or inventory_service.slot_path_for_entry_profile(
                     entry,
                     p,
                     background="white_bg",
@@ -368,9 +368,9 @@ class CsvDagService:
             if existing_spec is not None:
                 return existing_spec["task_key"]
 
-            # Requested targets can be skipped only when the full pair already exists and we are
-            # not forcing regeneration. Intermediate dependencies only need the regular asset.
-            if requested and not override and inventory_pair_available(p):
+            # Never replace either image in an existing requested profile unless the user opted
+            # into override. Intermediate dependencies may still reuse an existing regular asset.
+            if requested and not override and inventory_any_available(p):
                 return None
             if not requested and inventory_regular_available(p):
                 return None
@@ -582,7 +582,8 @@ class CsvDagService:
                 }
                 if skipped_notes:
                     row_result["skipped_profiles"] = skipped_notes
-                results.append(row_result)
+                if len(results) < 500:
+                    results.append(row_result)
                 if pending_rows_in_chunk >= IMPORT_COMMIT_CHUNK_SIZE:
                     self.db.commit()
                     pending_rows_in_chunk = 0
