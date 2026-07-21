@@ -132,6 +132,27 @@ body {
   margin: 10px 0;
 }
 
+.word-source-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.word-source-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.word-source-table-wrap table {
+  min-width: 680px;
+}
+
+.word-source-table-wrap th:first-child,
+.word-source-table-wrap td:first-child {
+  width: 44px;
+  text-align: center;
+}
+
 .csv-upload-selected {
   margin: 0;
   font-size: 0.88rem;

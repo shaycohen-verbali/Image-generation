@@ -145,7 +145,7 @@ class Repository:
             getattr(config, "variant_correction_model", config.stage3_generate_model)
         )
         config.quality_gate_model = normalize_vision_model(config.quality_gate_model)
-        config.image_aspect_ratio = normalize_image_aspect_ratio(getattr(config, "image_aspect_ratio", "1:1"))
+        config.image_aspect_ratio = normalize_image_aspect_ratio(getattr(config, "image_aspect_ratio", "4:3"))
         config.image_resolution = normalize_image_resolution(getattr(config, "image_resolution", "1K"))
         config.image_format = normalize_image_format(getattr(config, "image_format", "image/jpeg"))
         config.nano_banana_safety_level = normalize_nano_banana_safety_level(

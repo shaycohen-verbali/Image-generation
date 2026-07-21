@@ -277,6 +277,17 @@ class CsvDagService:
             "context": entry.context,
         }
 
+    def _word_source_row_id(self, item: CsvJobItem) -> str:
+        try:
+            source_row = json.loads(item.source_row_json or "{}")
+        except json.JSONDecodeError:
+            source_row = {}
+        if not isinstance(source_row, dict):
+            return ""
+        if str(source_row.get("_word_source_table") or "").strip().lower() != "word_inventory":
+            return ""
+        return str(source_row.get("_word_source_row_id") or "").strip()
+
     def _build_task_specs(
         self, item: CsvJobItem, entry: Entry, job: CsvJob
     ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -286,6 +297,7 @@ class CsvDagService:
         direct dependency is neither available in inventory nor scheduled as a task in this job.
         """
         inventory_service = InventorySyncService(self.db)
+        source_row_id = self._word_source_row_id(item)
         requested_profiles = self._requested_profiles(job)
         override = self._override_existing_variants_enabled(job)
 
@@ -295,12 +307,29 @@ class CsvDagService:
         skipped_notes: list[str] = []
 
         def inventory_regular_available(p: dict[str, str]) -> bool:
-            return bool(inventory_service.slot_path_for_entry_profile(entry, p, background="regular"))
+            return bool(
+                inventory_service.slot_path_for_entry_profile(
+                    entry,
+                    p,
+                    background="regular",
+                    source_row_id=source_row_id,
+                )
+            )
 
         def inventory_pair_available(p: dict[str, str]) -> bool:
             return bool(
-                inventory_service.slot_path_for_entry_profile(entry, p, background="regular")
-                and inventory_service.slot_path_for_entry_profile(entry, p, background="white_bg")
+                inventory_service.slot_path_for_entry_profile(
+                    entry,
+                    p,
+                    background="regular",
+                    source_row_id=source_row_id,
+                )
+                and inventory_service.slot_path_for_entry_profile(
+                    entry,
+                    p,
+                    background="white_bg",
+                    source_row_id=source_row_id,
+                )
             )
 
         def _create_spec(p: dict[str, str], source_p: dict[str, str] | None, dep_task_key: str | None) -> str:
@@ -475,6 +504,111 @@ class CsvDagService:
             "imported_count": imported_count,
             "skipped_count": skipped_count,
             "execution_mode": execution_mode,
+            "rows": results,
+            "continued_from_job_id": None,
+        }
+
+    def import_word_source_rows(
+        self,
+        *,
+        table_name: str,
+        rows: list[dict[str, Any]],
+        person_gender_options: list[str],
+        person_age_options: list[str],
+        person_skin_color_options: list[str],
+        override_existing_variants: bool = False,
+    ) -> dict[str, Any]:
+        batch_id = _generated_batch_id()
+        snapshot = self._runtime_snapshot(
+            person_gender_options=person_gender_options,
+            person_age_options=person_age_options,
+            person_skin_color_options=person_skin_color_options,
+            override_existing_variants=override_existing_variants,
+            continued_from_job_id="",
+        )
+        job = self.repo.create_csv_job(
+            batch_id=batch_id,
+            source_file_name=f"supabase:{table_name}",
+            execution_mode="csv_dag",
+            config_snapshot={
+                **snapshot,
+                "word_source_type": "supabase_table",
+                "word_source_table": table_name,
+            },
+        )
+
+        results: list[dict[str, Any]] = []
+        imported_count = 0
+        skipped_count = 0
+        pending_rows_in_chunk = 0
+        try:
+            for index, row in enumerate(rows, start=1):
+                error = validate_entry_row(row)
+                if error:
+                    skipped_count += 1
+                    results.append({"row_index": index, "status": "invalid", "error": error})
+                    continue
+                payload = {
+                    **row,
+                    "batch": batch_id,
+                    "person_gender_options": person_gender_options,
+                    "person_age_options": person_age_options,
+                    "person_skin_color_options": person_skin_color_options,
+                }
+                entry = self.repo.create_entry_uncommitted(payload)
+                item = self.repo.create_csv_job_item_uncommitted(
+                    csv_job_id=job.id,
+                    entry_id=entry.id,
+                    row_index=index,
+                    source_row=row,
+                )
+                created_specs, skipped_notes = self._build_task_specs(item, entry, job)
+                if not created_specs:
+                    item.status = "completed"
+                    item.error_detail = (
+                        "; ".join(skipped_notes[:3]) if skipped_notes
+                        else "Requested variants already exist in inventory"
+                    )
+                    self.db.add(item)
+                elif skipped_notes:
+                    item.error_detail = "Partial skip: " + "; ".join(skipped_notes[:3])
+                    self.db.add(item)
+                imported_count += 1
+                pending_rows_in_chunk += 1
+                row_result: dict[str, Any] = {
+                    "row_index": index,
+                    "status": "imported",
+                    "entry_id": entry.id,
+                }
+                if skipped_notes:
+                    row_result["skipped_profiles"] = skipped_notes
+                results.append(row_result)
+                if pending_rows_in_chunk >= IMPORT_COMMIT_CHUNK_SIZE:
+                    self.db.commit()
+                    pending_rows_in_chunk = 0
+            if pending_rows_in_chunk:
+                self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+        if imported_count == 0:
+            self.repo.update_csv_job(
+                job,
+                status="failed",
+                error_detail="No valid word-source rows were imported",
+                finished_at=datetime.utcnow(),
+            )
+        else:
+            self.repo.finalize_csv_job_status(job.id)
+        refreshed = self.repo.get_csv_job(job.id)
+        return {
+            "job_id": job.id,
+            "batch_id": batch_id,
+            "status": refreshed.status if refreshed else job.status,
+            "imported_count": imported_count,
+            "skipped_count": skipped_count,
+            "execution_mode": "csv_dag",
             "rows": results,
             "continued_from_job_id": None,
         }
@@ -1145,6 +1279,7 @@ class CsvDagService:
                         entry,
                         source_profile,
                         background="regular",
+                        source_row_id=self._word_source_row_id(item),
                     )
                     if not inventory_source:
                         return _cannot_complete(f"Cannot complete: dependency image for '{profile_key(source_profile)}' is not yet available")

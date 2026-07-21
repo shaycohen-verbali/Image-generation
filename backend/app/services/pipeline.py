@@ -417,7 +417,7 @@ class PipelineRunner:
             correction_prompt=correction_prompt,
         )
         selected_model = normalize_stage3_generation_model(runtime_config.variant_correction_model)
-        effective_model = selected_model if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"} else "nano-banana-2"
+        effective_model = selected_model if is_google_image_generation_model(selected_model) else "gemini-3.1-flash-lite-image"
 
         self.repo.add_prompt(
             run_id=run_id,
@@ -645,8 +645,8 @@ class PipelineRunner:
                 "image_resolution": image_size,
             },
             response_json={
-                "model": "gemini-3.1-flash-image-preview",
-                "model_selected": "nano-banana-2",
+                "model": "gemini-3.1-flash-lite-image",
+                "model_selected": "gemini-3.1-flash-lite-image",
                 "source_asset": source_asset,
                 "variant_count": len(variants),
                 "progress": {
@@ -1200,7 +1200,7 @@ class PipelineRunner:
                 source_profile=source_profile,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
-                model_choice="nano-banana-2",
+                model_choice="gemini-3.1-flash-lite-image",
             )
             request_summary = self._json_dict(submitted.get("request_summary"))
             if request_summary.get("prompt"):
@@ -1312,7 +1312,7 @@ class PipelineRunner:
                 filename=self._variant_filename("stage5_variant_white_bg", entry, profile, winner_attempt),
                 image_bytes=white_bg_bytes,
                 origin_url=white_bg_url,
-                model_name=str(white_bg_result.get("model") or "gemini-3.1-flash-image-preview"),
+                model_name=str(white_bg_result.get("model") or "gemini-3.1-flash-lite-image"),
                 output_mime_type=image_format,
             )
 
@@ -2705,7 +2705,7 @@ class PipelineRunner:
         source_profile: dict[str, str] | None = None,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
-        model_choice: str = "nano-banana-2",
+        model_choice: str = "gemini-3.1-flash-lite-image",
         edit_instruction_override: str = "",
     ) -> dict[str, Any]:
         profile_description = profile_prompt_fragment(profile)
@@ -2714,6 +2714,7 @@ class PipelineRunner:
             image_path,
             word=word,
             profile_description=profile_description,
+            target_age=profile.get("age"),
             white_background=white_background,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
@@ -2726,6 +2727,7 @@ class PipelineRunner:
                 run_id=run_id,
                 word=word,
                 profile_description=profile_description,
+                target_age=profile.get("age"),
                 white_background=white_background,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
@@ -2771,7 +2773,7 @@ class PipelineRunner:
             "profile_description": profile_description,
             "origin_url": output_url,
             "image_bytes": image_bytes,
-            "model_name": str(prediction_result.get("model") or "gemini-3.1-flash-image-preview"),
+            "model_name": str(prediction_result.get("model") or "gemini-3.1-flash-lite-image"),
         }
 
     def _run_stage4_attempt(self, *, run: Run, entry: Entry, winner_attempt: int, winner_score: float) -> None:
@@ -2806,8 +2808,8 @@ class PipelineRunner:
                 "source_image_path": upgraded_asset.abs_path,
                 "winner_attempt": winner_attempt,
                 "winner_score": winner_score,
-                "model": "nano-banana-2",
-                "provider_model": "gemini-3.1-flash-image-preview",
+                "model": "gemini-3.1-flash-lite-image",
+                "provider_model": "gemini-3.1-flash-lite-image",
                 "image_aspect_ratio": runtime_config.image_aspect_ratio,
                 "image_resolution": runtime_config.image_resolution,
             },
@@ -2829,8 +2831,8 @@ class PipelineRunner:
                     "input_asset": upgraded_asset.abs_path,
                     "winner_attempt": winner_attempt,
                     "winner_score": winner_score,
-                    "model": "nano-banana-2",
-                    "provider_model": "gemini-3.1-flash-image-preview",
+                    "model": "gemini-3.1-flash-lite-image",
+                    "provider_model": "gemini-3.1-flash-lite-image",
                     "word": entry.word,
                     "image_aspect_ratio": runtime_config.image_aspect_ratio,
                     "image_resolution": runtime_config.image_resolution,
@@ -2844,8 +2846,8 @@ class PipelineRunner:
                     "input_asset": upgraded_asset.abs_path,
                     "winner_attempt": winner_attempt,
                     "winner_score": winner_score,
-                    "model": "nano-banana-2",
-                    "provider_model": "gemini-3.1-flash-image-preview",
+                    "model": "gemini-3.1-flash-lite-image",
+                    "provider_model": "gemini-3.1-flash-lite-image",
                     "word": entry.word,
                     "image_aspect_ratio": runtime_config.image_aspect_ratio,
                     "image_resolution": runtime_config.image_resolution,
@@ -2861,8 +2863,8 @@ class PipelineRunner:
                     "input_asset": upgraded_asset.abs_path,
                     "winner_attempt": winner_attempt,
                     "winner_score": winner_score,
-                    "model": "nano-banana-2",
-                    "provider_model": "gemini-3.1-flash-image-preview",
+                    "model": "gemini-3.1-flash-lite-image",
+                    "provider_model": "gemini-3.1-flash-lite-image",
                     "word": entry.word,
                     "image_aspect_ratio": runtime_config.image_aspect_ratio,
                     "image_resolution": runtime_config.image_resolution,
@@ -2879,7 +2881,7 @@ class PipelineRunner:
             filename=filename,
             image_bytes=image_bytes,
             origin_url=output_url,
-            model_name="gemini-3.1-flash-image-preview",
+            model_name="gemini-3.1-flash-lite-image",
         )
 
         self._record_stage(
@@ -2891,7 +2893,7 @@ class PipelineRunner:
                 "input_asset": upgraded_asset.abs_path,
                 "winner_attempt": winner_attempt,
                 "winner_score": winner_score,
-                "background_model_selected": "nano-banana-2",
+                "background_model_selected": "gemini-3.1-flash-lite-image",
                 "image_aspect_ratio": runtime_config.image_aspect_ratio,
                 "image_resolution": runtime_config.image_resolution,
             },
@@ -2910,7 +2912,7 @@ class PipelineRunner:
                 "saved_image_path": saved_stage4_asset.abs_path if saved_stage4_asset else "",
                 "winner_attempt": winner_attempt,
                 "winner_score": winner_score,
-                "provider_model": "gemini-3.1-flash-image-preview",
+                "provider_model": "gemini-3.1-flash-lite-image",
                 "generation_summary": self._compact_google_generation_result(result),
             },
         )
@@ -3134,7 +3136,7 @@ class PipelineRunner:
             filename=f"stage3_softened_{self._entry_slug(entry)}_attempt_{winner_attempt}.jpg",
             image_bytes=image_bytes,
             origin_url=output_url,
-            model_name=str(prediction_result.get("model") or "gemini-3.1-flash-image-preview"),
+            model_name=str(prediction_result.get("model") or "gemini-3.1-flash-lite-image"),
         )
         self._record_stage(
             run_id=run.id,

@@ -113,3 +113,40 @@ def test_google_client_close_removes_orphaned_temp_assets(tmp_path: Path):
 
     assert not temp_path.exists()
     assert not client._inline_assets
+
+
+def test_profile_variant_request_summary_for_teenager_switches_to_photorealistic(tmp_path: Path):
+    client = InlineResponseGoogleImageClient({})
+    request = client.profile_variant_request_summary(
+        tmp_path / "source.jpg",
+        word="balance",
+        profile_description="older-teen to young-adult woman with White skin",
+        target_age="teenager",
+        white_background=False,
+        aspect_ratio="4:3",
+        image_size="1K",
+        edit_instruction="Keep the same scene.",
+    )
+
+    prompt = request["prompt"]
+    assert "photorealistic" in prompt
+    assert "must not remain in a cartoon, watercolor, storybook, or illustrated style" in prompt
+    assert "keep the same AAC concept, focal action, and concept clarity" in prompt
+
+
+def test_profile_variant_request_summary_for_kid_keeps_visual_style(tmp_path: Path):
+    client = InlineResponseGoogleImageClient({})
+    request = client.profile_variant_request_summary(
+        tmp_path / "source.jpg",
+        word="balance",
+        profile_description="school-age girl with White skin",
+        target_age="kid",
+        white_background=False,
+        aspect_ratio="4:3",
+        image_size="1K",
+        edit_instruction="Keep the same scene.",
+    )
+
+    prompt = request["prompt"]
+    assert "keep the same AAC concept, visual style, focal action, and concept clarity" in prompt
+    assert "must not remain in a cartoon, watercolor, storybook, or illustrated style" not in prompt

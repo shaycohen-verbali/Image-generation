@@ -7,6 +7,9 @@ import {
   getConfig,
   importCsv,
   importCsvJob,
+  importWordSourceRows,
+  listWordSourceRows,
+  listWordSources,
   startCsvJob,
   updateConfig,
 } from '../lib/api'
@@ -50,6 +53,14 @@ export default function SubmitPage() {
   const [csvActivityStartedAt, setCsvActivityStartedAt] = useState(null)
   const [csvActivityElapsedSeconds, setCsvActivityElapsedSeconds] = useState(0)
   const [csvExecutionMode, setCsvExecutionMode] = useState('csv_dag')
+  const [wordSourceType, setWordSourceType] = useState('csv')
+  const [wordSources, setWordSources] = useState([])
+  const [selectedWordSource, setSelectedWordSource] = useState('word_inventory')
+  const [wordSourceRows, setWordSourceRows] = useState([])
+  const [selectedWordSourceRowIds, setSelectedWordSourceRowIds] = useState([])
+  const [wordSourceSearch, setWordSourceSearch] = useState('')
+  const [wordSourceTotal, setWordSourceTotal] = useState(0)
+  const [wordSourceLoading, setWordSourceLoading] = useState(false)
   const [overrideExistingVariants, setOverrideExistingVariants] = useState(false)
   const [runWorkerCount, setRunWorkerCount] = useState(1)
   const [variantWorkerCount, setVariantWorkerCount] = useState(2)
@@ -58,13 +69,13 @@ export default function SubmitPage() {
   const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-5.4')
   const [stage3AnatomyCritiqueModel, setStage3AnatomyCritiqueModel] = useState('gpt-5.4')
   const [stage3AccessibilityCritiqueModel, setStage3AccessibilityCritiqueModel] = useState('gpt-5.4')
-  const [stage3GenerateModel, setStage3GenerateModel] = useState('nano-banana-2')
+  const [stage3GenerateModel, setStage3GenerateModel] = useState('gemini-3.1-flash-lite-image')
   const [postQualityAccessibilityCritiqueModel, setPostQualityAccessibilityCritiqueModel] = useState('gpt-5.4')
-  const [postQualityAccessibilityGenerateModel, setPostQualityAccessibilityGenerateModel] = useState('nano-banana-2')
+  const [postQualityAccessibilityGenerateModel, setPostQualityAccessibilityGenerateModel] = useState('gemini-3.1-flash-lite-image')
   const [variantCritiqueModel, setVariantCritiqueModel] = useState('gpt-5.4')
-  const [variantCorrectionModel, setVariantCorrectionModel] = useState('nano-banana-2')
+  const [variantCorrectionModel, setVariantCorrectionModel] = useState('gemini-3.1-flash-lite-image')
   const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
-  const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
+  const [imageAspectRatio, setImageAspectRatio] = useState('4:3')
   const [imageResolution, setImageResolution] = useState('1K')
   const [imageFormat, setImageFormat] = useState('image/jpeg')
   const [nanoBananaSafetyLevel, setNanoBananaSafetyLevel] = useState('default')
@@ -90,6 +101,8 @@ export default function SubmitPage() {
   const generatedProfileCap = 16
   const generatedProfileCount = Math.min(selectedCombinationCount, generatedProfileCap)
   const extraVariantCount = Math.max(0, generatedProfileCount - 1)
+  const selectedWordSourceConfig = wordSources.find((source) => source.table_name === selectedWordSource)
+  const selectedWordSourceAvailable = Boolean(selectedWordSourceConfig?.available)
 
   const validateCsvDagSelections = () => {
     if (!form.person_gender_options.length || !form.person_age_options.length || !form.person_skin_color_options.length) {
@@ -181,6 +194,26 @@ export default function SubmitPage() {
     const timer = window.setInterval(updateElapsed, 1000)
     return () => window.clearInterval(timer)
   }, [csvActivityStartedAt])
+
+  useEffect(() => {
+    let mounted = true
+    listWordSources()
+      .then((sources) => {
+        if (!mounted) return
+        const approved = Array.isArray(sources) ? sources : []
+        setWordSources(approved)
+        const firstAvailable = approved.find((source) => source.available)
+        if (firstAvailable && !approved.some((source) => source.table_name === selectedWordSource && source.available)) {
+          setSelectedWordSource(firstAvailable.table_name)
+        }
+      })
+      .catch(() => {
+        if (mounted) setWordSources([])
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const beginCsvActivity = (label, hint = 'Large CSV files can take a bit longer. The page is still working while this timer moves.') => {
     setCsvActivity({ active: true, label, hint })
@@ -309,6 +342,65 @@ export default function SubmitPage() {
     } catch (error) {
       endCsvActivity()
       setMessage(`Error: ${error.message}`)
+    }
+  }
+
+  const loadWordSourceRows = async () => {
+    if (!selectedWordSource) return
+    setWordSourceLoading(true)
+    setMessage(`Loading ${selectedWordSource} from Supabase...`)
+    try {
+      const result = await listWordSourceRows(selectedWordSource, {
+        search: wordSourceSearch,
+        limit: 200,
+      })
+      setWordSourceRows(Array.isArray(result.rows) ? result.rows : [])
+      setWordSourceTotal(Number(result.total || 0))
+      setSelectedWordSourceRowIds([])
+      setMessage(`Loaded ${result.rows?.length || 0} of ${result.total || 0} rows from ${selectedWordSource}`)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    } finally {
+      setWordSourceLoading(false)
+    }
+  }
+
+  const toggleWordSourceRow = (rowId) => {
+    setSelectedWordSourceRowIds((current) => (
+      current.includes(rowId)
+        ? current.filter((id) => id !== rowId)
+        : [...current, rowId]
+    ))
+  }
+
+  const toggleAllVisibleWordSourceRows = () => {
+    const visibleIds = wordSourceRows.map((row) => row.id)
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedWordSourceRowIds.includes(id))
+    setSelectedWordSourceRowIds(allSelected ? [] : visibleIds)
+  }
+
+  const importSelectedWordSourceRows = async () => {
+    if (!validateCsvDagSelections()) return
+    if (!selectedWordSourceRowIds.length) {
+      setMessage('Select at least one word from the Supabase table')
+      return
+    }
+    beginCsvActivity(`Importing ${selectedWordSourceRowIds.length} words from ${selectedWordSource}...`)
+    try {
+      const result = await importWordSourceRows(selectedWordSource, {
+        row_ids: selectedWordSourceRowIds,
+        person_gender_options: form.person_gender_options,
+        person_age_options: form.person_age_options,
+        person_skin_color_options: form.person_skin_color_options,
+        override_existing_variants: overrideExistingVariants,
+      })
+      setUploadResult({ ...result, mode: 'csv_dag', source_table: selectedWordSource })
+      setSelectedWordSourceRowIds([])
+      setMessage(`Imported ${result.imported_count} words from ${selectedWordSource} into DAG job ${result.batch_id}`)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    } finally {
+      endCsvActivity()
     }
   }
 
@@ -481,9 +573,12 @@ export default function SubmitPage() {
                     checked={form.person_age_options.includes('teenager')}
                     onChange={() => toggleOption('person_age_options', 'teenager')}
                   />
-                  <span>Teenager (15-18)</span>
+                  <span>Teenager (20, photorealistic)</span>
                 </label>
               </fieldset>
+              <p className="config-help-text">
+                Teenager variants are rendered as photorealistic 20-year-old outputs. Toddler, kid, and tween variants stay in the illustration style.
+              </p>
               <fieldset className="checkbox-group">
                 <legend>Skin color</legend>
                 <label className="checkbox-option">
@@ -621,7 +716,7 @@ export default function SubmitPage() {
                 </select>
               </label>
               <p className="config-help-text submit-output-note">
-                Aspect ratio defaults to `1:1`. Resolution defaults to `1K`. Format defaults to `JPEG`. Safety level maps to Gemini `safetySettings` thresholds for Nano Banana requests.
+                Aspect ratio defaults to `4:3`. Resolution defaults to `1K`. Format defaults to `JPEG`. Safety level maps to Gemini `safetySettings` thresholds for Nano Banana requests.
               </p>
             </div>
           </div>
@@ -666,9 +761,26 @@ export default function SubmitPage() {
         </article>
 
         <article className="card">
-          <h2>Bulk CSV Import</h2>
-          <p>Import rows here, then either queue legacy runs or start the new dependency-based CSV DAG job using the same shared settings from above.</p>
+          <h2>Bulk Word Import</h2>
+          <p>Choose an approved Supabase table or upload a CSV, then start a dependency-based DAG job using the shared settings above.</p>
           <div className="form-grid">
+            <label>
+              Word source
+              <select
+                value={wordSourceType}
+                onChange={(e) => {
+                  setWordSourceType(e.target.value)
+                  setUploadResult(null)
+                }}
+              >
+                <option value="csv">CSV file</option>
+                <option value="supabase">Approved Supabase table</option>
+              </select>
+            </label>
+          </div>
+          {wordSourceType === 'csv' ? (
+            <>
+              <div className="form-grid">
             <label>
               CSV execution mode
               <select value={csvExecutionMode} onChange={(e) => setCsvExecutionMode(e.target.value)}>
@@ -680,8 +792,8 @@ export default function SubmitPage() {
               CSV file
               <input type="file" accept=".csv,text/csv" onChange={onCsvFileSelected} />
             </label>
-          </div>
-          <div className="csv-upload-actions">
+              </div>
+              <div className="csv-upload-actions">
             <button type="button" onClick={() => uploadCsvFile(selectedCsvFile)} disabled={!selectedCsvFile || csvActivity.active}>
               {csvActivity.active ? 'Uploading...' : 'Upload CSV'}
             </button>
@@ -692,11 +804,102 @@ export default function SubmitPage() {
             ) : (
               <p className="csv-upload-selected">Choose a local CSV first, then click Upload CSV to start importing it.</p>
             )}
-          </div>
-          <div className="inline-fields">
+              </div>
+              <div className="inline-fields">
             <button type="button" onClick={onUseSampleCsv} disabled={csvActivity.active}>Use Sample CSV</button>
             <a href={SAMPLE_CSV_URL} download={SAMPLE_CSV_NAME}>Download sample CSV</a>
-          </div>
+              </div>
+            </>
+          ) : (
+            <div className="word-source-panel">
+              <div className="form-grid">
+                <label>
+                  Approved table
+                  <select
+                    value={selectedWordSource}
+                    onChange={(e) => {
+                      setSelectedWordSource(e.target.value)
+                      setWordSourceRows([])
+                      setSelectedWordSourceRowIds([])
+                    }}
+                  >
+                    {(wordSources.length ? wordSources : [{ table_name: 'word_inventory', label: 'word_inventory', available: false }]).map((source) => (
+                      <option key={source.table_name} value={source.table_name} disabled={!source.available}>
+                        {source.label}{source.available ? '' : ' (not configured)'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Search words
+                  <input
+                    value={wordSourceSearch}
+                    onChange={(e) => setWordSourceSearch(e.target.value)}
+                    placeholder="Word, part of sentence, or category"
+                  />
+                </label>
+              </div>
+              <div className="inline-fields">
+                <button type="button" onClick={loadWordSourceRows} disabled={!selectedWordSourceAvailable || wordSourceLoading || csvActivity.active}>
+                  {wordSourceLoading ? 'Loading...' : 'Load words'}
+                </button>
+                <span>{wordSourceRows.length} shown · {wordSourceTotal} total</span>
+              </div>
+              {!selectedWordSourceAvailable ? (
+                <p className="config-help-text">Configure INVENTORY_DATABASE_URL to enable the approved Supabase word source.</p>
+              ) : null}
+              {wordSourceRows.length ? (
+                <div className="table-wrap word-source-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>
+                          <input
+                            type="checkbox"
+                            aria-label="Select all visible words"
+                            checked={wordSourceRows.every((row) => selectedWordSourceRowIds.includes(row.id))}
+                            onChange={toggleAllVisibleWordSourceRows}
+                          />
+                        </th>
+                        <th>Word</th>
+                        <th>Part of sentence</th>
+                        <th>Category</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {wordSourceRows.map((row) => (
+                        <tr key={row.id}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${row.word}`}
+                              checked={selectedWordSourceRowIds.includes(row.id)}
+                              onChange={() => toggleWordSourceRow(row.id)}
+                            />
+                          </td>
+                          <td>{row.word}</td>
+                          <td>{row.part_of_sentence}</td>
+                          <td>{row.category || '-'}</td>
+                          <td>{row.fully_complete ? 'Complete' : (row.job_status || 'Pending')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={importSelectedWordSourceRows}
+                disabled={!selectedWordSourceRowIds.length || csvActivity.active}
+              >
+                Import {selectedWordSourceRowIds.length || ''} selected word{selectedWordSourceRowIds.length === 1 ? '' : 's'}
+              </button>
+              <p className="config-help-text">
+                Generated paths, prompts, status, and completion fields will be written back to the selected word_inventory rows.
+              </p>
+            </div>
+          )}
           {csvActivity.active ? (
             <div className="csv-upload-progress" role="status" aria-live="polite">
               <div className="csv-upload-progress-header">
@@ -772,7 +975,7 @@ export default function SubmitPage() {
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                 <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
               </select>
             </label>
             <label>
@@ -792,7 +995,7 @@ export default function SubmitPage() {
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                 <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
               </select>
             </label>
             <label>
@@ -807,7 +1010,7 @@ export default function SubmitPage() {
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                 <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
               </select>
               <span className="field-help-text">Shown for backward compatibility only. New runs skip this step.</span>
             </label>
@@ -822,6 +1025,7 @@ export default function SubmitPage() {
                   saveModelConfig({ stage3_generate_model: value }, `Saved Stage 3 upgraded image model: ${value}`)
                 }}
               >
+                <option value="gemini-3.1-flash-lite-image">Gemini 3.1 Flash Lite Image</option>
                 <option value="flux-1.1-pro">Flux 1.1 Pro</option>
                 <option value="imagen-3">Imagen 3</option>
                 <option value="imagen-4">Imagen 4</option>
@@ -847,7 +1051,7 @@ export default function SubmitPage() {
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                 <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
               </select>
             </label>
             <label>
@@ -861,6 +1065,7 @@ export default function SubmitPage() {
                   saveModelConfig({ post_quality_accessibility_generate_model: value }, `Saved post-quality AAC soften image model: ${value}`)
                 }}
               >
+                <option value="gemini-3.1-flash-lite-image">Gemini 3.1 Flash Lite Image</option>
                 <option value="flux-1.1-pro">Flux 1.1 Pro</option>
                 <option value="imagen-3">Imagen 3</option>
                 <option value="imagen-4">Imagen 4</option>
@@ -886,7 +1091,7 @@ export default function SubmitPage() {
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                 <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
               </select>
             </label>
             <label>
@@ -900,6 +1105,7 @@ export default function SubmitPage() {
                   saveModelConfig({ variant_correction_model: value }, `Saved variant correction model: ${value}`)
                 }}
               >
+                <option value="gemini-3.1-flash-lite-image">Gemini 3.1 Flash Lite Image</option>
                 <option value="flux-1.1-pro">Flux 1.1 Pro</option>
                 <option value="imagen-3">Imagen 3</option>
                 <option value="imagen-4">Imagen 4</option>
@@ -924,7 +1130,7 @@ export default function SubmitPage() {
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                 <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
               </select>
             </label>
           </div>
@@ -973,7 +1179,7 @@ export default function SubmitPage() {
                 <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                 <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                 <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
               </select>
             </label>
             <p className="config-help-text">

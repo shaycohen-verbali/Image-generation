@@ -52,6 +52,7 @@ def test_profile_prompt_fragment_makes_age_and_gender_explicit() -> None:
     assert "Brown (Indian origin) skin" in fragment
     assert "full-body proportions" in fragment or "head-to-body ratio" in fragment
     assert "little kid" in fragment
+    assert "photorealistic" in fragment
 
 
 def test_variant_branch_plan_follows_white_age_then_female_then_race_order() -> None:
@@ -73,6 +74,7 @@ def test_profile_edit_instruction_makes_age_gender_and_race_changes_explicit() -
     assert "Body age and face age must match" in age_instruction
     assert "torso length" in age_instruction
     assert "teenager face on a child body" in age_instruction
+    assert "photorealistic" in age_instruction
 
     gender_instruction = profile_edit_instruction(
         {"gender": "female", "age": "teenager", "skin_color": "white"},

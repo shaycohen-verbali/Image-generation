@@ -11,7 +11,7 @@ PromptEngineerModel = Literal[
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite",
     "gemini-3-flash-preview",
     "gemini-3.1-pro-preview",
 ]
@@ -284,6 +284,41 @@ class CsvJobImportResponse(BaseModel):
     continued_from_job_id: str | None = None
 
 
+class WordSourceOut(BaseModel):
+    table_name: str
+    label: str
+    available: bool
+    readable: bool = True
+    writable: bool = True
+
+
+class WordSourceRowOut(BaseModel):
+    id: str
+    word: str
+    part_of_sentence: str
+    category: str = ""
+    context: str = ""
+    job_status: str = ""
+    fully_complete: bool = False
+    updated_at: str | None = None
+
+
+class WordSourceRowsOut(BaseModel):
+    table_name: str
+    rows: list[WordSourceRowOut] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
+class WordSourceImportRequest(BaseModel):
+    row_ids: list[str] = Field(min_length=1, max_length=500)
+    person_gender_options: list[str] = Field(default_factory=list)
+    person_age_options: list[str] = Field(default_factory=list)
+    person_skin_color_options: list[str] = Field(default_factory=list)
+    override_existing_variants: bool = False
+
+
 class CsvJobOut(BaseModel):
     id: str
     batch_id: str
@@ -460,15 +495,15 @@ class RuntimeConfigOut(BaseModel):
     stage1_prompt_template: str
     stage3_prompt_template: str
     openai_model_vision: str
-    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
-    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
-    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
-    stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
-    post_quality_accessibility_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
-    variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
-    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    stage3_generate_model: Literal["gemini-3.1-flash-lite-image", "flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
+    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    post_quality_accessibility_generate_model: Literal["gemini-3.1-flash-lite-image", "flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
+    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
+    variant_correction_model: Literal["gemini-3.1-flash-lite-image", "flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"]
+    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"]
     image_aspect_ratio: ImageAspectRatio
     image_resolution: ImageResolution
     image_format: ImageFormat
@@ -495,15 +530,15 @@ class RuntimeConfigUpdate(BaseModel):
     stage1_prompt_template: str | None = None
     stage3_prompt_template: str | None = None
     openai_model_vision: str | None = None
-    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
-    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
-    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
-    stage3_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
-    post_quality_accessibility_generate_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
-    variant_correction_model: Literal["flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
-    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    stage3_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    stage3_anatomy_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    stage3_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    stage3_generate_model: Literal["gemini-3.1-flash-lite-image", "flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
+    post_quality_accessibility_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    post_quality_accessibility_generate_model: Literal["gemini-3.1-flash-lite-image", "flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
+    variant_critique_model: Literal["gpt-4o-mini", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
+    variant_correction_model: Literal["gemini-3.1-flash-lite-image", "flux-1.1-pro", "imagen-3", "imagen-4", "nano-banana", "nano-banana-2", "nano-banana-pro"] | None = None
+    quality_gate_model: Literal["gpt-4o-mini", "gpt-5.4-mini", "gpt-5.4-nano", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.1-pro-preview"] | None = None
     image_aspect_ratio: ImageAspectRatio | None = None
     image_resolution: ImageResolution | None = None
     image_format: ImageFormat | None = None

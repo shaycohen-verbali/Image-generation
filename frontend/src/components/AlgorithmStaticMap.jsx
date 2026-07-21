@@ -135,7 +135,7 @@ const STAGE_DETAILS = {
   stage3_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite',
     inputs: ['stage2/stage3 source image', 'word', 'part_of_sentence', 'category'],
     outputs: ['challenges', 'recommendations', 'person_needed_for_clarity', 'person_presence_problem', 'person_decision_reasoning', 'animal_present'],
     instruction: STAGE3_CRITIQUE_PROMPT_TEMPLATE,
@@ -149,7 +149,7 @@ const STAGE_DETAILS = {
   stage3_anatomy_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite',
     inputs: ['stage2/stage3 source image', 'stage 3.1 person/animal signal'],
     outputs: ['anatomy_ok', 'issues', 'correction_recommendations', 'body_integrity_problem'],
     instruction: STAGE3_ANATOMY_CRITIQUE_PROMPT_TEMPLATE,
@@ -163,7 +163,7 @@ const STAGE_DETAILS = {
   stage3_accessibility_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite',
     inputs: ['legacy stage reference only'],
     outputs: ['skipped for new runs'],
     instruction: 'This legacy Stage 3.16 block is kept for compatibility but is skipped for new runs.',
@@ -174,7 +174,7 @@ const STAGE_DETAILS = {
   stage3_post_quality_accessibility_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite',
     inputs: ['quality-gate winner image', 'AAC grid readability lens'],
     outputs: ['simplicity_ok', 'issues', 'correction_recommendations', 'simplicity_problem'],
     instruction: 'Review a conceptually good winner image and recommend only minor AAC-grid softening. Preserve the exact same scene and recommend no changes if the image is already simple enough.',
@@ -188,7 +188,7 @@ const STAGE_DETAILS = {
   stage3_post_quality_accessibility_generate: {
     apiCall: 'Google image edit API',
     provider: 'Google API',
-    model: 'nano-banana | nano-banana-2 | nano-banana-pro',
+    model: 'gemini-3.1-flash-lite-image (default) | nano-banana | nano-banana-2 | nano-banana-pro',
     inputs: ['quality image', 'minor softening instruction'],
     outputs: ['optional softened AAC image'],
     instruction: 'Using the quality image as the base, keep the exact same scene and make only minimal softening changes when the critique says they are needed.',
@@ -210,7 +210,7 @@ const STAGE_DETAILS = {
   stage3_generate: {
     apiCall: 'Selected image provider API',
     provider: 'Google API or Replicate model selected in runtime config',
-    model: 'flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-2 | nano-banana-pro',
+    model: 'gemini-3.1-flash-lite-image (default) | flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-2 | nano-banana-pro',
     inputs: ['upgraded prompt from stage 3.2'],
     outputs: ['stage3_upgraded image URL', 'stage3_upgraded asset'],
     instruction: [
@@ -253,7 +253,7 @@ const STAGE_DETAILS = {
   quality_gate: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite-preview',
+    model: 'gpt-4o-mini | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite',
     inputs: ['stage3 upgraded image', 'word', 'part_of_sentence', 'category', 'threshold'],
     outputs: ['score', 'explanation', 'failure_tags', 'winner selection input'],
     instruction: QUALITY_GATE_PROMPT_TEMPLATE,
@@ -267,7 +267,7 @@ const STAGE_DETAILS = {
   stage4_background: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['highest-score winner image from stage3 attempts'],
     outputs: ['white background image URL', 'stage4_white_bg asset'],
     instruction: WHITE_BG_PROMPT_TEMPLATE,
@@ -284,7 +284,7 @@ const STAGE_DETAILS = {
   stage4_variant_generate: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['stage3 winner image', 'requested gender/age/skin combinations'],
     outputs: ['white male age variants', 'white female kid seed', 'white female age variants', 'race variants from matching white age/gender baselines'],
     instruction: VARIANT_FINAL_PROMPT_TEMPLATE,
@@ -302,7 +302,7 @@ const STAGE_DETAILS = {
   stage5_male_age: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['Stage 3 winner image', 'requested male age profiles'],
     outputs: ['white male age variants'],
     instruction: VARIANT_STEP5_PROMPT_TEMPLATE,
@@ -320,7 +320,7 @@ const STAGE_DETAILS = {
   stage6_female_seed: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['Stage 3 winner image'],
     outputs: ['white female kid seed'],
     instruction: VARIANT_STEP6_PROMPT_TEMPLATE,
@@ -338,7 +338,7 @@ const STAGE_DETAILS = {
   stage7_female_age: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['white female kid seed', 'requested female age profiles'],
     outputs: ['white female age variants'],
     instruction: VARIANT_STEP7_PROMPT_TEMPLATE,
@@ -356,7 +356,7 @@ const STAGE_DETAILS = {
   stage8_race_expand: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['matching white gender+age baselines', 'requested race profiles'],
     outputs: ['race variants from matching white age/gender baselines'],
     instruction: VARIANT_STEP8_PROMPT_TEMPLATE,
@@ -374,7 +374,7 @@ const STAGE_DETAILS = {
   stage81_variant_critique: {
     apiCall: 'OpenAI or Gemini Vision',
     provider: 'OpenAI Vision / Google Gemini',
-    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite-preview',
+    model: 'gpt-4o-mini | gpt-5.4 | gemini-3.1-pro-preview | gemini-3-flash-preview | gemini-3.1-flash-lite',
     inputs: ['generated variant image', 'target gender/age profile'],
     outputs: ['correction_needed', 'issues', 'correction_prompt', 'reason'],
     instruction: VARIANT_STEP81_PROMPT_TEMPLATE,
@@ -388,7 +388,7 @@ const STAGE_DETAILS = {
   stage82_variant_correction: {
     apiCall: 'Selected image edit model',
     provider: 'Google image-edit path with selected/fallback runtime model',
-    model: 'flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-2 | nano-banana-pro',
+    model: 'gemini-3.1-flash-lite-image (default) | flux-1.1-pro | imagen-3 | imagen-4 | nano-banana | nano-banana-2 | nano-banana-pro',
     inputs: ['variant image', 'step 8.1 correction prompt'],
     outputs: ['corrected variant image when needed'],
     instruction: VARIANT_STEP82_PROMPT_TEMPLATE,
@@ -405,7 +405,7 @@ const STAGE_DETAILS = {
   stage9_variant_white_bg: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['all final variants from the previous steps'],
     outputs: ['matching white-background versions for every final variant'],
     instruction: VARIANT_WHITE_BG_PROMPT_TEMPLATE,
@@ -423,7 +423,7 @@ const STAGE_DETAILS = {
   stage5_variant_white_bg: {
     apiCall: 'Google Generative Language image API',
     provider: 'Google API',
-    model: 'gemini-3.1-flash-image-preview (nano-banana-2)',
+    model: 'gemini-3.1-flash-lite-image',
     inputs: ['all final variants from the previous stage'],
     outputs: ['matching white-background versions for every final variant'],
     instruction: VARIANT_WHITE_BG_PROMPT_TEMPLATE,
@@ -856,7 +856,10 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
         <strong>Photorealistic style:</strong> AAC Clean Photorealistic Style v1 (built-in when the resolved decision is no person)
       </p>
       <p className="algo-assistant-name">
-        <strong>Image output settings:</strong> aspect ratio {config?.image_aspect_ratio || '1:1'} | resolution {config?.image_resolution || '1K'}
+        <strong>Image output settings:</strong> aspect ratio {config?.image_aspect_ratio || '4:3'} | resolution {config?.image_resolution || '1K'}
+      </p>
+      <p className="algo-assistant-name">
+        <strong>Teenager exception:</strong> teenager variants use photorealistic rendering so they stand apart from the younger illustrated age groups.
       </p>
       <p className="algo-assistant-name">
         <strong>Mode:</strong> {mode === 'legacy' ? 'Legacy fallback runs' : 'Parallel CSV DAG'}

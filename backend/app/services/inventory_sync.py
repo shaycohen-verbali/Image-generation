@@ -92,20 +92,29 @@ class InventorySyncService:
             for background in BACKGROUND_VALUES
         ]
 
-    def latest_entry_inventory_row(self, entry: Entry) -> dict[str, object] | None:
+    def latest_entry_inventory_row(self, entry: Entry, *, source_row_id: str = "") -> dict[str, object] | None:
         if inventory_engine is None:
             return None
         with inventory_engine.begin() as conn:
+            query = select(word_inventory)
+            if source_row_id:
+                query = query.where(word_inventory.c.id == source_row_id)
+            else:
+                query = query.where(word_inventory.c.source_entry_id == entry.id)
             row = conn.execute(
-                select(word_inventory)
-                .where(word_inventory.c.source_entry_id == entry.id)
-                .order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at))
-                .limit(1)
+                query.order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at)).limit(1)
             ).mappings().first()
         return dict(row) if row else None
 
-    def slot_path_for_entry_profile(self, entry: Entry, profile: dict[str, str], *, background: str) -> str:
-        row = self.latest_entry_inventory_row(entry)
+    def slot_path_for_entry_profile(
+        self,
+        entry: Entry,
+        profile: dict[str, str],
+        *,
+        background: str,
+        source_row_id: str = "",
+    ) -> str:
+        row = self.latest_entry_inventory_row(entry, source_row_id=source_row_id)
         if not row:
             return ""
         slot_name = inventory_slot_column_name(
@@ -227,7 +236,9 @@ class InventorySyncService:
             if column.name.endswith("_prompt")
         }
         failures: list[dict[str, str]] = []
-        existing_row = self.latest_entry_inventory_row(entry) or {}
+        source_row = Repository.json_field_dict(item.source_row_json)
+        source_row_id = str(source_row.get("_word_source_row_id") or "").strip()
+        existing_row = self.latest_entry_inventory_row(entry, source_row_id=source_row_id) or {}
 
         if item.base_regular_asset_id:
             asset = self.repo.get_asset(item.base_regular_asset_id)
@@ -398,12 +409,21 @@ class InventorySyncService:
         if entry is None:
             return 0
         payload = self._row_payload(job=job, item=item, entry=entry, tasks=tasks)
-        existing = conn.execute(
-            select(word_inventory.c.id, word_inventory.c.created_at)
-            .where(word_inventory.c.source_entry_id == entry.id)
-            .order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at))
-            .limit(1)
-        ).first()
+        source_row = Repository.json_field_dict(item.source_row_json)
+        source_table = str(source_row.get("_word_source_table") or "").strip().lower()
+        source_row_id = str(source_row.get("_word_source_row_id") or "").strip()
+        if source_table == "word_inventory" and source_row_id:
+            existing_query = select(word_inventory.c.id, word_inventory.c.created_at).where(
+                word_inventory.c.id == source_row_id
+            )
+        else:
+            existing_query = (
+                select(word_inventory.c.id, word_inventory.c.created_at)
+                .where(word_inventory.c.source_entry_id == entry.id)
+                .order_by(desc(word_inventory.c.updated_at), desc(word_inventory.c.created_at))
+                .limit(1)
+            )
+        existing = conn.execute(existing_query).first()
         if existing:
             payload["id"] = existing.id
             payload["created_at"] = existing.created_at

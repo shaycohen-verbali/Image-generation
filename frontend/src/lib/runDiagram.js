@@ -87,7 +87,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage4_background',
     label: 'Stage 4 White Background',
-    provider: 'Google API: nano-banana-2',
+    provider: 'Google API: gemini-3.1-flash-lite-image',
     inputs: ['passing stage3 image'],
     expected: ['white background image'],
     retryPolicy: 'API retry + stage retry',
@@ -95,7 +95,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage4_variant_generate',
     label: 'Stage 5-8 Variant Finals',
-    provider: 'Google API: nano-banana-2',
+    provider: 'Google API: gemini-3.1-flash-lite-image',
     inputs: ['stage3 winner image', 'requested gender/age/skin combinations'],
     expected: ['white male age variants', 'white female kid seed', 'white female age variants', 'race variants from matching white age/gender baselines'],
     retryPolicy: 'API retry + resumable stage retry',
@@ -119,7 +119,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'stage5_variant_white_bg',
     label: 'Stage 9 Variant White BG',
-    provider: 'Google API: nano-banana-2',
+    provider: 'Google API: gemini-3.1-flash-lite-image',
     inputs: ['all final variants from the prior stage'],
     expected: ['matching white-background versions for every final variant'],
     retryPolicy: 'API retry + resumable stage retry',
@@ -489,11 +489,11 @@ function aiInstructionForStage({
   if (stageId === 'stage2_draft') {
     const stage2Request = safeObject(stage2Result?.request_json)
     const storedPrompt = safeText(stage2Request.prompt) || safeText(stage1Prompt?.prompt_text)
-    const aspectRatio = safeText(stage2Request.image_aspect_ratio) || '1:1'
+    const aspectRatio = safeText(stage2Request.image_aspect_ratio) || '4:3'
     return {
       text: storedPrompt
         ? JSON.stringify({ input: { prompt: storedPrompt, aspect_ratio: aspectRatio, output_format: 'jpg' } }, null, 2)
-        : JSON.stringify({ input: { prompt: '<stage1 first prompt>', aspect_ratio: '1:1', output_format: 'jpg' } }, null, 2),
+        : JSON.stringify({ input: { prompt: '<stage1 first prompt>', aspect_ratio: '4:3', output_format: 'jpg' } }, null, 2),
       source: storedPrompt ? 'stored request_json.prompt' : 'derived from stage prompt lineage',
     }
   }
@@ -550,7 +550,7 @@ function aiInstructionForStage({
 
   if (stageId === 'stage3_generate') {
     const stage3Request = safeObject(stage3Result?.request_json)
-    const aspectRatio = safeText(stage3Request.image_aspect_ratio) || '1:1'
+    const aspectRatio = safeText(stage3Request.image_aspect_ratio) || '4:3'
     const imageResolution = safeText(stage3Request.image_resolution) || '1K'
     const prompt = safeText(stage3Prompt?.prompt_text)
     const payload = {
@@ -598,23 +598,23 @@ function aiInstructionForStage({
       input: {
         prompt,
         image_input: ['<stage3 upgraded image as data URI>'],
-        aspect_ratio: safeText(stage4Request.image_aspect_ratio) || '1:1',
+        aspect_ratio: safeText(stage4Request.image_aspect_ratio) || '4:3',
         image_size: safeText(stage4Request.image_resolution) || '1K',
         output_format: 'jpg',
       },
     }
     return {
       text: JSON.stringify(payload, null, 2),
-      source: 'backend prompt template (GoogleImageClient.nano_banana_white_bg -> nano-banana-2)',
+      source: 'backend prompt template (GoogleImageClient.nano_banana_white_bg -> gemini-3.1-flash-lite-image)',
     }
   }
 
   if (stageId === 'stage4_variant_generate') {
     const stage4Request = safeObject(stage4VariantResult?.request_json)
     const payload = {
-      selected_model: 'google/nano-banana-2',
+      selected_model: 'gemini-3.1-flash-lite-image',
       source_image: safeText(safeObject(stage3Result?.response_json).generation?.output || '') || '<stage3 winner image>',
-      aspect_ratio: safeText(stage4Request.image_aspect_ratio) || '1:1',
+      aspect_ratio: safeText(stage4Request.image_aspect_ratio) || '4:3',
       image_size: safeText(stage4Request.image_resolution) || '1K',
       branching_rule:
         '1) expand white male kid to requested male ages from the Stage 3 winner, 2) create a white female kid seed from the Stage 3 winner, 3) expand that white female kid to requested female ages, 4) create race variants from the matching white age+gender baselines.',
@@ -645,9 +645,9 @@ function aiInstructionForStage({
   if (stageId === 'stage5_variant_white_bg') {
     const stage5Request = safeObject(stage5VariantResult?.request_json)
     const payload = {
-      selected_model: 'google/nano-banana-2',
+      selected_model: 'gemini-3.1-flash-lite-image',
       source_image: '<matching stage4 final variant image>',
-      aspect_ratio: safeText(stage5Request.image_aspect_ratio) || '1:1',
+      aspect_ratio: safeText(stage5Request.image_aspect_ratio) || '4:3',
       image_size: safeText(stage5Request.image_resolution) || '1K',
       branching_rule: 'Create a matching white-background copy for every final variant produced in the prior stage.',
       white_background: true,
@@ -873,7 +873,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       requestPayload: safeObject(postQualityGenerateResult?.request_json),
       responsePayload: safeObject(postQualityGenerateResult?.response_json),
       asset: postQualityAsset || null,
-      model: postQualityAsset?.model_name || safeText(safeObject(postQualityGenerateResult?.request_json).post_quality_accessibility_generate_model_selected) || 'nano-banana-2',
+      model: postQualityAsset?.model_name || safeText(safeObject(postQualityGenerateResult?.request_json).post_quality_accessibility_generate_model_selected) || 'gemini-3.1-flash-lite-image',
       score: score || null,
       attempt,
     },
@@ -896,7 +896,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       responsePayload: safeObject(stage4VariantResult?.response_json),
       asset: stage4VariantAsset || null,
       assets: stage4VariantAssets,
-      model: stage4VariantAsset?.model_name || 'google/nano-banana-2',
+      model: stage4VariantAsset?.model_name || 'gemini-3.1-flash-lite-image',
       score: score || null,
       attempt,
     },
@@ -920,7 +920,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       responsePayload: safeObject(stage4VariantCorrectionResult?.response_json),
       asset: stage4VariantAsset || null,
       assets: stage4VariantAssets,
-      model: safeText(safeObject(stage4VariantCorrectionResult?.request_json).model_selected) || 'nano-banana-2',
+      model: safeText(safeObject(stage4VariantCorrectionResult?.request_json).model_selected) || 'gemini-3.1-flash-lite-image',
       score: score || null,
       attempt,
     },
@@ -932,7 +932,7 @@ export function buildRunDiagram(detail, selectedAttempt) {
       responsePayload: safeObject(stage5VariantResult?.response_json),
       asset: stage5VariantAsset || null,
       assets: stage5VariantAssets,
-      model: stage5VariantAsset?.model_name || 'google/nano-banana-2',
+      model: stage5VariantAsset?.model_name || 'gemini-3.1-flash-lite-image',
       score: score || null,
       attempt,
     },

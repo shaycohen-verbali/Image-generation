@@ -121,13 +121,13 @@ class ReplicateClient:
             return {"status": "failed", "error": "missing_prediction_id", "raw": created}
         return self._poll_prediction(prediction_id)
 
-    def flux_schnell(self, prompt: str, *, aspect_ratio: str = "1:1") -> dict[str, Any]:
+    def flux_schnell(self, prompt: str, *, aspect_ratio: str = "4:3") -> dict[str, Any]:
         return self._run_prediction(
             "black-forest-labs/flux-schnell",
             {"prompt": prompt, "aspect_ratio": aspect_ratio, "output_format": "jpg"},
         )
 
-    def flux_pro(self, prompt: str, *, aspect_ratio: str = "1:1") -> dict[str, Any]:
+    def flux_pro(self, prompt: str, *, aspect_ratio: str = "4:3") -> dict[str, Any]:
         return self._run_prediction(
             "black-forest-labs/flux-1.1-pro",
             {
@@ -141,10 +141,10 @@ class ReplicateClient:
             },
         )
 
-    def imagen_fallback(self, prompt: str, *, aspect_ratio: str = "1:1") -> dict[str, Any]:
+    def imagen_fallback(self, prompt: str, *, aspect_ratio: str = "4:3") -> dict[str, Any]:
         return self.generate_stage3("imagen-3", prompt, aspect_ratio=aspect_ratio)[0]
 
-    def generate_stage3(self, model_choice: str, prompt: str, *, aspect_ratio: str = "1:1") -> tuple[dict[str, Any], str]:
+    def generate_stage3(self, model_choice: str, prompt: str, *, aspect_ratio: str = "4:3") -> tuple[dict[str, Any], str]:
         model_key = normalize_stage3_generation_model(model_choice)
         model_path, payload = self._stage3_request(model_key, prompt, aspect_ratio=aspect_ratio)
         return self._run_prediction(model_path, payload), model_path
@@ -262,12 +262,14 @@ class ReplicateClient:
         *,
         word: str,
         profile_description: str,
+        target_age: str | None = None,
         white_background: bool = False,
     ) -> dict[str, Any]:
         request = self.profile_variant_request_summary(
             image_path,
             word=word,
             profile_description=profile_description,
+            target_age=target_age,
             white_background=white_background,
         )
         image_input = self._to_data_uri(image_path)
@@ -287,12 +289,14 @@ class ReplicateClient:
         *,
         word: str,
         profile_description: str,
+        target_age: str | None = None,
         white_background: bool = False,
     ) -> dict[str, Any]:
         request = self.profile_variant_request_summary(
             image_path,
             word=word,
             profile_description=profile_description,
+            target_age=target_age,
             white_background=white_background,
         )
         image_input = self._to_data_uri(image_path)
@@ -314,6 +318,7 @@ class ReplicateClient:
         *,
         word: str,
         profile_description: str,
+        target_age: str | None = None,
         white_background: bool = False,
     ) -> dict[str, Any]:
         background_instruction = (
@@ -321,8 +326,14 @@ class ReplicateClient:
             if white_background
             else "Keep the same background scene, composition, lighting, and props."
         )
+        teenager_target = str(target_age or "").strip().lower() == "teenager"
+        style_instruction = (
+            "Using the provided image as the base, keep the same AAC concept, focal action, and concept clarity, but switch teenager targets to a clearly photorealistic look rather than an illustration. "
+            if teenager_target
+            else "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+        )
         prompt = (
-            "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+            f"{style_instruction}"
             f"Change only the main person so the image clearly shows a {profile_description}. "
             "Make the age and gender change visible in the whole body, including height, limb length, torso proportions, and silhouette, not only in the face. "
             f"{background_instruction} Keep exactly one clear central person. "

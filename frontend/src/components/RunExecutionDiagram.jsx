@@ -238,7 +238,7 @@ function humanAge(value) {
   if (normalized === 'toddler') return 'Toddler (2-4)'
   if (normalized === 'kid') return 'Kid (5-9)'
   if (normalized === 'tween') return 'Tween (10-14)'
-  if (normalized === 'teenager') return 'Teenager (15-18)'
+  if (normalized === 'teenager') return 'Teenager (20, photorealistic)'
   return value || ''
 }
 
@@ -1702,7 +1702,7 @@ export default function RunExecutionDiagram({
                   <option value="gpt-5.4-nano">gpt-5.4-nano</option>
                   <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview</option>
                   <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
-                  <option value="gemini-3.1-flash-lite-preview">gemini-3.1-flash-lite-preview</option>
+                  <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
                 </select>
               </label>
               <label>
