@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
 from app.inventory_models import word_inventory
@@ -49,6 +49,11 @@ class WordSourceService:
         search: str = "",
         limit: int = 200,
         offset: int = 0,
+        selection_mode: str = "all",
+        row_id: str = "",
+        range_start: int | None = None,
+        range_end: int | None = None,
+        parts_of_speech: list[str] | None = None,
     ) -> dict[str, Any]:
         normalized, table = self.approved_table(table_name)
         if inventory_engine is None:
@@ -56,28 +61,42 @@ class WordSourceService:
 
         safe_limit = max(1, min(int(limit or 200), 500))
         safe_offset = max(0, int(offset or 0))
+        selected = self._selection_query(
+            table,
+            selection_mode=selection_mode,
+            row_id=row_id,
+            range_start=range_start,
+            range_end=range_end,
+            parts_of_speech=parts_of_speech,
+        ).subquery()
+        image_columns = [selected.c[column.name] for column in table.columns if column.name.endswith("_path")]
+        has_existing_image = or_(*[func.length(func.trim(column)) > 0 for column in image_columns])
         query = select(
-            table.c.id,
-            table.c.word,
-            table.c.part_of_sentence,
-            table.c.category,
-            table.c.context,
-            table.c.job_status,
-            table.c.fully_complete,
-            table.c.updated_at,
+            selected.c.id,
+            selected.c.position,
+            selected.c.word,
+            selected.c.part_of_sentence,
+            selected.c.part_of_speech,
+            selected.c.sense_id,
+            selected.c.category,
+            selected.c.context,
+            selected.c.job_status,
+            selected.c.fully_complete,
+            case((has_existing_image, True), else_=False).label("has_existing_image"),
+            selected.c.updated_at,
         )
-        count_query = select(func.count()).select_from(table)
+        count_query = select(func.count()).select_from(selected)
         search_value = str(search or "").strip()
         if search_value:
             pattern = f"%{search_value}%"
             predicate = or_(
-                table.c.word.ilike(pattern),
-                table.c.part_of_sentence.ilike(pattern),
-                table.c.category.ilike(pattern),
+                selected.c.word.ilike(pattern),
+                selected.c.part_of_speech.ilike(pattern),
+                selected.c.sense_id.ilike(pattern),
             )
             query = query.where(predicate)
             count_query = count_query.where(predicate)
-        query = query.order_by(table.c.word.asc(), table.c.part_of_sentence.asc(), table.c.id.asc())
+        query = query.order_by(selected.c.position.asc())
         query = query.offset(safe_offset).limit(safe_limit)
 
         with inventory_engine.connect() as conn:
@@ -86,39 +105,97 @@ class WordSourceService:
                 {key: _json_value(value) for key, value in row._mapping.items()}
                 for row in conn.execute(query)
             ]
+            pos_values = list(
+                conn.execute(
+                    select(table.c.part_of_speech)
+                    .where(table.c.is_active.is_(True), func.length(func.trim(table.c.part_of_speech)) > 0)
+                    .distinct()
+                    .order_by(table.c.part_of_speech.asc())
+                ).scalars()
+            )
         return {
             "table_name": normalized,
             "rows": rows,
             "total": total,
             "limit": safe_limit,
             "offset": safe_offset,
+            "parts_of_speech": [str(value) for value in pos_values],
         }
 
-    def get_rows(self, table_name: str, row_ids: list[str]) -> list[dict[str, Any]]:
+    def _selection_query(
+        self,
+        table,
+        *,
+        selection_mode: str,
+        row_id: str = "",
+        range_start: int | None = None,
+        range_end: int | None = None,
+        parts_of_speech: list[str] | None = None,
+    ):
+        mode = str(selection_mode or "all").strip().lower()
+        if mode not in {"single", "range", "all"}:
+            raise ValueError(f"Unsupported selection mode: {selection_mode}")
+        position = func.row_number().over(
+            order_by=(func.lower(table.c.word), table.c.part_of_speech, table.c.sense_id, table.c.id)
+        ).label("position")
+        ordered = select(*table.c, position).where(table.c.is_active.is_(True)).subquery()
+        query = select(ordered)
+        if mode == "single":
+            selected_id = str(row_id or "").strip()
+            if not selected_id:
+                raise ValueError("Choose one exact word row")
+            query = query.where(ordered.c.id == selected_id)
+        elif mode == "range":
+            start = int(range_start or 0)
+            end = int(range_end or 0)
+            if start < 1 or end < start:
+                raise ValueError("Range end must be greater than or equal to range start")
+            query = query.where(ordered.c.position.between(start, end))
+        normalized_pos = sorted({str(value or "").strip().lower() for value in (parts_of_speech or []) if str(value or "").strip()})
+        if normalized_pos:
+            query = query.where(func.lower(ordered.c.part_of_speech).in_(normalized_pos))
+        return query
+
+    def get_rows(
+        self,
+        table_name: str,
+        *,
+        selection_mode: str,
+        row_id: str = "",
+        range_start: int | None = None,
+        range_end: int | None = None,
+        parts_of_speech: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         normalized, table = self.approved_table(table_name)
         if inventory_engine is None:
             raise RuntimeError("Inventory database is not configured")
-        ids = list(dict.fromkeys(str(row_id or "").strip() for row_id in row_ids if str(row_id or "").strip()))
-        if not ids:
-            return []
-        if len(ids) > 500:
-            raise ValueError("At most 500 word-source rows can be imported at once")
+        query = self._selection_query(
+            table,
+            selection_mode=selection_mode,
+            row_id=row_id,
+            range_start=range_start,
+            range_end=range_end,
+            parts_of_speech=parts_of_speech,
+        )
         with inventory_engine.connect() as conn:
-            found = list(conn.execute(select(table).where(table.c.id.in_(ids))))
-        by_id = {str(row._mapping["id"]): dict(row._mapping) for row in found}
+            found = list(conn.execute(query.order_by("position")))
         rows: list[dict[str, Any]] = []
-        for row_id in ids:
-            row = by_id.get(row_id)
-            if row is None:
-                continue
+        for result in found:
+            row = dict(result._mapping)
+            row_id = str(row.get("id") or "").strip()
+            part_of_speech = str(row.get("part_of_speech") or row.get("part_of_sentence") or "").strip()
+            sense_id = str(row.get("sense_id") or "").strip()
             rows.append(
                 {
                     "word": str(row.get("word") or "").strip(),
-                    "part_of_sentence": str(row.get("part_of_sentence") or "").strip(),
-                    "category": str(row.get("category") or "").strip(),
-                    "context": str(row.get("context") or "").strip(),
+                    "part_of_sentence": part_of_speech,
+                    "category": str(row.get("main_category") or row.get("category") or "").strip(),
+                    "context": str(row.get("sense_oxford") or row.get("sense_wordnet") or row.get("context") or "").strip(),
                     "_word_source_table": normalized,
                     "_word_source_row_id": row_id,
+                    "_word_source_word": str(row.get("word") or "").strip(),
+                    "_word_source_part_of_speech": part_of_speech,
+                    "_word_source_sense_id": sense_id,
                 }
             )
         return rows

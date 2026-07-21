@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import desc, select, update
+from sqlalchemy import and_, desc, select, update
 from sqlalchemy.orm import Session
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
@@ -412,10 +412,18 @@ class InventorySyncService:
         source_row = Repository.json_field_dict(item.source_row_json)
         source_table = str(source_row.get("_word_source_table") or "").strip().lower()
         source_row_id = str(source_row.get("_word_source_row_id") or "").strip()
+        source_word = str(source_row.get("_word_source_word") or "").strip()
+        source_pos = str(source_row.get("_word_source_part_of_speech") or "").strip()
+        source_sense_id = str(source_row.get("_word_source_sense_id") or "").strip()
         if source_table == "word_inventory" and source_row_id:
-            existing_query = select(word_inventory.c.id, word_inventory.c.created_at).where(
-                word_inventory.c.id == source_row_id
-            )
+            exact_key = [word_inventory.c.id == source_row_id]
+            if source_word:
+                exact_key.append(word_inventory.c.word == source_word)
+            if source_pos:
+                exact_key.append(word_inventory.c.part_of_speech == source_pos)
+            if source_sense_id:
+                exact_key.append(word_inventory.c.sense_id == source_sense_id)
+            existing_query = select(word_inventory.c.id, word_inventory.c.created_at).where(and_(*exact_key))
         else:
             existing_query = (
                 select(word_inventory.c.id, word_inventory.c.created_at)
@@ -424,6 +432,10 @@ class InventorySyncService:
                 .limit(1)
             )
         existing = conn.execute(existing_query).first()
+        if source_table == "word_inventory" and source_row_id and existing is None:
+            raise RuntimeError(
+                "The selected word_inventory row no longer matches its word + POS + sense_id key"
+            )
         if existing:
             payload["id"] = existing.id
             payload["created_at"] = existing.created_at

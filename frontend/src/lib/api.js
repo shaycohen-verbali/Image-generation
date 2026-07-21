@@ -81,6 +81,13 @@ export async function listWordSources() {
 export async function listWordSourceRows(tableName, filters = {}) {
   const query = new URLSearchParams()
   if (filters.search) query.set('search', filters.search)
+  if (filters.selection_mode) query.set('selection_mode', filters.selection_mode)
+  if (filters.row_id) query.set('row_id', filters.row_id)
+  if (filters.range_start) query.set('range_start', String(filters.range_start))
+  if (filters.range_end) query.set('range_end', String(filters.range_end))
+  for (const partOfSpeech of filters.parts_of_speech || []) {
+    query.append('parts_of_speech', partOfSpeech)
+  }
   query.set('limit', String(filters.limit || 200))
   query.set('offset', String(filters.offset || 0))
   return fetchJson(`${API_BASE}/word-sources/${encodeURIComponent(tableName)}/rows?${query.toString()}`, {}, 1)

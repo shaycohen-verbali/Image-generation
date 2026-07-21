@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, MetaData, String, Table, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, MetaData, String, Table, Text, UniqueConstraint
 
 AGE_VALUES = ("toddler", "kid", "tween", "teenager")
 GENDER_VALUES = ("male", "female")
@@ -58,6 +58,14 @@ word_inventory = Table(
     Column("synced_at", DateTime, nullable=True),
     Column("created_at", DateTime, nullable=False),
     Column("updated_at", DateTime, nullable=False),
+    Column("sense_id", Text, nullable=True),
+    Column("canonical_word", Text, nullable=True),
+    Column("part_of_speech", Text, nullable=True),
+    Column("sense_oxford", Text, nullable=True),
+    Column("sense_wordnet", Text, nullable=True),
+    Column("main_category", Text, nullable=True),
+    Column("fine_tune_categories", JSON, nullable=False, default=list),
+    Column("is_active", Boolean, nullable=False, default=True),
     *slot_columns,
     *prompt_columns,
     UniqueConstraint("source_csv_job_item_id", name="uq_word_inventory_job_item"),

@@ -27,6 +27,11 @@ def list_word_source_rows(
     search: str = Query(default="", max_length=256),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    selection_mode: str = Query(default="all", pattern="^(single|range|all)$"),
+    row_id: str = Query(default="", max_length=128),
+    range_start: int | None = Query(default=None, ge=1),
+    range_end: int | None = Query(default=None, ge=1, le=100_000),
+    parts_of_speech: list[str] = Query(default=[]),
 ) -> WordSourceRowsOut:
     try:
         result = WordSourceService().list_rows(
@@ -34,6 +39,11 @@ def list_word_source_rows(
             search=search,
             limit=limit,
             offset=offset,
+            selection_mode=selection_mode,
+            row_id=row_id,
+            range_start=range_start,
+            range_end=range_end,
+            parts_of_speech=parts_of_speech,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -50,13 +60,20 @@ def import_word_source_rows(
 ) -> CsvJobImportResponse:
     source_service = WordSourceService()
     try:
-        rows = source_service.get_rows(table_name, payload.row_ids)
+        rows = source_service.get_rows(
+            table_name,
+            selection_mode=payload.selection_mode,
+            row_id=payload.row_id or "",
+            range_start=payload.range_start,
+            range_end=payload.range_end,
+            parts_of_speech=payload.parts_of_speech,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    if len(rows) != len(set(payload.row_ids)):
-        raise HTTPException(status_code=404, detail="One or more selected word-source rows were not found")
+    if not rows:
+        raise HTTPException(status_code=404, detail="No word-source rows matched this selection")
     result = CsvDagService(db).import_word_source_rows(
         table_name=table_name,
         rows=rows,
