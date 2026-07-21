@@ -20,8 +20,8 @@ def _seed_inventory_row(
     word: str = "balance",
     part_of_speech: str = "verb",
     sense_id: str = "sense-balance-verb-1",
-    sense_wordnet: str = "maintain a steady position",
-    sense_oxford: str = "a state in which weight is evenly distributed",
+    sense_wordnet: str | None = "maintain a steady position",
+    sense_oxford: str | None = "a state in which weight is evenly distributed",
     synonyms: list[str] | None = None,
 ) -> None:
     now = datetime.utcnow()
@@ -143,6 +143,23 @@ def test_range_and_pos_selection_use_global_stable_positions(monkeypatch) -> Non
     assert preview["total"] == 2
     assert [row["position"] for row in preview["rows"]] == [1, 2]
     assert preview["parts_of_speech"] == ["adjective", "noun", "verb"]
+
+
+def test_preview_serializes_missing_senses_as_blank_strings(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    inventory_metadata.create_all(bind=engine)
+    _seed_inventory_row(
+        engine,
+        sense_wordnet=None,
+        sense_oxford=None,
+    )
+
+    import app.services.word_sources as word_sources_module
+
+    monkeypatch.setattr(word_sources_module, "inventory_engine", engine)
+    preview = WordSourceService().list_rows("word_inventory", selection_mode="all")
+    assert preview["rows"][0]["sense_wordnet"] == ""
+    assert preview["rows"][0]["sense_oxford"] == ""
 
 
 def test_word_sense_falls_back_to_oxford_then_blank(monkeypatch) -> None:
