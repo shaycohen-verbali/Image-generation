@@ -32,10 +32,10 @@ const STAGE1_PROMPT_TEMPLATE = [
 ].join('\n')
 
 const STAGE3_CRITIQUE_PROMPT_TEMPLATE =
-  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"...", "animal_present":"yes|no"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Current system hypothesis: person needed = <decision.initial_need_person>. Current render style = <decision.render_style_mode>.'
+  'You are an expert AAC visual designer for children. Analyze the image for concept clarity. Return STRICT JSON with keys {"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"...", "animal_present":"yes|no"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Word sense: <entry.word_sense>. Current system hypothesis: person needed = <decision.initial_need_person>. Current render style = <decision.render_style_mode>.'
 
 const STAGE3_ANATOMY_CRITIQUE_PROMPT_TEMPLATE =
-  'You are an expert children\'s image anatomy reviewer. Analyze the image for anatomy/body-integrity problems. Return STRICT JSON with keys {"anatomy_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "body_integrity_problem":"none|extra_limbs|missing_limbs|detached_body_parts|half_body|animal_anatomy_error"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Person expected or present: <yes|no>. Animal expected or present: <yes|no>.'
+  'You are an expert children\'s image anatomy reviewer. Analyze the image for anatomy/body-integrity problems. Return STRICT JSON with keys {"anatomy_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "body_integrity_problem":"none|extra_limbs|missing_limbs|detached_body_parts|half_body|animal_anatomy_error"}. Concept word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Word sense: <entry.word_sense>. Person expected or present: <yes|no>. Animal expected or present: <yes|no>.'
 
 const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
   'Create an upgraded image prompt for the given word. Return STRICT JSON:',
@@ -56,7 +56,7 @@ const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
   '<decision.person_instruction>',
   '',
   'Do not use text in the image.',
-  "The word's category can add information in addition to its PoS.",
+  'The word sense can add information in addition to its PoS.',
   'Illustration style to use when a person is needed (<config.visual_style_name> / <config.visual_style_id>):',
   '<config.visual_style_prompt_block>',
   '',
@@ -65,7 +65,7 @@ const STAGE3_UPGRADE_PROMPT_TEMPLATE = [
 ].join('\n')
 
 const QUALITY_GATE_PROMPT_TEMPLATE =
-  'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: {"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. Word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Category: <entry.category>. Pass threshold is <run.quality_threshold>. Expected render style is <decision.render_style_mode>.'
+  'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: {"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. Word: <entry.word>. Part of sentence: <entry.part_of_sentence>. Word sense: <entry.word_sense>. Pass threshold is <run.quality_threshold>. Expected render style is <decision.render_style_mode>.'
 
 const WHITE_BG_PROMPT_TEMPLATE = [
   'remove the background - keep only the important elements of the image and make the background white.',

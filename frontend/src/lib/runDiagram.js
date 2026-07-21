@@ -411,7 +411,7 @@ function critiqueTemplate(ctx) {
     'You are an expert AAC visual designer for children. ' +
     'Analyze the image for concept clarity. Return STRICT JSON with keys ' +
     '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"...", "animal_present":"yes|no"}. ' +
-    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}.`
   )
 }
 
@@ -419,7 +419,7 @@ function anatomyCritiqueTemplate(ctx) {
   return (
     'You are an expert children\'s image anatomy reviewer. Return STRICT JSON with keys ' +
     '{"anatomy_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "body_integrity_problem":"none|extra_limbs|missing_limbs|detached_body_parts|half_body|animal_anatomy_error"}. ' +
-    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}.`
   )
 }
 
@@ -427,7 +427,7 @@ function accessibilityCritiqueTemplate(ctx) {
   return (
     'You are an AAC accessibility reviewer for children and users with special needs. Return STRICT JSON with keys ' +
     '{"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. ' +
-    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}.`
   )
 }
 
@@ -435,7 +435,7 @@ function postQualityAccessibilityCritiqueTemplate(ctx) {
   return (
     'You are reviewing a conceptually good AAC image after the quality gate. Return STRICT JSON with keys ' +
     '{"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", "simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. ' +
-    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}. ` +
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}. ` +
     'Recommend only minor readability softening and recommend no changes when the image is already AAC-friendly.'
   )
 }
@@ -444,7 +444,7 @@ function variantCritiqueTemplate(ctx) {
   return (
     'Critique the generated variant image for target-profile clothing/styling correctness. Return STRICT JSON with keys ' +
     '{"correction_needed":"yes|no", "issues":"...", "correction_prompt":"...", "reason":"..."}. ' +
-    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}.`
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}.`
   )
 }
 
@@ -452,7 +452,7 @@ function qualityTemplate(ctx, threshold, expectedRenderStyleMode) {
   return (
     'Score the AAC concept image quality for a child user. Return STRICT JSON with fields: ' +
     '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. ' +
-    `Word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Category: ${ctx.category}. ` +
+    `Word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}. ` +
     `Pass threshold is ${threshold}. Expected render style is ${expectedRenderStyleMode || 'not specified'}.`
   )
 }
