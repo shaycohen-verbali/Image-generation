@@ -38,7 +38,8 @@ DEFAULT_ILLUSTRATION_ENFORCED_PROMPT_TEMPLATE = (
     "Use this concept guidance from the prompt engineer: {source_prompt}\n"
     "Context: {context}\n"
     "Part of speech: {part_of_sentence}\n"
-    "Category: {category}\n"
+    "Word sense: {category}\n"
+    "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "Hard requirements:\n"
     "- Resolved render style: illustration ({render_style_name}).\n"
     "- {person_decision_instruction}\n"
@@ -54,7 +55,8 @@ DEFAULT_PHOTOREALISTIC_ENFORCED_PROMPT_TEMPLATE = (
     "Use this concept guidance from the prompt engineer: {source_prompt}\n"
     "Context: {context}\n"
     "Part of speech: {part_of_sentence}\n"
-    "Category: {category}\n"
+    "Word sense: {category}\n"
+    "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "Hard requirements:\n"
     "- Resolved render style: photorealistic ({render_style_name}).\n"
     "- {person_decision_instruction}\n"
@@ -81,7 +83,8 @@ DEFAULT_STAGE1_PROMPT_TEMPLATE = (
     "Context: {context}\n"
     "Word: {word}\n"
     "Part of speech: {part_of_sentence}\n"
-    "Category: {category}\n"
+    "Word sense: {category}\n"
+    "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "If a person is present, use this default person profile: {person_profile}\n\n"
     "Decision rule:\n"
     "- If a person is needed for AAC clarity, the prompt should use an illustration and make the person central.\n"
@@ -101,14 +104,15 @@ DEFAULT_STAGE3_PROMPT_TEMPLATE = (
     "challenges and improvements with the old image: challenges={challenges}; recommendations={recommendations}\n"
     "word: {word}\n"
     "part of sentence: {part_of_sentence}\n"
-    "Category: {category}\n"
+    "Word sense: {category}\n"
+    "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "If a person is present, use this default person profile: {person_profile}\n\n"
     "Current decision from the system: {resolved_need_person_reasoning}\n"
     "Resolved person-needed decision: {resolved_need_person}\n"
     "Resolved render style: {render_style_mode}\n"
     "{person_decision_instruction}\n\n"
     "Do not use text in the image.\n"
-    "The word's category can add information in addition to its PoS.\n"
+    "The word sense can add information in addition to its PoS.\n"
     "If render style is illustration, keep the exact illustration house style consistent with previous and future images.\n"
     "Illustration style to use when a person is needed ({visual_style_name} / {visual_style_id}):\n"
     "{visual_style_block}\n\n"
@@ -271,6 +275,7 @@ def apply_render_decision_to_prompt(
     part_of_sentence: str = "",
     category: str = "",
     context: str = "",
+    word_synonyms_for_better_meaning: str = "",
     person_profile: str = "",
     illustration_style_id: str = DEFAULT_VISUAL_STYLE_ID,
     illustration_style_name: str = DEFAULT_VISUAL_STYLE_NAME,
@@ -303,6 +308,7 @@ def apply_render_decision_to_prompt(
             "context": context,
             "part_of_sentence": part_of_sentence,
             "category": category,
+            "word_synonyms_for_better_meaning": word_synonyms_for_better_meaning,
             "source_prompt": normalized_source_prompt,
             "render_style_name": decision["render_style_name"],
             "person_decision_instruction": decision["person_decision_instruction"],
@@ -328,6 +334,7 @@ def build_stage1_prompt(
             "word": entry.word,
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
+            "word_synonyms_for_better_meaning": entry.word_synonyms_for_better_meaning,
             "boy_or_girl": entry.boy_or_girl,
             "person_profile": profile_label(default_profile),
             "photorealistic_hint": _photorealistic_hint(),
@@ -370,6 +377,7 @@ def build_stage3_prompt(
             "word": entry.word,
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
+            "word_synonyms_for_better_meaning": entry.word_synonyms_for_better_meaning,
             "boy_or_girl": entry.boy_or_girl,
             "person_profile": profile_label(default_profile),
             "photorealistic_hint": _photorealistic_hint(),
@@ -436,7 +444,7 @@ def build_stage3_anatomy_critique_prompt(
         "You are an expert children's image anatomy reviewer. Analyze the image for anatomy/body-integrity problems. "
         'Return STRICT JSON with keys {"anatomy_ok":"yes|no", "issues":"...", "correction_recommendations":"...", '
         '"body_integrity_problem":"none|extra_limbs|missing_limbs|detached_body_parts|half_body|animal_anatomy_error"}. '
-        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Word sense: {category}. "
         f"Person expected or present: {'yes' if contains_person else 'no'}. "
         f"Animal expected or present: {'yes' if contains_animal else 'no'}. "
         "Focus on extra limbs, missing limbs, detached or stray body parts, half bodies, random legs or arms, and comparable anatomy errors for animals. "
@@ -455,7 +463,7 @@ def build_stage3_accessibility_critique_prompt(
         "You are an AAC accessibility reviewer for children and users with special needs. Analyze whether the image is simple, easy to understand, and not visually busy. "
         'Return STRICT JSON with keys {"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", '
         '"simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. '
-        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Word sense: {category}. "
         "Focus on whether the image has one clear focal subject, low clutter, a readable silhouette, and minimal distractions. "
         "Recommend only simple, local changes that preserve the same concept and scene intent. "
         "If the image is already simple and AAC-friendly, return simplicity_ok=yes and simplicity_problem=none."
@@ -473,7 +481,7 @@ def build_post_quality_accessibility_critique_prompt(
         "Your job is only to decide whether it needs minor softening so it is easier to process inside a busy AAC grid. "
         'Return STRICT JSON with keys {"simplicity_ok":"yes|no", "issues":"...", "correction_recommendations":"...", '
         '"simplicity_problem":"none|busy_scene|too_many_objects|distracting_background|unclear_focus|visual_overload"}. '
-        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Word sense: {category}. "
         "Preserve the exact same scene, action, framing, props, concept, and subject identity. "
         "Recommend no changes when the image is already AAC-friendly. "
         "If changes are needed, recommend only minor simplifications such as reducing background competition, toning down extra clutter, or making the focal subject easier to separate from the surroundings. "
@@ -513,7 +521,7 @@ def build_variant_critique_prompt(
     return (
         "You are an expert children's image age-fidelity, continuity, and wardrobe reviewer. Analyze the edited variant image. "
         'Return STRICT JSON with keys {"correction_needed":"yes|no", "issues":"...", "correction_prompt":"...", "reason":"...", "body_age_match":"yes|no", "face_age_match":"yes|no", "age_consistency_ok":"yes|no", "outfit_age_fit":"yes|no", "teenager_child_safe":"yes|no|n/a"}. '
-        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+        f"Concept word: {word}. Part of sentence: {part_of_sentence}. Word sense: {category}. "
         f"Source profile: {source_profile}. Target profile: {target_profile}. "
         "Check whether the body age, face age, clothing fit, and visible styling all match the target age/gender while preserving the same scene, pose, action, props, and composition. "
         "Age must be readable from the whole body, not only the face. Check height relative to nearby objects, head-to-body ratio, torso length, limb length, shoulder width, hand and foot size, facial maturity, and clothing fit. "
@@ -536,7 +544,7 @@ def build_variant_correction_prompt(
     return (
         "Using the provided image as the base, keep the exact same AAC concept, scene, action, composition, props, framing, and lighting. "
         f"Target profile: {target_profile}. "
-        f'Concept word: "{word}". Part of sentence: {part_of_sentence}. Category: {category}. '
+        f'Concept word: "{word}". Part of sentence: {part_of_sentence}. Word sense: {category}. '
         "Make only the smallest changes needed so the person's body age, face age, clothing fit, and visible styling fit the target profile naturally in this same scene. "
         "Age must read correctly in the whole body, not only the face. Keep body age and face age aligned. "
         "If the target is a teenager, the result must read as a 20-year-old early adult with mature proportions, adult posture, and age-appropriate 20-year-old clothing; do not leave the person with kid proportions, tween proportions, high-school-teen energy, or a child-sized head-to-body ratio. The corrected result must not read as a little kid. "

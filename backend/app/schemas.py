@@ -27,6 +27,7 @@ class EntryCreate(BaseModel):
     part_of_sentence: str
     category: str = ""
     context: str = ""
+    word_synonyms_for_better_meaning: str = ""
     boy_or_girl: str = ""
     person_gender_options: list[str] = Field(default_factory=lambda: ["male"])
     person_age_options: list[str] = Field(default_factory=lambda: ["kid"])
@@ -40,6 +41,7 @@ class EntryOut(BaseModel):
     part_of_sentence: str
     category: str
     context: str
+    word_synonyms_for_better_meaning: str = ""
     boy_or_girl: str
     person_gender_options: list[str] = Field(default_factory=list)
     person_age_options: list[str] = Field(default_factory=list)
@@ -299,6 +301,9 @@ class WordSourceRowOut(BaseModel):
     part_of_sentence: str
     part_of_speech: str
     sense_id: str
+    sense_wordnet: str = ""
+    sense_oxford: str = ""
+    word_synonyms_for_better_meaning: str = ""
     category: str = ""
     context: str = ""
     job_status: str = ""

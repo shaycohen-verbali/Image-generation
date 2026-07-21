@@ -26,6 +26,7 @@ class Entry(Base):
     part_of_sentence: Mapped[str] = mapped_column(String(128), nullable=False)
     category: Mapped[str] = mapped_column(String(256), nullable=False)
     context: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    word_synonyms_for_better_meaning: Mapped[str] = mapped_column(Text, default="", nullable=False)
     boy_or_girl: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     person_gender_options_json: Mapped[str] = mapped_column(Text, default='["male"]', nullable=False)
     person_age_options_json: Mapped[str] = mapped_column(Text, default='["kid"]', nullable=False)

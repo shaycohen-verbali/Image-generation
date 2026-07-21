@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, text
 
 from app.inventory_models import inventory_metadata, inventory_slot_column_name, word_inventory
 from app.models import CsvTaskNode
@@ -19,9 +20,18 @@ def _seed_inventory_row(
     word: str = "balance",
     part_of_speech: str = "verb",
     sense_id: str = "sense-balance-verb-1",
+    sense_wordnet: str = "maintain a steady position",
+    sense_oxford: str = "a state in which weight is evenly distributed",
+    synonyms: list[str] | None = None,
 ) -> None:
     now = datetime.utcnow()
     with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS aac_word_lookup ("
+                "source_sense_id TEXT PRIMARY KEY, synonyms JSON NOT NULL DEFAULT '[]')"
+            )
+        )
         conn.execute(
             word_inventory.insert().values(
                 id=row_id,
@@ -34,6 +44,8 @@ def _seed_inventory_row(
                 part_of_sentence=part_of_speech,
                 part_of_speech=part_of_speech,
                 sense_id=sense_id,
+                sense_wordnet=sense_wordnet,
+                sense_oxford=sense_oxford,
                 category="actions",
                 context="standing steadily",
                 job_status="approved",
@@ -42,6 +54,13 @@ def _seed_inventory_row(
                 created_at=now,
                 updated_at=now,
             )
+        )
+        conn.execute(
+            text(
+                "INSERT OR REPLACE INTO aac_word_lookup (source_sense_id, synonyms) "
+                "VALUES (:sense_id, :synonyms)"
+            ),
+            {"sense_id": sense_id, "synonyms": json.dumps(synonyms or ["equilibrium", "stability"])},
         )
 
 
@@ -74,6 +93,9 @@ def test_word_inventory_read_import_and_writeback_targets_same_row(db_session, m
         row_id="inv_source_1",
     )
     assert rows[0]["_word_source_sense_id"] == "sense-balance-verb-1"
+    assert rows[0]["category"] == "maintain a steady position"
+    assert rows[0]["context"] == "this word is for an AAC word board"
+    assert rows[0]["word_synonyms_for_better_meaning"] == "equilibrium, stability"
     result = CsvDagService(db_session).import_word_source_rows(
         table_name="word_inventory",
         rows=rows,
@@ -121,6 +143,38 @@ def test_range_and_pos_selection_use_global_stable_positions(monkeypatch) -> Non
     assert preview["total"] == 2
     assert [row["position"] for row in preview["rows"]] == [1, 2]
     assert preview["parts_of_speech"] == ["adjective", "noun", "verb"]
+
+
+def test_word_sense_falls_back_to_oxford_then_blank(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    inventory_metadata.create_all(bind=engine)
+    _seed_inventory_row(
+        engine,
+        "inv_oxford",
+        word="calm",
+        part_of_speech="adjective",
+        sense_id="sense-oxford",
+        sense_wordnet="",
+        sense_oxford="not showing nervousness or strong emotion",
+    )
+    _seed_inventory_row(
+        engine,
+        "inv_blank",
+        word="placeholder",
+        part_of_speech="noun",
+        sense_id="sense-blank",
+        sense_wordnet="",
+        sense_oxford="",
+    )
+
+    import app.services.word_sources as word_sources_module
+
+    monkeypatch.setattr(word_sources_module, "inventory_engine", engine)
+    source = WordSourceService()
+    oxford = source.get_rows("word_inventory", selection_mode="single", row_id="inv_oxford")
+    blank = source.get_rows("word_inventory", selection_mode="single", row_id="inv_blank")
+    assert oxford[0]["category"] == "not showing nervousness or strong emotion"
+    assert blank[0]["category"] == ""
 
 
 def test_existing_profile_image_is_skipped_unless_override_is_enabled(db_session, monkeypatch) -> None:

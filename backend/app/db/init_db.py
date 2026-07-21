@@ -28,6 +28,15 @@ MIN_VARIANT_WORKERS = 1
 DEFAULT_VARIANT_WORKERS = 2
 
 
+def _ensure_word_meaning_prompt_fields(template: str) -> str:
+    updated = str(template or "")
+    updated = updated.replace("Category: {category}", "Word sense: {category}")
+    updated = updated.replace("category: {category}", "Word sense: {category}")
+    if "{word_synonyms_for_better_meaning}" not in updated:
+        updated = updated.rstrip() + "\nWord synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
+    return updated
+
+
 def _postgres_existing_columns(conn, table_name: str) -> set[str]:
     rows = conn.execute(
         text(
@@ -120,6 +129,12 @@ def init_db() -> None:
             if int(getattr(existing, "max_variant_workers", DEFAULT_VARIANT_WORKERS)) < MIN_VARIANT_WORKERS:
                 existing.max_variant_workers = DEFAULT_VARIANT_WORKERS
             existing.stage3_critique_model = normalize_vision_model(existing.stage3_critique_model or existing.openai_model_vision)
+            existing.stage1_prompt_template = _ensure_word_meaning_prompt_fields(
+                existing.stage1_prompt_template or DEFAULT_STAGE1_PROMPT_TEMPLATE
+            )
+            existing.stage3_prompt_template = _ensure_word_meaning_prompt_fields(
+                existing.stage3_prompt_template or DEFAULT_STAGE3_PROMPT_TEMPLATE
+            )
             if (
                 existing.stage3_critique_model == "gpt-4o-mini"
                 and normalize_vision_model(existing.openai_model_vision) == "gpt-4o-mini"
@@ -347,10 +362,14 @@ def _ensure_entry_columns() -> None:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN person_skin_color_options_json TEXT NOT NULL DEFAULT '[\"white\"]'"))
             if "has_person" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+            if "word_synonyms_for_better_meaning" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN word_synonyms_for_better_meaning TEXT NOT NULL DEFAULT ''"))
         else:
             existing = _postgres_existing_columns(conn, "entries")
             if "has_person" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
+            if "word_synonyms_for_better_meaning" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN word_synonyms_for_better_meaning TEXT NOT NULL DEFAULT ''"))
 
 
 def _ensure_run_columns() -> None:
