@@ -23,8 +23,7 @@ class ReplicateAPIError(RuntimeError):
 class ReplicateClient:
     def __init__(self) -> None:
         self.settings = get_settings()
-        if not self.settings.replicate_cf_base_url:
-            raise RuntimeError("REPLICATE_CF_BASE_URL must be configured")
+        self.base_url = str(self.settings.replicate_base_url or "https://api.replicate.com").rstrip("/")
 
     def _headers(self, *, wait_seconds: int | None = 60) -> dict[str, str]:
         headers = {
@@ -86,15 +85,15 @@ class ReplicateClient:
         wait_seconds: int | None = 60,
         timeout: int = 180,
     ) -> dict[str, Any]:
-        url = f"{self.settings.replicate_cf_base_url}/v1/models/{model_path}/predictions"
+        url = f"{self.base_url}/v1/models/{model_path}/predictions"
         return self._request("POST", url, json_body={"input": payload_input}, wait_seconds=wait_seconds, timeout=timeout)
 
     def get_prediction(self, prediction_id: str) -> dict[str, Any]:
-        url = f"{self.settings.replicate_cf_base_url}/v1/predictions/{prediction_id}"
+        url = f"{self.base_url}/v1/predictions/{prediction_id}"
         return self._request("GET", url, timeout=90, wait_seconds=None)
 
     def _poll_prediction(self, prediction_id: str, max_tries: int = 90, interval: float = 2.0) -> dict[str, Any]:
-        url = f"{self.settings.replicate_cf_base_url}/v1/predictions/{prediction_id}"
+        url = f"{self.base_url}/v1/predictions/{prediction_id}"
         for _ in range(max_tries):
             data = self._request("GET", url, timeout=90, wait_seconds=None)
             status = data.get("status")

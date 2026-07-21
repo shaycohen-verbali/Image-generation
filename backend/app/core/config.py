@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
 
     replicate_api_token: str = Field(default="", alias="REPLICATE_API_TOKEN")
-    replicate_cf_base_url: str = Field(default="", alias="REPLICATE_CF_BASE_URL")
+    replicate_base_url: str = Field(default="https://api.replicate.com", alias="REPLICATE_BASE_URL")
 
     quality_threshold: int = Field(default=95, alias="QUALITY_THRESHOLD")
     max_optimization_loops: int = Field(default=3, alias="MAX_OPTIMIZATION_LOOPS")
