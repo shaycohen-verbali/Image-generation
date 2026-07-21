@@ -524,7 +524,7 @@ export default function RunsPage() {
   const [visualStylePromptBlock, setVisualStylePromptBlock] = useState('')
   const [stage1PromptTemplate, setStage1PromptTemplate] = useState('')
   const [stage3PromptTemplate, setStage3PromptTemplate] = useState('')
-  const [imageAspectRatio, setImageAspectRatio] = useState('1:1')
+  const [imageAspectRatio, setImageAspectRatio] = useState('4:3')
   const [imageResolution, setImageResolution] = useState('1K')
   const [selectedDetailTab, setSelectedDetailTab] = useState('overview')
   const [csvJobs, setCsvJobs] = useState([])

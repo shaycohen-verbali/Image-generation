@@ -11,6 +11,7 @@ This repository implements a local web system that turns a concept key `(word, p
 ## Features Implemented
 - Entry creation (`POST /api/v1/entries`) with unique key enforcement.
 - CSV import (`POST /api/v1/entries/import-csv`) with current column compatibility.
+- Approved Supabase word sources (`GET /api/v1/word-sources`), currently supporting read/import/writeback for `word_inventory`.
 - Run queueing (`POST /api/v1/runs`) and retry (`POST /api/v1/runs/{id}/retry`).
 - Run listing and detailed lineage (`GET /api/v1/runs`, `GET /api/v1/runs/{id}`).
 - 4-stage worker pipeline:
@@ -33,6 +34,7 @@ Copy `.env.example` to `.env` and set:
 - `OPENAI_API_KEY`
 - `REPLICATE_API_TOKEN`
 - `REPLICATE_CF_BASE_URL`
+- `INVENTORY_DATABASE_URL` to enable the Supabase `word_inventory` picker and writeback
 - optional assistant overrides and thresholds
 
 ## Backend Run

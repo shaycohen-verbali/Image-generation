@@ -74,6 +74,27 @@ export async function importCsvJob(file, payload = {}) {
   return parseResponse(response)
 }
 
+export async function listWordSources() {
+  return fetchJson(`${API_BASE}/word-sources`, {}, 1)
+}
+
+export async function listWordSourceRows(tableName, filters = {}) {
+  const query = new URLSearchParams()
+  if (filters.search) query.set('search', filters.search)
+  query.set('limit', String(filters.limit || 200))
+  query.set('offset', String(filters.offset || 0))
+  return fetchJson(`${API_BASE}/word-sources/${encodeURIComponent(tableName)}/rows?${query.toString()}`, {}, 1)
+}
+
+export async function importWordSourceRows(tableName, payload) {
+  const response = await fetch(`${API_BASE}/word-sources/${encodeURIComponent(tableName)}/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return parseResponse(response)
+}
+
 export async function listCsvJobs() {
   return fetchJson(`${API_BASE}/csv-jobs`, {}, 2)
 }

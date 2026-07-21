@@ -19,7 +19,7 @@ OPENAI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
 }
 
 GEMINI_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
-    "gemini-3.1-flash-lite-preview": (0.10, 0.40),
+    "gemini-3.1-flash-lite": (0.10, 0.40),
     "gemini-3-flash-preview": (0.50, 3.00),
     "gemini-3.1-pro-preview": (2.00, 12.00),
 }
@@ -342,7 +342,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
         ]
 
     if stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}:
-        model = _first_text(response_json.get("model"), "gemini-3.1-flash-image-preview")
+        model = _first_text(response_json.get("model"), "gemini-3.1-flash-lite-image")
         provider = "google" if model.startswith("gemini-") else "replicate"
         variants = response_json.get("variants")
         variant_count = int(response_json.get("variant_count") or 0)
@@ -419,7 +419,7 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
             corrected_count = len([row for row in profiles if isinstance(row, dict) and not row.get("skipped")])
         if corrected_count <= 0:
             corrected_count = int(request_json.get("corrected_count") or 0)
-        model = _first_text(request_json.get("model_selected"), "nano-banana-2")
+        model = _first_text(request_json.get("model_selected"), "gemini-3.1-flash-lite-image")
         if corrected_count <= 0:
             return []
         return [
@@ -505,9 +505,9 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
             continue
         first_asset = stage_assets[0]
         if isinstance(first_asset, dict):
-            model_name = str(first_asset.get("model_name") or "gemini-3.1-flash-image-preview")
+            model_name = str(first_asset.get("model_name") or "gemini-3.1-flash-lite-image")
         else:
-            model_name = str(getattr(first_asset, "model_name", "") or "gemini-3.1-flash-image-preview")
+            model_name = str(getattr(first_asset, "model_name", "") or "gemini-3.1-flash-lite-image")
         unit_price = REPLICATE_IMAGE_RATES_USD.get(model_name, 0.0)
         estimated_cost_usd = unit_price * missing_count
         label = "Character Variant Final Images" if stage_name == "stage4_variant_generate" else "Character Variant White Background"

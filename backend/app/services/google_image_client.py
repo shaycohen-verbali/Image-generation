@@ -11,7 +11,12 @@ from typing import Any
 import requests
 
 from app.core.config import get_settings
-from app.services.model_catalog import google_image_model_name, normalize_nano_banana_safety_level, normalize_stage3_generation_model
+from app.services.model_catalog import (
+    google_image_model_name,
+    is_google_image_generation_model,
+    normalize_nano_banana_safety_level,
+    normalize_stage3_generation_model,
+)
 from app.services.retry import with_backoff
 from app.services.storage import write_temp_binary
 
@@ -319,7 +324,7 @@ class GoogleImageClient:
         )
         return self._run_generation(
             run_id=run_id,
-            model_name=google_image_model_name("nano-banana-2"),
+            model_name=google_image_model_name("gemini-3.1-flash-lite-image"),
             prompt=str(request["prompt"]),
             image_paths=[image_path],
             aspect_ratio=aspect_ratio,
@@ -344,8 +349,8 @@ class GoogleImageClient:
             "Do not add text in the image."
         )
         return {
-            "model": "nano-banana-2",
-            "provider_model": google_image_model_name("nano-banana-2"),
+            "model": "gemini-3.1-flash-lite-image",
+            "provider_model": google_image_model_name("gemini-3.1-flash-lite-image"),
             "prompt": prompt,
             "source_image_path": image_path.as_posix(),
             "aspect_ratio": aspect_ratio or "",
@@ -359,14 +364,16 @@ class GoogleImageClient:
         *,
         word: str,
         profile_description: str,
+        target_age: str | None = None,
         white_background: bool = False,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
-        model_choice: str = "nano-banana-2",
+        model_choice: str = "gemini-3.1-flash-lite-image",
     ) -> dict[str, Any]:
         selected_model = normalize_stage3_generation_model(model_choice)
-        provider_model = google_image_model_name(selected_model) if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"} else google_image_model_name("nano-banana-2")
+        provider_model = google_image_model_name(selected_model) if is_google_image_generation_model(selected_model) else google_image_model_name("gemini-3.1-flash-lite-image")
+        teenager_target = str(target_age or "").strip().lower() == "teenager"
         if white_background:
             prompt = (
                 "Using the provided image as the base, keep the exact same AAC concept, exact same avatar identity, exact same age, gender, skin tone, face, hairstyle, expression, pose, clothing, soccer ball position, and framing. "
@@ -378,15 +385,20 @@ class GoogleImageClient:
                 "Do not add text, watermark, extra people, extra limbs, or new props."
             )
         else:
+            style_instruction = (
+                "Using the provided image as the base, keep the same AAC concept, focal action, and concept clarity, but switch teenager targets to a clearly photorealistic look rather than an illustration. "
+                if teenager_target
+                else "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+            )
             prompt = (
-                "Using the provided image as the base, keep the same AAC concept, visual style, focal action, and concept clarity. "
+                f"{style_instruction}"
                 f"{edit_instruction.strip()} "
                 f"Change only the main person so the image clearly shows a {profile_description}. "
                 "Make the age and gender change visible in the whole body, including height, head-to-body ratio, limb length, torso proportions, shoulder width, hand size, foot size, silhouette, clothing fit, and head size, not only in the face. "
                 "Body age and face age must agree. The result must not have a teenager face on a kid body or a child body with mature facial features. "
                 "When the person's age changes, make nearby objects scale appropriately relative to the person's body so the scene still reads naturally. "
                 "Compare against neighboring age buckets: toddler must not read as kid, kid must not read as tween, tween must not read as teenager, and teenager must not read as tween or kid. "
-                "If the requested age is a teenager, the result must read as a mature older-teen to young-adult person with clearly mature body proportions, adult-leaning posture, longer limbs, a longer torso, larger hands and feet, an adult head ratio, and clearly age-appropriate older-teen to young-adult clothing fit; it must not look like a younger child, tween, or little kid. The whole figure should give strong mature older-teen to young-adult energy while remaining fully clothed, child-safe, and non-sexualized. "
+                "If the requested age is a teenager, the result must read as a mature older-teen to young-adult person with clearly mature body proportions, adult-leaning posture, longer limbs, a longer torso, larger hands and feet, an adult head ratio, and clearly age-appropriate older-teen to young-adult clothing fit; it must not look like a younger child, tween, or little kid. The whole figure should give strong mature older-teen to young-adult energy while remaining fully clothed, child-safe, and non-sexualized. Teenager targets must look photorealistic, with realistic skin, face detail, hair, clothing texture, and lighting, and must not remain in a cartoon, watercolor, storybook, or illustrated style. "
                 "Keep the same background scene, composition, lighting, and props. Keep exactly one clear central person. "
                 "Keep the same single avatar identity across matching final and white-background outputs; do not invent a different child. "
                 "Preserve the same pose, action, clothing color palette, soccer ball position, and overall composition unless a small recentering adjustment is needed to avoid cropping. "
@@ -415,13 +427,13 @@ class GoogleImageClient:
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
-        model_choice: str = "nano-banana-2",
+        model_choice: str = "gemini-3.1-flash-lite-image",
     ) -> dict[str, Any]:
         selected_model = normalize_stage3_generation_model(model_choice)
         provider_model = (
             google_image_model_name(selected_model)
-            if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"}
-            else google_image_model_name("nano-banana-2")
+            if is_google_image_generation_model(selected_model)
+            else google_image_model_name("gemini-3.1-flash-lite-image")
         )
         prompt = (
             "Using the provided image as the base, keep the exact same AAC concept, exact same scene, exact same action, exact same object count, exact same framing, exact same lighting, and exact same subject identity. "
@@ -451,14 +463,14 @@ class GoogleImageClient:
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
-        model_choice: str = "nano-banana-2",
+        model_choice: str = "gemini-3.1-flash-lite-image",
     ) -> dict[str, Any]:
         prediction_id = f"google_pred_{uuid.uuid4().hex}"
         selected_model = normalize_stage3_generation_model(model_choice)
         model_name = (
             google_image_model_name(selected_model)
-            if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"}
-            else google_image_model_name("nano-banana-2")
+            if is_google_image_generation_model(selected_model)
+            else google_image_model_name("gemini-3.1-flash-lite-image")
         )
         future = self._prediction_executor.submit(
             self._run_generation,
@@ -491,15 +503,16 @@ class GoogleImageClient:
         run_id: str,
         word: str,
         profile_description: str,
+        target_age: str | None = None,
         white_background: bool = False,
         aspect_ratio: str | None = None,
         image_size: str | None = None,
         edit_instruction: str = "",
-        model_choice: str = "nano-banana-2",
+        model_choice: str = "gemini-3.1-flash-lite-image",
     ) -> dict[str, Any]:
         prediction_id = f"google_pred_{uuid.uuid4().hex}"
         selected_model = normalize_stage3_generation_model(model_choice)
-        model_name = google_image_model_name(selected_model) if selected_model in {"nano-banana", "nano-banana-2", "nano-banana-pro"} else google_image_model_name("nano-banana-2")
+        model_name = google_image_model_name(selected_model) if is_google_image_generation_model(selected_model) else google_image_model_name("gemini-3.1-flash-lite-image")
         future = self._prediction_executor.submit(
             self._run_generation,
             run_id=run_id,
@@ -509,6 +522,7 @@ class GoogleImageClient:
                     image_path,
                     word=word,
                     profile_description=profile_description,
+                    target_age=target_age,
                     white_background=white_background,
                     aspect_ratio=aspect_ratio,
                     image_size=image_size,
@@ -529,7 +543,7 @@ class GoogleImageClient:
     def get_prediction(self, prediction_id: str) -> dict[str, Any]:
         with self._lock:
             future = self._prediction_futures.get(prediction_id)
-            model_name = self._prediction_models.get(prediction_id, google_image_model_name("nano-banana-2"))
+            model_name = self._prediction_models.get(prediction_id, google_image_model_name("gemini-3.1-flash-lite-image"))
         if future is None:
             return {"id": prediction_id, "status": "failed", "error": "unknown_prediction_id", "model": model_name, "provider": "google"}
         if not future.done():

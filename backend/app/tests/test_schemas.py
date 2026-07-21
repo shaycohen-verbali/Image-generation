@@ -127,6 +127,21 @@ def test_runtime_config_update_accepts_variant_correction_model() -> None:
     assert config.variant_correction_model == "nano-banana-2"
 
 
+def test_runtime_config_update_accepts_gemini_flash_lite_models() -> None:
+    config = RuntimeConfigUpdate(
+        responses_prompt_engineer_model="gemini-3.1-flash-lite",
+        stage3_critique_model="gemini-3.1-flash-lite",
+        stage3_generate_model="gemini-3.1-flash-lite-image",
+        post_quality_accessibility_generate_model="gemini-3.1-flash-lite-image",
+        variant_correction_model="gemini-3.1-flash-lite-image",
+    )
+    assert config.responses_prompt_engineer_model == "gemini-3.1-flash-lite"
+    assert config.stage3_critique_model == "gemini-3.1-flash-lite"
+    assert config.stage3_generate_model == "gemini-3.1-flash-lite-image"
+    assert config.post_quality_accessibility_generate_model == "gemini-3.1-flash-lite-image"
+    assert config.variant_correction_model == "gemini-3.1-flash-lite-image"
+
+
 def test_runtime_config_update_accepts_large_worker_counts() -> None:
     config = RuntimeConfigUpdate(max_parallel_runs=200, max_variant_workers=200)
     assert config.max_parallel_runs == 200

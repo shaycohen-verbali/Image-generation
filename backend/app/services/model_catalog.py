@@ -18,8 +18,10 @@ VISION_MODEL_ALIASES = {
     "gemini-3.1-pro": "gemini-3.1-pro-preview",
     "gemini 3.1 pro": "gemini-3.1-pro-preview",
     "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite-preview",
-    "gemini 3.1 flash lite preview": "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite",
+    "gemini 3.1 flash lite preview": "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
+    "gemini 3.1 flash lite": "gemini-3.1-flash-lite",
 }
 
 SUPPORTED_PROMPT_ENGINEER_MODELS = {
@@ -28,7 +30,7 @@ SUPPORTED_PROMPT_ENGINEER_MODELS = {
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite",
     "gemini-3-flash-preview",
     "gemini-3.1-pro-preview",
 }
@@ -38,7 +40,7 @@ SUPPORTED_VISION_MODELS = {
     "gpt-5.4",
     "gpt-5.4-mini",
     "gpt-5.4-nano",
-    "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite",
     "gemini-3-flash-preview",
     "gemini-3.1-pro-preview",
 }
@@ -50,6 +52,7 @@ SUPPORTED_STAGE3_GENERATION_MODELS = {
     "nano-banana",
     "nano-banana-2",
     "nano-banana-pro",
+    "gemini-3.1-flash-lite-image",
 }
 
 SUPPORTED_IMAGE_ASPECT_RATIOS = {
@@ -88,6 +91,7 @@ GOOGLE_IMAGE_MODEL_BY_SELECTION = {
     "nano-banana": "gemini-2.5-flash-image",
     "nano-banana-2": "gemini-3.1-flash-image-preview",
     "nano-banana-pro": "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-lite-image": "gemini-3.1-flash-lite-image",
 }
 
 
@@ -102,7 +106,7 @@ def normalize_vision_model(model: str) -> str:
 def normalize_stage3_generation_model(model: str) -> str:
     normalized = str(model or "").strip().lower()
     if normalized not in SUPPORTED_STAGE3_GENERATION_MODELS:
-        return "nano-banana-2"
+        return "gemini-3.1-flash-lite-image"
     return normalized
 
 
@@ -112,13 +116,16 @@ def is_google_image_generation_model(model: str) -> bool:
 
 def google_image_model_name(model: str) -> str:
     normalized = normalize_stage3_generation_model(model)
-    return GOOGLE_IMAGE_MODEL_BY_SELECTION.get(normalized, GOOGLE_IMAGE_MODEL_BY_SELECTION["nano-banana-2"])
+    return GOOGLE_IMAGE_MODEL_BY_SELECTION.get(
+        normalized,
+        GOOGLE_IMAGE_MODEL_BY_SELECTION["gemini-3.1-flash-lite-image"],
+    )
 
 
 def normalize_image_aspect_ratio(value: str) -> str:
     normalized = str(value or "").strip()
     if normalized not in SUPPORTED_IMAGE_ASPECT_RATIOS:
-        return "1:1"
+        return "4:3"
     return normalized
 
 
