@@ -30,11 +30,18 @@ DEFAULT_VARIANT_WORKERS = 2
 
 def _ensure_word_meaning_prompt_fields(template: str) -> str:
     updated = str(template or "")
-    updated = updated.replace("Category: {category}", "Word sense: {category}")
-    updated = updated.replace("category: {category}", "Word sense: {category}")
-    if "{word_synonyms_for_better_meaning}" not in updated:
-        updated = updated.rstrip() + "\nWord synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
-    return updated
+    updated = updated.replace("Category: {category}", "Word sense: {word_sense}")
+    updated = updated.replace("category: {category}", "Word sense: {word_sense}")
+    updated = updated.replace("Word sense: {category}", "Word sense: {word_sense}")
+
+    synonyms_line = "Word synonyms for better meaning: {word_synonyms_for_better_meaning}"
+    lines = [line for line in updated.splitlines() if line.strip() != synonyms_line]
+    sense_index = next((index for index, line in enumerate(lines) if "{word_sense}" in line), None)
+    if sense_index is None:
+        lines.append("Word sense: {word_sense}")
+        sense_index = len(lines) - 1
+    lines.insert(sense_index + 1, synonyms_line)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _postgres_existing_columns(conn, table_name: str) -> set[str]:

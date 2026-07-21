@@ -38,7 +38,7 @@ DEFAULT_ILLUSTRATION_ENFORCED_PROMPT_TEMPLATE = (
     "Use this concept guidance from the prompt engineer: {source_prompt}\n"
     "Context: {context}\n"
     "Part of speech: {part_of_sentence}\n"
-    "Word sense: {category}\n"
+    "Word sense: {word_sense}\n"
     "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "Hard requirements:\n"
     "- Resolved render style: illustration ({render_style_name}).\n"
@@ -55,7 +55,7 @@ DEFAULT_PHOTOREALISTIC_ENFORCED_PROMPT_TEMPLATE = (
     "Use this concept guidance from the prompt engineer: {source_prompt}\n"
     "Context: {context}\n"
     "Part of speech: {part_of_sentence}\n"
-    "Word sense: {category}\n"
+    "Word sense: {word_sense}\n"
     "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "Hard requirements:\n"
     "- Resolved render style: photorealistic ({render_style_name}).\n"
@@ -83,7 +83,7 @@ DEFAULT_STAGE1_PROMPT_TEMPLATE = (
     "Context: {context}\n"
     "Word: {word}\n"
     "Part of speech: {part_of_sentence}\n"
-    "Word sense: {category}\n"
+    "Word sense: {word_sense}\n"
     "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "If a person is present, use this default person profile: {person_profile}\n\n"
     "Decision rule:\n"
@@ -104,7 +104,7 @@ DEFAULT_STAGE3_PROMPT_TEMPLATE = (
     "challenges and improvements with the old image: challenges={challenges}; recommendations={recommendations}\n"
     "word: {word}\n"
     "part of sentence: {part_of_sentence}\n"
-    "Word sense: {category}\n"
+    "Word sense: {word_sense}\n"
     "Word synonyms for better meaning: {word_synonyms_for_better_meaning}\n"
     "If a person is present, use this default person profile: {person_profile}\n\n"
     "Current decision from the system: {resolved_need_person_reasoning}\n"
@@ -308,6 +308,7 @@ def apply_render_decision_to_prompt(
             "context": context,
             "part_of_sentence": part_of_sentence,
             "category": category,
+            "word_sense": category,
             "word_synonyms_for_better_meaning": word_synonyms_for_better_meaning,
             "source_prompt": normalized_source_prompt,
             "render_style_name": decision["render_style_name"],
@@ -334,6 +335,7 @@ def build_stage1_prompt(
             "word": entry.word,
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
+            "word_sense": entry.category,
             "word_synonyms_for_better_meaning": entry.word_synonyms_for_better_meaning,
             "boy_or_girl": entry.boy_or_girl,
             "person_profile": profile_label(default_profile),
@@ -377,6 +379,7 @@ def build_stage3_prompt(
             "word": entry.word,
             "part_of_sentence": entry.part_of_sentence,
             "category": entry.category,
+            "word_sense": entry.category,
             "word_synonyms_for_better_meaning": entry.word_synonyms_for_better_meaning,
             "boy_or_girl": entry.boy_or_girl,
             "person_profile": profile_label(default_profile),

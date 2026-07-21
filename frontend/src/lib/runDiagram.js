@@ -375,8 +375,12 @@ function parseStage1Context(stage1Instruction, run) {
     context: after('Context:') || '',
     word: after('Word:') || safeText(run.word),
     partOfSentence: after('Part of speech:') || safeText(run.part_of_sentence),
-    category: after('Category:') || safeText(run.category),
-    boyOrGirl: after('If a person is present, use a:') || '',
+    category: after('Word sense:') || after('Category:') || safeText(run.category),
+    synonyms: after('Word synonyms for better meaning:') || safeText(run.word_synonyms_for_better_meaning),
+    personProfile:
+      after('If a person is present, use this default person profile:') ||
+      after('If a person is present, use a:') ||
+      '',
   }
 }
 
@@ -389,8 +393,9 @@ function stage1Template(ctx) {
     `Context: ${ctx.context}`,
     `Word: ${ctx.word}`,
     `Part of speech: ${ctx.partOfSentence}`,
-    `Category: ${ctx.category}`,
-    `If a person is present, use a: ${ctx.boyOrGirl}`,
+    `Word sense: ${ctx.category}`,
+    `Word synonyms for better meaning: ${ctx.synonyms}`,
+    `If a person is present, use this default person profile: ${ctx.personProfile}`,
     '',
     'Decision rule:',
     '- If a person is needed for AAC clarity, the prompt should use an illustration and make the person central.',
