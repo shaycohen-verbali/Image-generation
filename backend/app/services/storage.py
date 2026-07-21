@@ -2,21 +2,26 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
+import threading
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
 
-import requests
 from PIL import Image
 
 from app.core.config import get_settings
+from app.services.http_client import get_http_session
 from app.services.utils import sanitize_filename
 
 settings = get_settings()
 
 SUPABASE_URI_PREFIX = "supabase://"
+
+_CACHE_LOCK_COUNT = 64
+_cache_locks = tuple(threading.Lock() for _ in range(_CACHE_LOCK_COUNT))
 
 
 @dataclass
@@ -67,7 +72,7 @@ def _parse_supabase_uri(uri: str) -> tuple[str, str]:
 
 
 def _upload_to_supabase(bucket: str, object_key: str, payload: bytes, *, content_type: str) -> str:
-    response = requests.post(
+    response = get_http_session().post(
         _supabase_upload_url(bucket, object_key),
         headers=_supabase_headers(content_type=content_type),
         data=payload,
@@ -80,7 +85,7 @@ def _upload_to_supabase(bucket: str, object_key: str, payload: bytes, *, content
 
 def _download_from_supabase(uri: str) -> bytes:
     bucket, object_key = _parse_supabase_uri(uri)
-    response = requests.get(
+    response = get_http_session().get(
         _supabase_download_url(bucket, object_key),
         headers=_supabase_headers(),
         timeout=120,
@@ -222,7 +227,14 @@ def materialize_path(path_or_uri: str, *, cache_namespace: str = "assets", force
     target = runtime_cache_root() / cache_namespace / bucket / object_key
     target.parent.mkdir(parents=True, exist_ok=True)
     if force_refresh or not target.exists():
-        target.write_bytes(_download_from_supabase(value))
+        cache_lock = _cache_locks[hash(target.as_posix()) % _CACHE_LOCK_COUNT]
+        with cache_lock:
+            if force_refresh or not target.exists():
+                payload = _download_from_supabase(value)
+                with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as tmp:
+                    tmp.write(payload)
+                    temp_name = tmp.name
+                os.replace(temp_name, target)
     return target
 
 

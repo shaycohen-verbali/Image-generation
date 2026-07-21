@@ -9,6 +9,7 @@ from typing import Any
 import requests
 
 from app.core.config import get_settings
+from app.services.http_client import get_http_session
 from app.services.model_catalog import normalize_stage3_generation_model
 from app.services.retry import with_backoff
 
@@ -45,7 +46,7 @@ class ReplicateClient:
     ) -> dict[str, Any]:
         def _call() -> dict[str, Any]:
             headers = self._headers(wait_seconds=wait_seconds)
-            response = requests.request(
+            response = get_http_session().request(
                 method,
                 url,
                 headers=headers,
@@ -350,7 +351,7 @@ class ReplicateClient:
 
     def download_image(self, url: str) -> bytes:
         def _call() -> bytes:
-            response = requests.get(url, timeout=180)
+            response = get_http_session().get(url, timeout=180)
             try:
                 response.raise_for_status()
             except requests.HTTPError as exc:

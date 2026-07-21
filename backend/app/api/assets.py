@@ -43,7 +43,7 @@ def get_asset_content(asset_id: str, db: Session = Depends(db_dependency)) -> Fi
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    path = materialize_path(asset.abs_path, cache_namespace="assets", force_refresh=True)
+    path = materialize_path(asset.abs_path, cache_namespace="assets")
     if not path.exists():
         raise HTTPException(status_code=404, detail="Asset file missing")
 

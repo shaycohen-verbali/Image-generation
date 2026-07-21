@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 from app.core.config import get_settings
+from app.services.http_client import get_http_session
 from app.services.model_catalog import (
     google_image_model_name,
     is_google_image_generation_model,
@@ -88,7 +89,7 @@ class GoogleImageClient:
         url = f"{GOOGLE_BASE_URL}/models/{model_name}:generateContent"
 
         def _call() -> dict[str, Any]:
-            response = requests.post(
+            response = get_http_session().post(
                 url,
                 headers={"Content-Type": "application/json"},
                 params={"key": self.settings.google_api_key},

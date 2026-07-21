@@ -6,11 +6,11 @@ import time
 from datetime import datetime
 from typing import Any
 
-import requests
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.services.csv_dag_service import CsvDagService
+from app.services.http_client import get_http_session
 from app.services.repository import Repository
 
 SLACK_SIGNATURE_VERSION = "v0"
@@ -70,7 +70,7 @@ class SlackService:
         token = str(self.settings.slack_bot_token or "").strip()
         if not token:
             raise RuntimeError("Slack bot token not configured")
-        response = requests.post(
+        response = get_http_session().post(
             "https://slack.com/api/chat.postMessage",
             headers={
                 "Authorization": f"Bearer {token}",

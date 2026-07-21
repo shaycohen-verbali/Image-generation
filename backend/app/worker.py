@@ -62,7 +62,6 @@ def run_worker() -> None:
                     repo = Repository(db)
                     config = repo.get_runtime_config()
                     max_parallel_runs = max(1, int(config.max_parallel_runs or 1))
-                    max_parallel_csv_tasks = max_parallel_runs
                     poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
                     timed_out_task_ids = repo.fail_stale_running_csv_tasks(timeout_seconds=CSV_TASK_TIMEOUT_SECONDS)
 
@@ -99,7 +98,8 @@ def run_worker() -> None:
                         logger.exception("csv task execution failed", extra={"csv_task_id": task_id, "error": str(exc)})
 
                 claimed_count = 0
-                for _ in range(_claim_budget(len(active_runs), max_parallel_runs)):
+                active_total = len(active_runs) + len(active_csv_tasks)
+                for _ in range(_claim_budget(active_total, max_parallel_runs)):
                     with SessionLocal() as db:
                         repo = Repository(db)
                         run = repo.claim_next_queued_run()
@@ -117,8 +117,9 @@ def run_worker() -> None:
                     )
                     future = executor.submit(_process_single_run, run.id)
                     active_runs[future] = run.id
+                    active_total += 1
 
-                for _ in range(_claim_budget(len(active_csv_tasks), max_parallel_csv_tasks)):
+                for _ in range(_claim_budget(active_total, max_parallel_runs)):
                     with SessionLocal() as db:
                         repo = Repository(db)
                         task = repo.claim_next_ready_csv_task()
@@ -131,15 +132,16 @@ def run_worker() -> None:
                             "csv_task_id": task.id,
                             "task_key": task.task_key,
                             "active_csv_tasks": len(active_csv_tasks) + 1,
-                            "max_parallel_csv_tasks": max_parallel_csv_tasks,
+                            "max_parallel_tasks": max_parallel_runs,
                         },
                     )
                     future = executor.submit(_process_single_csv_task, task.id)
                     active_csv_tasks[future] = task.id
+                    active_total += 1
 
                 error_backoff_seconds = idle_poll_seconds
 
-                if claimed_count and (len(active_runs) < max_parallel_runs or len(active_csv_tasks) < max_parallel_csv_tasks):
+                if claimed_count and active_total < max_parallel_runs:
                     time.sleep(WORKER_CLAIM_SETTLE_SECONDS)
                 elif not claimed_count and not active_runs and not active_csv_tasks:
                     time.sleep(poll_seconds)

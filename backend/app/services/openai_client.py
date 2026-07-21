@@ -10,6 +10,7 @@ from urllib.parse import quote
 import requests
 
 from app.core.config import get_settings
+from app.services.http_client import get_http_session
 from app.services.model_catalog import is_gemini_model, normalize_prompt_engineer_model, normalize_vision_model
 from app.services.prompt_templates import (
     build_post_quality_accessibility_critique_prompt,
@@ -54,7 +55,7 @@ class OpenAIClient:
     def _request(self, method: str, url: str, *, params: dict[str, Any] | None = None, json_body: dict[str, Any] | None = None, assistants_v2: bool = False, timeout: int = 180) -> dict[str, Any]:
         def _call() -> dict[str, Any]:
             headers = self._headers(assistants_v2=assistants_v2)
-            response = requests.request(
+            response = get_http_session().request(
                 method,
                 url,
                 headers=headers,
@@ -93,7 +94,7 @@ class OpenAIClient:
             raise RuntimeError("GOOGLE_API_KEY is required when using Gemini models")
 
         def _call() -> dict[str, Any]:
-            response = requests.request(
+            response = get_http_session().request(
                 method,
                 url,
                 headers={"Content-Type": "application/json"},
