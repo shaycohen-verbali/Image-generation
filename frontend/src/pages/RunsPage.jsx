@@ -80,6 +80,68 @@ function csvStepLabel(stepName) {
   return CSV_STEP_LABELS[String(stepName || '').trim()] || String(stepName || 'Unknown step')
 }
 
+const CSV_BASE_STAGE_PROGRESS = {
+  stage1_prompt: {
+    currentStep: 'Prompt generation',
+    subStatus: 'Creating the AAC image prompt',
+  },
+  stage2_draft: {
+    currentStep: 'Draft image',
+    subStatus: 'Creating the first draft image with Replicate',
+  },
+  stage3_upgrade: {
+    currentStep: 'Image optimization',
+    subStatus: 'Improving the image for AAC clarity',
+  },
+  quality_gate: {
+    currentStep: 'Quality check',
+    subStatus: 'Checking image quality and concept clarity',
+  },
+  stage3_post_quality_accessibility_critique: {
+    currentStep: 'AAC accessibility review',
+    subStatus: 'Checking whether the winning image needs a clarity adjustment',
+  },
+  stage3_post_quality_accessibility_generate: {
+    currentStep: 'AAC clarity adjustment',
+    subStatus: 'Applying the final AAC clarity adjustment',
+  },
+  stage4_background: {
+    currentStep: 'White-background image',
+    subStatus: 'Creating the white-background version',
+  },
+  completed_base_assets: {
+    currentStep: 'Base images ready',
+    subStatus: 'The quality and white-background base images are ready',
+  },
+}
+
+function csvItemLiveProgress(item) {
+  const fallback = {
+    currentStep: String(item?.current_step || ''),
+    subStatus: String(item?.sub_status || ''),
+    isBaseSubstage: false,
+  }
+  if (!item || String(item.current_step || '') !== CSV_STEP_LABELS.step1_base) return fallback
+
+  const shadowStage = String(item.shadow_run_current_stage || '').trim()
+  const stageProgress = CSV_BASE_STAGE_PROGRESS[shadowStage]
+  if (!stageProgress) return fallback
+
+  const attempt = Number(item.optimization_attempt || 0)
+  const attemptSuffix = attempt > 0 && ['stage3_upgrade', 'quality_gate'].includes(shadowStage)
+    ? ` · attempt ${attempt}`
+    : ''
+  const scoreSuffix = shadowStage === 'stage3_upgrade' && item.quality_score !== undefined && item.quality_score !== null
+    ? ` after a ${formatQualityScore(item.quality_score)}/100 quality score`
+    : ''
+
+  return {
+    currentStep: `${stageProgress.currentStep}${attemptSuffix}`,
+    subStatus: `${stageProgress.subStatus}${scoreSuffix}`,
+    isBaseSubstage: true,
+  }
+}
+
 function csvIsVariantJob(job) {
   return Boolean(String(job?.continued_from_job_id || '').trim())
 }
@@ -690,6 +752,10 @@ export default function RunsPage() {
   const csvSelectedItemHasProviderCost =
     selectedCsvItem?.estimated_total_cost_usd != null || csvShadowRunDetail?.cost_summary?.estimated_total_cost_usd != null
   const selectedCsvItemProgress = selectedCsvItem || null
+  const selectedCsvItemLiveProgress = useMemo(
+    () => csvItemLiveProgress(selectedCsvItem),
+    [selectedCsvItem],
+  )
   const selectedCsvJob = csvJobOverview?.job || csvJobs.find((job) => job.id === selectedCsvJobId) || null
   const showBaseCsvOutputs = !csvIsVariantJob(selectedCsvJob)
   const selectedCsvItemImages = useMemo(
@@ -1291,34 +1357,37 @@ export default function RunsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCsvJobItems.map((item) => (
-                      <tr
-                        key={item.id}
-                        className={item.id === selectedCsvItem?.id ? 'selected-row' : 'clickable-row'}
-                        onClick={() => {
-                          setSelectedCsvItemId(item.id)
-                          scrollToDetail()
-                        }}
-                      >
-                        <td>{item.word || '-'}</td>
-                        <td>{item.part_of_sentence || '-'}</td>
-                        <td>{item.category || '-'}</td>
-                        <td>{csvItemProfileColumnText(item)}</td>
-                        <td>
-                          <div className="status-stack">
-                            <strong>{csvPrettyStatus(item.main_status)}</strong>
-                            <span>{item.sub_status || '-'}</span>
-                          </div>
-                        </td>
-                        <td>{formatQualityScore(item.quality_score)}</td>
-                        <td>{item.optimization_loop_count || '-'}</td>
-                        <td>{formatUsd(item.estimated_total_cost_usd)}</td>
-                        <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
-                        <td>{item.current_step || '-'}</td>
-                        <td>{personAttentionLabel(Boolean(item.needs_person_attention))}</td>
-                        <td>{item.has_person === 'yes' ? 'Yes' : item.has_person === 'no' ? 'No' : '-'}</td>
-                      </tr>
-                    ))}
+                    {filteredCsvJobItems.map((item) => {
+                      const liveProgress = csvItemLiveProgress(item)
+                      return (
+                        <tr
+                          key={item.id}
+                          className={item.id === selectedCsvItem?.id ? 'selected-row' : 'clickable-row'}
+                          onClick={() => {
+                            setSelectedCsvItemId(item.id)
+                            scrollToDetail()
+                          }}
+                        >
+                          <td>{item.word || '-'}</td>
+                          <td>{item.part_of_sentence || '-'}</td>
+                          <td>{item.category || '-'}</td>
+                          <td>{csvItemProfileColumnText(item)}</td>
+                          <td>
+                            <div className="status-stack">
+                              <strong>{csvPrettyStatus(item.main_status)}</strong>
+                              <span>{liveProgress.subStatus || '-'}</span>
+                            </div>
+                          </td>
+                          <td>{formatQualityScore(item.quality_score)}</td>
+                          <td>{item.optimization_attempt || item.optimization_loop_count || '-'}</td>
+                          <td>{formatUsd(item.estimated_total_cost_usd)}</td>
+                          <td>{item.progress?.completed || 0}/{item.progress?.total || 0}</td>
+                          <td>{liveProgress.currentStep || '-'}</td>
+                          <td>{personAttentionLabel(Boolean(item.needs_person_attention))}</td>
+                          <td>{item.has_person === 'yes' ? 'Yes' : item.has_person === 'no' ? 'No' : '-'}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </>
               ) : (
@@ -1736,13 +1805,16 @@ export default function RunsPage() {
                   </div>
                   <div className="status-stack">
                     <strong>{selectedCsvItemProgress ? csvPrettyStatus(selectedCsvItemProgress.main_status) : '-'}</strong>
-                    <span>{selectedCsvItemProgress?.sub_status || '-'}</span>
+                    <span>{selectedCsvItemLiveProgress.subStatus || '-'}</span>
                   </div>
                 </div>
                 <div className="csv-word-meta-grid">
                   <div>
                     <strong>Progress</strong>
                     <p>{selectedCsvItemProgress ? `${selectedCsvItemProgress.progress?.completed || 0}/${selectedCsvItemProgress.progress?.total || 0} steps finished` : '-'}</p>
+                    {selectedCsvItemLiveProgress.isBaseSubstage ? (
+                      <small>Base images finish as one step after all quality and background stages complete.</small>
+                    ) : null}
                   </div>
                   <div>
                     <strong>Score</strong>
@@ -1750,15 +1822,15 @@ export default function RunsPage() {
                   </div>
                   <div>
                     <strong>Iterations</strong>
-                    <p>{selectedCsvItem.optimization_loop_count || '-'}</p>
+                    <p>{selectedCsvItem.optimization_attempt || selectedCsvItem.optimization_loop_count || '-'}</p>
                   </div>
                   <div>
                     <strong>Current step</strong>
-                    <p>{selectedCsvItem.current_step || '-'}</p>
+                    <p>{selectedCsvItemLiveProgress.currentStep || '-'}</p>
                   </div>
                   <div>
-                    <strong>Why it may be waiting</strong>
-                    <p>{selectedCsvItem.blocking_reason || selectedCsvItem.sub_status || '-'}</p>
+                    <strong>Live activity</strong>
+                    <p>{selectedCsvItem.blocking_reason || selectedCsvItemLiveProgress.subStatus || '-'}</p>
                   </div>
                   <div>
                     <strong>Shadow run</strong>
