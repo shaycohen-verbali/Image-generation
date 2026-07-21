@@ -215,8 +215,20 @@ class WordSourceService:
             parts_of_speech=parts_of_speech,
         ).subquery()
         lookup = aac_word_lookup.alias("word_lookup")
+        path_columns = [selected.c[column.name] for column in table.columns if column.name.endswith("_path")]
         query = (
-            select(selected, lookup.c.synonyms)
+            select(
+                selected.c.id,
+                selected.c.position,
+                selected.c.word,
+                selected.c.part_of_sentence,
+                selected.c.part_of_speech,
+                selected.c.sense_id,
+                selected.c.sense_wordnet,
+                selected.c.sense_oxford,
+                lookup.c.synonyms,
+                *path_columns,
+            )
             .select_from(selected.outerjoin(lookup, lookup.c.source_sense_id == selected.c.sense_id))
             .order_by(selected.c.position)
         )
@@ -230,6 +242,11 @@ class WordSourceService:
             sense_id = str(row.get("sense_id") or "").strip()
             word_sense = str(row.get("sense_wordnet") or row.get("sense_oxford") or "").strip()
             synonyms = _synonyms_text(row.get("synonyms"))
+            existing_paths = {
+                column.name: str(row.get(column.name) or "").strip()
+                for column in table.columns
+                if column.name.endswith("_path") and str(row.get(column.name) or "").strip()
+            }
             rows.append(
                 {
                     "word": str(row.get("word") or "").strip(),
@@ -242,6 +259,9 @@ class WordSourceService:
                     "_word_source_word": str(row.get("word") or "").strip(),
                     "_word_source_part_of_speech": part_of_speech,
                     "_word_source_sense_id": sense_id,
+                    # Carry a compact inventory snapshot into DAG construction. This avoids
+                    # dozens of Supabase lookups per imported word when checking dependencies.
+                    "_word_source_existing_paths": existing_paths,
                 }
             )
         return rows

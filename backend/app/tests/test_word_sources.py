@@ -215,6 +215,11 @@ def test_existing_profile_image_is_skipped_unless_override_is_enabled(db_session
         selection_mode="single",
         row_id="inv_source_1",
     )
+    monkeypatch.setattr(
+        InventorySyncService,
+        "slot_path_for_entry_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("range import performed an N+1 inventory lookup")),
+    )
 
     skipped = CsvDagService(db_session).import_word_source_rows(
         table_name="word_inventory",

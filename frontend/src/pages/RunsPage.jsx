@@ -247,10 +247,11 @@ function csvTaskProgressSummary(tasks, itemId) {
 }
 
 function csvJobWordSummary(items, tasks) {
-  const counts = { pending: 0, running: 0, completed: 0, failure: 0 }
+  const counts = { pending: 0, running: 0, completed: 0, failure: 0, previously_done: 0 }
   ;(Array.isArray(items) ? items : []).forEach((item) => {
-    const state = csvTaskProgressSummary(tasks, item.id)
-    counts[state.mainStatus] += 1
+    const backendStatus = String(item?.main_status || '').toLowerCase()
+    const state = backendStatus || csvTaskProgressSummary(tasks, item.id).mainStatus
+    if (Object.prototype.hasOwnProperty.call(counts, state)) counts[state] += 1
   })
   return counts
 }
@@ -1548,6 +1549,7 @@ export default function RunsPage() {
                   ['running', csvJobLiveCounts.running],
                   ['completed', csvJobLiveCounts.completed],
                   ['failure', csvJobLiveCounts.failure],
+                  ['previously_done', csvJobLiveCounts.previously_done],
                 ].map(([statusKey, count]) => (
                   <button
                     key={statusKey}

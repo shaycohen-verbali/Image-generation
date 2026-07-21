@@ -23,9 +23,9 @@ from app.services.prompt_templates import (
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
-DEFAULT_PARALLEL_RUNS = 1
+DEFAULT_PARALLEL_RUNS = 4
 MIN_VARIANT_WORKERS = 1
-DEFAULT_VARIANT_WORKERS = 2
+DEFAULT_VARIANT_WORKERS = 1
 
 
 def _ensure_word_meaning_prompt_fields(template: str) -> str:
@@ -133,6 +133,9 @@ def init_db() -> None:
             )
             db.commit()
         else:
+            if int(existing.max_parallel_runs) in {1, 2} and int(getattr(existing, "max_variant_workers", 2)) == 2:
+                existing.max_parallel_runs = 4
+                existing.max_variant_workers = 1
             if int(existing.quality_threshold) < MIN_QUALITY_THRESHOLD:
                 existing.quality_threshold = MIN_QUALITY_THRESHOLD
             if int(existing.max_parallel_runs) < MIN_PARALLEL_RUNS:
@@ -151,6 +154,8 @@ def init_db() -> None:
                 and normalize_vision_model(existing.openai_model_vision) == "gpt-4o-mini"
             ):
                 existing.stage3_critique_model = "gpt-5.4"
+            if existing.stage3_critique_model == "gpt-5.4":
+                existing.stage3_critique_model = "gemini-3-flash-preview"
             if not existing.stage3_generate_model or existing.stage3_generate_model in {"flux-1.1-pro", "nano-banana-2"}:
                 existing.stage3_generate_model = "gemini-3.1-flash-lite-image"
             else:
@@ -168,9 +173,11 @@ def init_db() -> None:
                 existing.image_format = "image/jpeg"
             existing.prompt_engineer_mode = existing.prompt_engineer_mode if existing.prompt_engineer_mode in {"assistant", "responses_api"} else "responses_api"
             if not existing.responses_prompt_engineer_model or existing.responses_prompt_engineer_model == "gpt-4.1-mini":
-                existing.responses_prompt_engineer_model = "gpt-5.4"
+                existing.responses_prompt_engineer_model = "gemini-3-flash-preview"
             else:
                 existing.responses_prompt_engineer_model = normalize_prompt_engineer_model(existing.responses_prompt_engineer_model or settings.responses_prompt_engineer_model)
+                if existing.responses_prompt_engineer_model == "gpt-5.4":
+                    existing.responses_prompt_engineer_model = "gemini-3-flash-preview"
             existing.responses_vector_store_id = existing.responses_vector_store_id or settings.responses_vector_store_id
             existing.visual_style_id = existing.visual_style_id or settings.visual_style_id or DEFAULT_VISUAL_STYLE_ID
             existing.visual_style_name = existing.visual_style_name or settings.visual_style_name or DEFAULT_VISUAL_STYLE_NAME
@@ -180,6 +187,8 @@ def init_db() -> None:
             existing.stage3_anatomy_critique_model = normalize_vision_model(
                 getattr(existing, "stage3_anatomy_critique_model", existing.stage3_critique_model) or existing.stage3_critique_model
             )
+            if existing.stage3_anatomy_critique_model == "gpt-5.4":
+                existing.stage3_anatomy_critique_model = "gemini-3.1-flash-lite"
             existing.stage3_accessibility_critique_model = normalize_vision_model(
                 getattr(existing, "stage3_accessibility_critique_model", existing.stage3_anatomy_critique_model)
                 or existing.stage3_anatomy_critique_model
@@ -190,6 +199,8 @@ def init_db() -> None:
                 or existing.stage3_accessibility_critique_model
                 or existing.stage3_critique_model
             )
+            if existing.post_quality_accessibility_critique_model == "gpt-5.4":
+                existing.post_quality_accessibility_critique_model = "gemini-3.1-flash-lite"
             existing.post_quality_accessibility_generate_model = normalize_stage3_generation_model(
                 getattr(existing, "post_quality_accessibility_generate_model", existing.stage3_generate_model)
                 or existing.stage3_generate_model
@@ -199,14 +210,19 @@ def init_db() -> None:
             existing.variant_critique_model = normalize_vision_model(
                 getattr(existing, "variant_critique_model", existing.stage3_critique_model) or existing.stage3_critique_model
             )
+            if existing.variant_critique_model == "gpt-5.4":
+                existing.variant_critique_model = "gemini-3.1-flash-lite"
             existing.variant_correction_model = normalize_stage3_generation_model(
                 getattr(existing, "variant_correction_model", existing.stage3_generate_model) or existing.stage3_generate_model
             )
             if existing.variant_correction_model == "nano-banana-2":
                 existing.variant_correction_model = "gemini-3.1-flash-lite-image"
+            existing.quality_gate_model = normalize_vision_model(existing.quality_gate_model)
+            if existing.quality_gate_model in {"gpt-4o-mini", "gpt-5.4"}:
+                existing.quality_gate_model = "gemini-3.1-flash-lite"
             existing.openai_model_vision = normalize_vision_model(existing.openai_model_vision)
-            if existing.openai_model_vision == "gpt-4o-mini" and existing.stage3_critique_model == "gpt-5.4":
-                existing.openai_model_vision = "gpt-5.4"
+            if existing.openai_model_vision in {"gpt-4o-mini", "gpt-5.4"}:
+                existing.openai_model_vision = "gemini-3-flash-preview"
             db.add(existing)
             db.commit()
 
@@ -226,27 +242,27 @@ def _ensure_runtime_config_columns() -> None:
             rows = conn.execute(text("PRAGMA table_info(runtime_config)")).fetchall()
             existing = {row[1] for row in rows}
             if "max_parallel_runs" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 4"))
             if "max_variant_workers" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 2"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 1"))
             if "stage3_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gemini-3-flash-preview'"))
             if "stage3_anatomy_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "stage3_accessibility_critique_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "stage3_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite-image'"))
             if "post_quality_accessibility_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_critique_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "post_quality_accessibility_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_generate_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite-image'"))
             if "variant_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "variant_correction_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_correction_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite-image'"))
             if "quality_gate_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "image_aspect_ratio" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_aspect_ratio TEXT NOT NULL DEFAULT '4:3'"))
             if "image_resolution" not in existing:
@@ -258,7 +274,7 @@ def _ensure_runtime_config_columns() -> None:
             if "prompt_engineer_mode" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
             if "responses_prompt_engineer_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gemini-3-flash-preview'"))
             if "responses_vector_store_id" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
             if "visual_style_id" not in existing:
@@ -274,27 +290,27 @@ def _ensure_runtime_config_columns() -> None:
         else:
             existing = _postgres_existing_columns(conn, "runtime_config")
             if "max_parallel_runs" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 2"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_parallel_runs INTEGER NOT NULL DEFAULT 4"))
             if "max_variant_workers" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 2"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN max_variant_workers INTEGER NOT NULL DEFAULT 1"))
             if "stage3_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_critique_model TEXT NOT NULL DEFAULT 'gemini-3-flash-preview'"))
             if "stage3_anatomy_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_anatomy_critique_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "stage3_accessibility_critique_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
             if "stage3_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN stage3_generate_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite-image'"))
             if "post_quality_accessibility_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_critique_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "post_quality_accessibility_generate_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN post_quality_accessibility_generate_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite-image'"))
             if "variant_critique_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_critique_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "variant_correction_model" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN variant_correction_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite-image'"))
             if "quality_gate_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gpt-4o-mini'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN quality_gate_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-lite'"))
             if "image_aspect_ratio" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN image_aspect_ratio TEXT NOT NULL DEFAULT '4:3'"))
             if "image_resolution" not in existing:
@@ -306,7 +322,7 @@ def _ensure_runtime_config_columns() -> None:
             if "prompt_engineer_mode" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN prompt_engineer_mode TEXT NOT NULL DEFAULT 'responses_api'"))
             if "responses_prompt_engineer_model" not in existing:
-                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gpt-5.4'"))
+                conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_prompt_engineer_model TEXT NOT NULL DEFAULT 'gemini-3-flash-preview'"))
             if "responses_vector_store_id" not in existing:
                 conn.execute(text("ALTER TABLE runtime_config ADD COLUMN responses_vector_store_id TEXT NOT NULL DEFAULT 'vs_683f3d36223481919f59fc5623286253'"))
             if "visual_style_id" not in existing:

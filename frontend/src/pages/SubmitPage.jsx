@@ -53,7 +53,7 @@ export default function SubmitPage() {
   const [csvActivityStartedAt, setCsvActivityStartedAt] = useState(null)
   const [csvActivityElapsedSeconds, setCsvActivityElapsedSeconds] = useState(0)
   const [csvExecutionMode, setCsvExecutionMode] = useState('csv_dag')
-  const [wordSourceType, setWordSourceType] = useState('csv')
+  const [wordSourceType, setWordSourceType] = useState('supabase')
   const [wordSources, setWordSources] = useState([])
   const [selectedWordSource, setSelectedWordSource] = useState('word_inventory')
   const [wordSourceRows, setWordSourceRows] = useState([])
@@ -67,19 +67,19 @@ export default function SubmitPage() {
   const [selectedWordSourcePartsOfSpeech, setSelectedWordSourcePartsOfSpeech] = useState([])
   const [wordSourceLoading, setWordSourceLoading] = useState(false)
   const [overrideExistingVariants, setOverrideExistingVariants] = useState(false)
-  const [runWorkerCount, setRunWorkerCount] = useState(1)
-  const [variantWorkerCount, setVariantWorkerCount] = useState(2)
+  const [runWorkerCount, setRunWorkerCount] = useState(4)
+  const [variantWorkerCount, setVariantWorkerCount] = useState(1)
   const [promptEngineerMode, setPromptEngineerMode] = useState('responses_api')
-  const [promptEngineerModel, setPromptEngineerModel] = useState('gpt-5.4')
-  const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gpt-5.4')
-  const [stage3AnatomyCritiqueModel, setStage3AnatomyCritiqueModel] = useState('gpt-5.4')
+  const [promptEngineerModel, setPromptEngineerModel] = useState('gemini-3-flash-preview')
+  const [stage3CritiqueModel, setStage3CritiqueModel] = useState('gemini-3-flash-preview')
+  const [stage3AnatomyCritiqueModel, setStage3AnatomyCritiqueModel] = useState('gemini-3.1-flash-lite')
   const [stage3AccessibilityCritiqueModel, setStage3AccessibilityCritiqueModel] = useState('gpt-5.4')
   const [stage3GenerateModel, setStage3GenerateModel] = useState('gemini-3.1-flash-lite-image')
-  const [postQualityAccessibilityCritiqueModel, setPostQualityAccessibilityCritiqueModel] = useState('gpt-5.4')
+  const [postQualityAccessibilityCritiqueModel, setPostQualityAccessibilityCritiqueModel] = useState('gemini-3.1-flash-lite')
   const [postQualityAccessibilityGenerateModel, setPostQualityAccessibilityGenerateModel] = useState('gemini-3.1-flash-lite-image')
-  const [variantCritiqueModel, setVariantCritiqueModel] = useState('gpt-5.4')
+  const [variantCritiqueModel, setVariantCritiqueModel] = useState('gemini-3.1-flash-lite')
   const [variantCorrectionModel, setVariantCorrectionModel] = useState('gemini-3.1-flash-lite-image')
-  const [qualityGateModel, setQualityGateModel] = useState('gpt-4o-mini')
+  const [qualityGateModel, setQualityGateModel] = useState('gemini-3.1-flash-lite')
   const [imageAspectRatio, setImageAspectRatio] = useState('4:3')
   const [imageResolution, setImageResolution] = useState('1K')
   const [imageFormat, setImageFormat] = useState('image/jpeg')
@@ -1022,13 +1022,13 @@ export default function SubmitPage() {
             <button type="button" onClick={onSaveWorkerConfig}>Save Workers</button>
           </div>
           <p className="config-help-text">
-            Recommendation for the current 512 MB Render instance is still <strong>1</strong> run worker and <strong>2</strong> variant workers. Higher values are now allowed, but memory use and provider pressure will rise quickly.
+            Default: <strong>4</strong> run workers and <strong>1</strong> variant worker. Increase these carefully because memory use and provider pressure rise with concurrency.
           </p>
         </article>
 
         <article className="card">
           <h2>Model Selection</h2>
-          <p>Choose models for Stage 3 critique, Stage 3.15 anatomy critique, the disabled legacy Stage 3.16 control, the post-quality AAC softening steps, Stage 3 upgraded image, the variant review/correction steps, and Quality Gate scoring. Changes are saved automatically.</p>
+          <p>Each selector names the exact pipeline step it controls. Changes are saved automatically and apply to newly started runs.</p>
           <div className="form-grid submit-compact-form">
             <label>
               Stage 3.1 Vision Critique
@@ -1210,10 +1210,10 @@ export default function SubmitPage() {
 
         <article className="card">
           <h2>Prompt Engineer</h2>
-          <p>Choose which prompt engineer to use when you start new runs. Detailed prompt-engineer settings live in Runs + Details.</p>
+          <p>These settings control both Stage 1 (initial prompt) and Stage 3.2 (prompt upgrade). Detailed prompt templates live in Runs + Details.</p>
           <div className="form-grid submit-compact-form">
             <label>
-              Prompt engineer mode
+              Stages 1 + 3.2 Prompt Engineer Mode
               <select
                 value={promptEngineerMode}
                 onChange={(e) => {
@@ -1231,7 +1231,7 @@ export default function SubmitPage() {
               </select>
             </label>
             <label>
-              Prompt engineer model
+              Stages 1 + 3.2 Prompt Engineer Model
               <select
                 value={promptEngineerModel}
                 onChange={(e) => {

@@ -158,6 +158,57 @@ def test_item_progress_uses_item_status_when_no_tasks_exist(db_session) -> None:
     }
 
 
+def test_continued_job_marks_parent_completed_word_as_previously_done(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="again")
+    parent_job = repo.create_csv_job(
+        batch_id="csv_parent_round",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={},
+    )
+    parent_item = repo.create_csv_job_item(
+        csv_job_id=parent_job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "again"},
+    )
+    repo.update_csv_job_item(parent_item, status="completed")
+
+    continued_job = repo.create_csv_job(
+        batch_id="csv_continued_round",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={"continued_from_job_id": parent_job.id},
+    )
+    continued_item = repo.create_csv_job_item(
+        csv_job_id=continued_job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "again"},
+    )
+    repo.create_csv_task_node(
+        csv_job_id=continued_job.id,
+        csv_job_item_id=continued_item.id,
+        step_name="step2_variant",
+        task_key="row1:variant",
+        profile_key="female:kid:white",
+        source_profile_key="male:kid:white",
+        branch_role="variant",
+        dependency_keys=[],
+        dependency_task_ids=[],
+        status="pending",
+    )
+
+    overview = service.job_overview(continued_job.id)
+
+    assert overview is not None
+    assert overview["items"][0]["main_status"] == "previously_done"
+    assert overview["word_counts"]["previously_done"] == 1
+    assert overview["word_counts"]["pending"] == 0
+
+
 def test_finalize_job_does_not_mark_pending_taskless_items_completed(db_session) -> None:
     repo = Repository(db_session)
     entry = _make_entry(repo, word="abbey")
