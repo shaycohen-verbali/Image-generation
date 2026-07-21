@@ -33,7 +33,7 @@ Your original Colab snippets included plaintext OpenAI and Replicate keys. Rotat
 Copy `.env.example` to `.env` and set:
 - `OPENAI_API_KEY`
 - `REPLICATE_API_TOKEN`
-- `REPLICATE_CF_BASE_URL`
+- optional `REPLICATE_BASE_URL` (defaults to `https://api.replicate.com` for direct requests)
 - `INVENTORY_DATABASE_URL` to enable the Supabase `word_inventory` picker and writeback
 - optional assistant overrides and thresholds
 
