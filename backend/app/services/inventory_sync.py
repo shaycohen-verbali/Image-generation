@@ -384,6 +384,7 @@ class InventorySyncService:
                 "word": entry.word,
                 "part_of_sentence": entry.part_of_sentence,
                 "category": entry.category,
+                "sense_id": entry.sense_id,
                 "context": entry.context,
                 "job_status": item.status,
                 "fully_complete": bool(payload.get("fully_complete")),

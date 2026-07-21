@@ -163,7 +163,7 @@ class ExportService:
                 last_stage2_attempt = max(stage2_by_attempt.keys()) if stage2_by_attempt else None
                 last_stage2 = stage2_by_attempt.get(last_stage2_attempt) if last_stage2_attempt is not None else None
                 first_stage3 = stage3_by_attempt.get(1)
-                base_slug = self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category, entry.boy_or_girl)
+                base_slug = self._base_asset_slug(entry.word, entry.part_of_sentence, entry.sense_id, entry.boy_or_girl)
 
                 prompt2 = upgraded_prompts[0]["prompt_text"] if upgraded_prompts else ""
                 upgraded_prompt = ""
@@ -188,7 +188,7 @@ class ExportService:
                     "part_of_sentence": entry.part_of_sentence,
                     "category": entry.category,
                     "synonyms": entry.word_synonyms_for_better_meaning,
-                    "base_asset_slug": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category, entry.boy_or_girl),
+                    "base_asset_slug": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.sense_id, entry.boy_or_girl),
                     "context": entry.context,
                     "need_a_person": need_person,
                     "prompt_1": first_prompt,
@@ -210,7 +210,7 @@ class ExportService:
         with zipfile.ZipFile(path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             for run, _entry in runs_data:
                 _, _, _, assets, _ = self.repo.run_details(run.id)
-                base_slug = self._base_asset_slug(_entry.word, _entry.part_of_sentence, _entry.category, _entry.boy_or_girl)
+                base_slug = self._base_asset_slug(_entry.word, _entry.part_of_sentence, _entry.sense_id, _entry.boy_or_girl)
                 if stage_name == "stage4_white_bg":
                     selected_assets: list[Asset] = []
                     preferred_attempt = int(run.optimization_attempt or 0)
@@ -236,11 +236,11 @@ class ExportService:
                         archive.write(asset_path, arcname=self._unique_export_name(base_slug, run.id, selected))
 
     @staticmethod
-    def _base_asset_slug(word: str, part_of_sentence: str, category: str, boy_or_girl: str = "") -> str:
+    def _base_asset_slug(word: str, part_of_sentence: str, sense_id: str, boy_or_girl: str = "") -> str:
         parts = [
             (word or "").strip().lower() or "unknown-word",
             (part_of_sentence or "").strip().lower() or "unknown-pos",
-            (category or "").strip().lower() or "no-category",
+            (sense_id or "").strip().lower() or "no-sense-id",
             (boy_or_girl or "").strip().lower() or "unspecified-person",
         ]
         merged = "_".join(parts)

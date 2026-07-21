@@ -1501,7 +1501,7 @@ class CsvDagService:
         row_index: int,
         word: str,
         part_of_sentence: str,
-        category: str,
+        sense_id: str,
         variant_abbrev: str,
         source_path: str,
     ) -> str:
@@ -1511,7 +1511,7 @@ class CsvDagService:
                 f"{int(row_index or 0):04d}",
                 sanitize_filename(word or "unknown-word"),
                 sanitize_filename(part_of_sentence or "unknown-pos"),
-                sanitize_filename(category or "no-category"),
+                sanitize_filename(sense_id or "no-sense-id"),
                 sanitize_filename(variant_abbrev or "variant"),
             ]
         ) + suffix
@@ -1552,15 +1552,15 @@ Images are grouped by background type:
 
 Examples:
 
-`images/regular/0001__fairly__adverb__no-category__f_tn_w_reg.jpg`
+`images/regular/0001__fairly__adverb__sense-fairly-adverb-1__f_tn_w_reg.jpg`
 
-`images/white_background/0001__fairly__adverb__no-category__f_tn_w_wbg.jpg`
+`images/white_background/0001__fairly__adverb__sense-fairly-adverb-1__f_tn_w_wbg.jpg`
 
 ## Filename format
 
-`{{row_index}}__{{word}}__{{part_of_sentence}}__{{category}}__{{variant_abbrev}}.jpg`
+`{{row_index}}__{{word}}__{{part_of_sentence}}__{{sense_id}}__{{variant_abbrev}}.jpg`
 
-The row index is included to prevent collisions when the same word/POS/category appears more than once.
+The row index is included to prevent collisions when the same word/POS/sense ID appears more than once.
 
 ## Variant abbreviation legend
 
@@ -1923,6 +1923,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
             word = str(row.get("word") or "").strip()
             part_of_sentence = str(row.get("part_of_sentence") or "").strip()
             category = str(row.get("category") or "").strip()
+            sense_id = str(row.get("sense_id") or "").strip()
             context = str(row.get("context") or "").strip()
             for field_name in selected_image_fields:
                 source_path = str(row.get(field_name) or "").strip()
@@ -1937,7 +1938,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
                     row_index=row_index,
                     word=word,
                     part_of_sentence=part_of_sentence,
-                    category=category,
+                    sense_id=sense_id,
                     variant_abbrev=variant_abbrev,
                     source_path=source_path,
                 )

@@ -170,6 +170,7 @@ class Repository:
             age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
             skin_options = normalize_option_set(payload.get("person_skin_color_options", []), ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
             existing.context = payload.get("context", "").strip()
+            existing.sense_id = str(payload.get("sense_id") or payload.get("_word_source_sense_id") or "").strip()
             existing.word_synonyms_for_better_meaning = str(payload.get("word_synonyms_for_better_meaning", "")).strip()
             existing.boy_or_girl = gender_options[0]
             existing.person_gender_options_json = dump_option_set(gender_options)
@@ -190,6 +191,7 @@ class Repository:
             word=payload["word"].strip(),
             part_of_sentence=payload["part_of_sentence"].strip(),
             category=payload["category"].strip(),
+            sense_id=str(payload.get("sense_id") or payload.get("_word_source_sense_id") or "").strip(),
             context=payload.get("context", "").strip(),
             word_synonyms_for_better_meaning=str(payload.get("word_synonyms_for_better_meaning", "")).strip(),
             boy_or_girl=gender_options[0],
@@ -222,6 +224,7 @@ class Repository:
                 existing = self.db.execute(select(Entry).where(Entry.id == entry_id)).scalar_one_or_none()
         if existing:
             existing.context = payload.get("context", "").strip()
+            existing.sense_id = str(payload.get("sense_id") or payload.get("_word_source_sense_id") or "").strip()
             existing.word_synonyms_for_better_meaning = str(payload.get("word_synonyms_for_better_meaning", "")).strip()
             existing.boy_or_girl = gender_options[0]
             existing.person_gender_options_json = dump_option_set(gender_options)
@@ -237,6 +240,7 @@ class Repository:
             word=payload["word"].strip(),
             part_of_sentence=payload["part_of_sentence"].strip(),
             category=payload["category"].strip(),
+            sense_id=str(payload.get("sense_id") or payload.get("_word_source_sense_id") or "").strip(),
             context=payload.get("context", "").strip(),
             word_synonyms_for_better_meaning=str(payload.get("word_synonyms_for_better_meaning", "")).strip(),
             boy_or_girl=gender_options[0],

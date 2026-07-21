@@ -19,8 +19,8 @@ def source_row_hash(payload: dict[str, Any]) -> str:
 
 def sanitize_filename(name: str) -> str:
     value = name or "file"
-    value = re.sub(r"[\\/:*?\"<>|]", "_", value)
-    value = re.sub(r"\s+", "_", value).strip("._")
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+    value = value.strip("._")
     return value[:180] or "file"
 
 

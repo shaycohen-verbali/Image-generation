@@ -547,7 +547,7 @@ class PipelineRunner:
         parts = [
             (entry.word or "").strip().lower() or "unknown-word",
             (entry.part_of_sentence or "").strip().lower() or "unknown-pos",
-            (entry.category or "").strip().lower() or "no-category",
+            (entry.sense_id or "").strip().lower() or "no-sense-id",
             (entry.boy_or_girl or "").strip().lower() or "unspecified-person",
         ]
         return sanitize_filename("_".join(parts))

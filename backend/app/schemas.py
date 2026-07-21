@@ -26,6 +26,7 @@ class EntryCreate(BaseModel):
     word: str
     part_of_sentence: str
     category: str = ""
+    sense_id: str = ""
     context: str = ""
     word_synonyms_for_better_meaning: str = ""
     boy_or_girl: str = ""
@@ -40,6 +41,7 @@ class EntryOut(BaseModel):
     word: str
     part_of_sentence: str
     category: str
+    sense_id: str = ""
     context: str
     word_synonyms_for_better_meaning: str = ""
     boy_or_girl: str

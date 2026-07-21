@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import select, text
 
 from app.core.config import get_settings
@@ -391,12 +393,38 @@ def _ensure_entry_columns() -> None:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
             if "word_synonyms_for_better_meaning" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN word_synonyms_for_better_meaning TEXT NOT NULL DEFAULT ''"))
+            if "sense_id" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN sense_id TEXT NOT NULL DEFAULT ''"))
         else:
             existing = _postgres_existing_columns(conn, "entries")
             if "has_person" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
             if "word_synonyms_for_better_meaning" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN word_synonyms_for_better_meaning TEXT NOT NULL DEFAULT ''"))
+            if "sense_id" not in existing:
+                conn.execute(text("ALTER TABLE entries ADD COLUMN sense_id TEXT NOT NULL DEFAULT ''"))
+
+        rows = conn.execute(
+            text(
+                "SELECT i.entry_id, i.source_row_json "
+                "FROM csv_job_items i JOIN entries e ON e.id = i.entry_id "
+                "WHERE e.sense_id = ''"
+            )
+        ).fetchall()
+        sense_ids_by_entry: dict[str, str] = {}
+        for entry_id, source_row_json in rows:
+            try:
+                source_row = json.loads(str(source_row_json or "{}"))
+            except (TypeError, ValueError):
+                continue
+            sense_id = str(source_row.get("sense_id") or source_row.get("_word_source_sense_id") or "").strip()
+            if sense_id:
+                sense_ids_by_entry.setdefault(str(entry_id), sense_id)
+        for entry_id, sense_id in sense_ids_by_entry.items():
+            conn.execute(
+                text("UPDATE entries SET sense_id = :sense_id WHERE id = :entry_id AND sense_id = ''"),
+                {"sense_id": sense_id, "entry_id": entry_id},
+            )
 
 
 def _ensure_run_columns() -> None:

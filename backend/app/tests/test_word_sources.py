@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy import create_engine, func, select, text
 
 from app.inventory_models import inventory_metadata, inventory_slot_column_name, word_inventory
-from app.models import CsvTaskNode
+from app.models import CsvTaskNode, Entry
+from app.services.pipeline import PipelineRunner
 from app.services.csv_dag_service import CsvDagService
 from app.services.inventory_sync import InventorySyncService
 from app.services.word_sources import WordSourceService
@@ -93,6 +94,7 @@ def test_word_inventory_read_import_and_writeback_targets_same_row(db_session, m
         row_id="inv_source_1",
     )
     assert rows[0]["_word_source_sense_id"] == "sense-balance-verb-1"
+    assert rows[0]["sense_id"] == "sense-balance-verb-1"
     assert rows[0]["category"] == "maintain a steady position"
     assert rows[0]["context"] == "this word is for an AAC word board"
     assert rows[0]["word_synonyms_for_better_meaning"] == "equilibrium, stability"
@@ -104,6 +106,12 @@ def test_word_inventory_read_import_and_writeback_targets_same_row(db_session, m
         person_skin_color_options=["white"],
     )
     assert result["imported_count"] == 1
+    entry = db_session.get(Entry, result["rows"][0]["entry_id"])
+    assert entry is not None
+    assert entry.sense_id == "sense-balance-verb-1"
+    slug = PipelineRunner._entry_slug(entry)
+    assert "sense-balance-verb-1" in slug
+    assert "maintain_a_steady_position" not in slug
 
     synced = InventorySyncService(db_session).sync_csv_job(result["job_id"])
     assert synced == 1

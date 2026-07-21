@@ -11,7 +11,10 @@ def test_parse_json_relaxed_handles_fenced_json() -> None:
 
 
 def test_sanitize_filename_replaces_invalid_chars() -> None:
-    value = sanitize_filename('a/b\\c:d*e?f"g<h>i|j')
+    value = sanitize_filename('100% / café “odd” a/b\\c:d*e?f"g<h>i|j')
     assert "/" not in value
     assert "\\" not in value
+    assert "%" not in value
+    assert value.isascii()
+    assert all(character.isalnum() or character in "._-" for character in value)
     assert value

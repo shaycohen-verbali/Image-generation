@@ -252,6 +252,7 @@ class WordSourceService:
                     "word": str(row.get("word") or "").strip(),
                     "part_of_sentence": part_of_speech,
                     "category": word_sense,
+                    "sense_id": sense_id,
                     "context": "this word is for an AAC word board",
                     "word_synonyms_for_better_meaning": synonyms,
                     "_word_source_table": normalized,
