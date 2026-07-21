@@ -37,6 +37,9 @@ def test_stage1_prompt_includes_both_style_paths() -> None:
     assert "If a person is needed for AAC clarity" in prompt
     assert "Word synonyms for better meaning: pail, container" in prompt
     assert "Word sense: food" in prompt
+    assert "{word_sense}" not in prompt
+    assert "{category}" not in prompt
+    assert prompt.index("Word sense: food") < prompt.index("Word synonyms for better meaning: pail, container")
 
 
 def test_stage3_prompt_appends_visual_style_even_when_template_has_no_placeholder() -> None:

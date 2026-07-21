@@ -1733,7 +1733,7 @@ export default function RunExecutionDiagram({
                 <textarea rows="10" value={promptEngineerConfig.stage3PromptTemplate} onChange={(e) => promptEngineerConfig.setStage3PromptTemplate(e.target.value)} />
               </label>
               <p className="config-help-text">
-                Placeholders: {'{word}'}, {'{part_of_sentence}'}, {'{category}'}, {'{context}'}, {'{boy_or_girl}'}, {'{photorealistic_hint}'}, {'{visual_style_id}'}, {'{visual_style_name}'}, {'{visual_style_block}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}.
+                Placeholders: {'{word}'}, {'{part_of_sentence}'}, {'{word_sense}'}, {'{word_synonyms_for_better_meaning}'}, {'{context}'}, {'{person_profile}'}, {'{photorealistic_hint}'}, {'{visual_style_id}'}, {'{visual_style_name}'}, {'{visual_style_block}'}, {'{old_prompt}'}, {'{challenges}'}, {'{recommendations}'}. Legacy {'{category}'} and {'{boy_or_girl}'} placeholders remain supported.
               </p>
               <p className="config-help-text">
                 OpenAI models use Responses API with the vector store. Gemini prompt engineer models use the direct Google API and do not use the vector store.
