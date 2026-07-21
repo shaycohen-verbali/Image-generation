@@ -23,3 +23,12 @@ def test_word_meaning_migration_is_idempotent() -> None:
     )
 
     assert _ensure_word_meaning_prompt_fields(_ensure_word_meaning_prompt_fields(template)) == template
+
+
+def test_word_meaning_migration_updates_legacy_explanatory_copy() -> None:
+    migrated = _ensure_word_meaning_prompt_fields(
+        "Word sense: {category}\nThe word's category can add information in addition to its PoS.\n"
+    )
+
+    assert "The word sense can add information in addition to its PoS." in migrated
+    assert "word's category" not in migrated

@@ -33,6 +33,10 @@ def _ensure_word_meaning_prompt_fields(template: str) -> str:
     updated = updated.replace("Category: {category}", "Word sense: {word_sense}")
     updated = updated.replace("category: {category}", "Word sense: {word_sense}")
     updated = updated.replace("Word sense: {category}", "Word sense: {word_sense}")
+    updated = updated.replace(
+        "The word's category can add information in addition to its PoS.",
+        "The word sense can add information in addition to its PoS.",
+    )
 
     synonyms_line = "Word synonyms for better meaning: {word_synonyms_for_better_meaning}"
     lines = [line for line in updated.splitlines() if line.strip() != synonyms_line]
