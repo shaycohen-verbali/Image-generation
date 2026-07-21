@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import case, func, or_, select
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
-from app.inventory_models import word_inventory
+from app.inventory_models import aac_word_lookup, word_inventory
 
 
 APPROVED_WORD_SOURCE_TABLES = {
@@ -18,6 +19,35 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     return value
+
+
+def _synonyms_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return ""
+        try:
+            parsed = json.loads(stripped)
+        except (TypeError, ValueError):
+            return stripped
+        return _synonyms_text(parsed)
+    if isinstance(value, dict):
+        values: list[str] = []
+        for nested in value.values():
+            text = _synonyms_text(nested)
+            if text:
+                values.extend(part.strip() for part in text.split(",") if part.strip())
+        return ", ".join(dict.fromkeys(values))
+    if isinstance(value, (list, tuple, set)):
+        values = []
+        for nested in value:
+            text = _synonyms_text(nested)
+            if text:
+                values.extend(part.strip() for part in text.split(",") if part.strip())
+        return ", ".join(dict.fromkeys(values))
+    return str(value).strip()
 
 
 class WordSourceService:
@@ -69,6 +99,7 @@ class WordSourceService:
             range_end=range_end,
             parts_of_speech=parts_of_speech,
         ).subquery()
+        lookup = aac_word_lookup.alias("word_lookup")
         image_columns = [selected.c[column.name] for column in table.columns if column.name.endswith("_path")]
         has_existing_image = or_(*[func.length(func.trim(column)) > 0 for column in image_columns])
         query = select(
@@ -78,13 +109,16 @@ class WordSourceService:
             selected.c.part_of_sentence,
             selected.c.part_of_speech,
             selected.c.sense_id,
+            selected.c.sense_wordnet,
+            selected.c.sense_oxford,
+            lookup.c.synonyms,
             selected.c.category,
             selected.c.context,
             selected.c.job_status,
             selected.c.fully_complete,
             case((has_existing_image, True), else_=False).label("has_existing_image"),
             selected.c.updated_at,
-        )
+        ).select_from(selected.outerjoin(lookup, lookup.c.source_sense_id == selected.c.sense_id))
         count_query = select(func.count()).select_from(selected)
         search_value = str(search or "").strip()
         if search_value:
@@ -101,10 +135,11 @@ class WordSourceService:
 
         with inventory_engine.connect() as conn:
             total = int(conn.execute(count_query).scalar_one() or 0)
-            rows = [
-                {key: _json_value(value) for key, value in row._mapping.items()}
-                for row in conn.execute(query)
-            ]
+            rows = []
+            for row in conn.execute(query):
+                serialized = {key: _json_value(value) for key, value in row._mapping.items()}
+                serialized["word_synonyms_for_better_meaning"] = _synonyms_text(serialized.pop("synonyms", None))
+                rows.append(serialized)
             pos_values = list(
                 conn.execute(
                     select(table.c.part_of_speech)
@@ -169,28 +204,37 @@ class WordSourceService:
         normalized, table = self.approved_table(table_name)
         if inventory_engine is None:
             raise RuntimeError("Inventory database is not configured")
-        query = self._selection_query(
+        selected = self._selection_query(
             table,
             selection_mode=selection_mode,
             row_id=row_id,
             range_start=range_start,
             range_end=range_end,
             parts_of_speech=parts_of_speech,
+        ).subquery()
+        lookup = aac_word_lookup.alias("word_lookup")
+        query = (
+            select(selected, lookup.c.synonyms)
+            .select_from(selected.outerjoin(lookup, lookup.c.source_sense_id == selected.c.sense_id))
+            .order_by(selected.c.position)
         )
         with inventory_engine.connect() as conn:
-            found = list(conn.execute(query.order_by("position")))
+            found = list(conn.execute(query))
         rows: list[dict[str, Any]] = []
         for result in found:
             row = dict(result._mapping)
             row_id = str(row.get("id") or "").strip()
             part_of_speech = str(row.get("part_of_speech") or row.get("part_of_sentence") or "").strip()
             sense_id = str(row.get("sense_id") or "").strip()
+            word_sense = str(row.get("sense_wordnet") or row.get("sense_oxford") or "").strip()
+            synonyms = _synonyms_text(row.get("synonyms"))
             rows.append(
                 {
                     "word": str(row.get("word") or "").strip(),
                     "part_of_sentence": part_of_speech,
-                    "category": str(row.get("main_category") or row.get("category") or "").strip(),
-                    "context": str(row.get("sense_oxford") or row.get("sense_wordnet") or row.get("context") or "").strip(),
+                    "category": word_sense,
+                    "context": "this word is for an AAC word board",
+                    "word_synonyms_for_better_meaning": synonyms,
                     "_word_source_table": normalized,
                     "_word_source_row_id": row_id,
                     "_word_source_word": str(row.get("word") or "").strip(),

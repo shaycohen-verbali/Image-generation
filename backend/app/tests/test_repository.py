@@ -8,6 +8,7 @@ def test_unique_word_pos_category_returns_same_entry(db_session) -> None:
         "part_of_sentence": "verb",
         "category": "actions",
         "context": "movement",
+        "word_synonyms_for_better_meaning": "jog, sprint",
         "boy_or_girl": "boy",
         "batch": "1",
     }
@@ -17,6 +18,7 @@ def test_unique_word_pos_category_returns_same_entry(db_session) -> None:
 
     assert first.id == second.id
     assert first.word == "run"
+    assert first.word_synonyms_for_better_meaning == "jog, sprint"
 
 
 def test_create_runs_clamps_quality_threshold_to_95(db_session) -> None:

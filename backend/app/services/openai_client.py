@@ -397,7 +397,7 @@ class OpenAIClient:
             '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", '
             '"person_presence_problem":"missing_person|unnecessary_person|none", '
             '"person_decision_reasoning":"...", "animal_present":"yes|no"}. '
-            f"Concept word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+            f"Concept word: {word}. Part of sentence: {part_of_sentence}. Word sense: {category}. "
             f"Current system hypothesis: person needed = {initial_need_person}. "
             f"Current render style = {current_render_style_mode}. "
             "If the concept would be clearer with a person, return person_needed_for_clarity=yes and "
@@ -495,7 +495,7 @@ class OpenAIClient:
         prompt = (
             "Score the AAC concept image quality for a child user. Return STRICT JSON with fields: "
             '{"score":0-100, "explanation":"...", "failure_tags":["ambiguity","clutter","wrong_concept","text_in_image","distracting_details"]}. '
-            f"Word: {word}. Part of sentence: {part_of_sentence}. Category: {category}. "
+            f"Word: {word}. Part of sentence: {part_of_sentence}. Word sense: {category}. "
             f"Pass threshold is {threshold}. "
             f"Expected render style is {expected_render_style_mode or 'not specified'}."
         )

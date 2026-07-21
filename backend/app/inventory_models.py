@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, MetaData, String, Table, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, MetaData, String, Table, Text, UniqueConstraint, column, table
 
 AGE_VALUES = ("toddler", "kid", "tween", "teenager")
 GENDER_VALUES = ("male", "female")
@@ -8,6 +8,14 @@ SKIN_VALUES = ("white", "black", "asian", "brown")
 BACKGROUND_VALUES = ("regular", "white_bg")
 
 inventory_metadata = MetaData()
+
+# Read-only projection of the existing Supabase lookup table. Keeping it out of
+# inventory_metadata prevents this app from trying to create or alter that source table.
+aac_word_lookup = table(
+    "aac_word_lookup",
+    column("source_sense_id", Text),
+    column("synonyms", JSON),
+)
 
 
 def inventory_slot_column_name(age: str, gender: str, skin_color: str, background: str) -> str:

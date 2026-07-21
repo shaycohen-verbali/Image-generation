@@ -187,7 +187,7 @@ class ExportService:
                     "word": entry.word,
                     "part_of_sentence": entry.part_of_sentence,
                     "category": entry.category,
-                    "synonyms": "",
+                    "synonyms": entry.word_synonyms_for_better_meaning,
                     "base_asset_slug": self._base_asset_slug(entry.word, entry.part_of_sentence, entry.category, entry.boy_or_girl),
                     "context": entry.context,
                     "need_a_person": need_person,

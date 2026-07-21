@@ -925,6 +925,8 @@ export default function SubmitPage() {
                         <th>Word</th>
                         <th>POS</th>
                         <th>Sense ID</th>
+                        <th>Word sense</th>
+                        <th>Word synonyms for better meaning</th>
                         <th>Image</th>
                       </tr>
                     </thead>
@@ -946,6 +948,8 @@ export default function SubmitPage() {
                           <td>{row.word}</td>
                           <td>{row.part_of_speech}</td>
                           <td>{row.sense_id}</td>
+                          <td>{row.sense_wordnet || row.sense_oxford || '-'}</td>
+                          <td>{row.word_synonyms_for_better_meaning || '-'}</td>
                           <td>{row.has_existing_image ? 'Exists' : 'Missing'}</td>
                         </tr>
                       ))}
