@@ -138,6 +138,8 @@ class WordSourceService:
             rows = []
             for row in conn.execute(query):
                 serialized = {key: _json_value(value) for key, value in row._mapping.items()}
+                serialized["sense_wordnet"] = str(serialized.get("sense_wordnet") or "")
+                serialized["sense_oxford"] = str(serialized.get("sense_oxford") or "")
                 serialized["word_synonyms_for_better_meaning"] = _synonyms_text(serialized.pop("synonyms", None))
                 rows.append(serialized)
             pos_values = list(
