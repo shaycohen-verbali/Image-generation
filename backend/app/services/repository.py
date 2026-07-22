@@ -1053,6 +1053,15 @@ class Repository:
                 .group_by(CsvTaskNode.step_name, CsvTaskNode.status)
             )
         )
+        not_applicable_count = int(
+            self.db.execute(
+                select(func.count(func.distinct(CsvTaskNode.csv_job_item_id)))
+                .where(CsvTaskNode.csv_job_id == csv_job_id)
+                .where(CsvTaskNode.status == "completed")
+                .where(func.lower(CsvTaskNode.error_summary).like("%no person required%"))
+            ).scalar_one()
+            or 0
+        )
         item_counts = {str(status or "pending"): int(count or 0) for status, count, _updated_at in item_rows}
         step_counts: dict[str, dict[str, int]] = {}
         progress_timestamps = [updated_at for _status, _count, updated_at in item_rows if updated_at is not None]
@@ -1066,6 +1075,7 @@ class Repository:
             "step_counts": step_counts,
             "total_row_count": sum(item_counts.values()),
             "last_progress_at": max(progress_timestamps) if progress_timestamps else None,
+            "not_applicable_count": not_applicable_count,
         }
 
     def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
@@ -1572,36 +1582,33 @@ class Repository:
             self.db.commit()
             items = self.list_csv_job_items(csv_job_id)
             tasks = self.list_csv_tasks(csv_job_id)
-            affected_item_ids = {task.csv_job_item_id for task in tasks if str(task.csv_job_item_id or "").strip()}
-            for item_id in affected_item_ids:
-                item = self.get_csv_job_item(item_id)
-                if item is None:
-                    continue
-                item_tasks = [task for task in tasks if task.csv_job_item_id == item.id]
-                statuses = [task.status for task in item_tasks]
-                if not statuses:
-                    continue
-                if any(status == "running" for status in statuses):
-                    item.status = "running"
-                    item.error_detail = ""
-                elif any(status == "failed" for status in statuses):
-                    first_failure = next((task for task in item_tasks if task.status == "failed"), None)
-                    item.status = "failed"
-                    item.error_detail = first_failure.error_summary if first_failure else "Task failed"
-                elif any(status == "queued" for status in statuses):
-                    item.status = "queued"
-                    item.error_detail = ""
-                elif any(status == "pending" for status in statuses):
-                    item.status = "pending"
-                    item.error_detail = ""
-                elif any(status == "canceled" for status in statuses):
-                    item.status = "canceled"
-                    item.error_detail = "Canceled by user"
-                else:
-                    item.status = "completed"
-                    item.error_detail = ""
+        tasks_by_item: dict[str, list[CsvTaskNode]] = {}
+        for task in tasks:
+            tasks_by_item.setdefault(task.csv_job_item_id, []).append(task)
+        reconciled = False
+        for item in items:
+            item_tasks = tasks_by_item.get(item.id, [])
+            statuses = [str(task.status or "").lower() for task in item_tasks]
+            if not statuses or not all(status in {"completed", "failed", "canceled"} for status in statuses):
+                continue
+            if any(status == "failed" for status in statuses):
+                first_failure = next((task for task in item_tasks if task.status == "failed"), None)
+                next_status = "failed"
+                next_detail = first_failure.error_summary if first_failure else "Task failed"
+            elif any(status == "canceled" for status in statuses):
+                next_status = "canceled"
+                next_detail = "Canceled by user"
+            else:
+                next_status = "completed"
+                next_detail = ""
+            if item.status != next_status or item.error_detail != next_detail:
+                item.status = next_status
+                item.error_detail = next_detail
                 self.db.add(item)
+                reconciled = True
+        if reconciled:
             self.db.commit()
+            items = self.list_csv_job_items(csv_job_id)
         if items:
             item_statuses = [str(item.status or "").lower() for item in items]
             if all(status in {"completed", "failed", "canceled"} for status in item_statuses):

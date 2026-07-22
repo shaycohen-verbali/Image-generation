@@ -48,6 +48,33 @@ def test_final_job_summary_is_fixed_estimated_and_read_without_history_scan(db_s
     assert unchanged == summary
 
 
+def test_no_person_variant_is_an_informational_skipped_subset(db_session) -> None:
+    repo = Repository(db_session)
+    entry = repo.create_entry({"word": "ace", "part_of_sentence": "noun", "category": "", "batch": "test"})
+    job = repo.create_csv_job(batch_id="no_person_summary", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={})
+    item = repo.create_csv_job_item(csv_job_id=job.id, entry_id=entry.id, row_index=1, source_row={})
+    repo.update_csv_job_item(item, status="completed")
+    repo.create_csv_task_node(
+        csv_job_id=job.id, csv_job_item_id=item.id, step_name="step1_base", task_key="ace:base",
+        profile_key="male:kid:white", source_profile_key="", branch_role="base",
+        dependency_keys=[], dependency_task_ids=[], status="completed",
+    )
+    variant = repo.create_csv_task_node(
+        csv_job_id=job.id, csv_job_item_id=item.id, step_name="step2_variant", task_key="ace:variant",
+        profile_key="female:kid:white", source_profile_key="male:kid:white", branch_role="variant",
+        dependency_keys=[], dependency_task_ids=[], status="completed",
+    )
+    repo.update_csv_task(variant, error_summary="No person required for this word")
+    now = datetime.utcnow()
+    repo.update_csv_job(job, status="completed", started_at=now, finished_at=now)
+
+    summary = JobSummaryService(db_session).finalize_if_terminal(job.id)
+
+    assert summary is not None
+    assert summary["counts"]["completed"] == 1
+    assert summary["counts"]["skipped"] == 1
+
+
 def test_running_job_summary_marks_cost_and_skipped_count_unavailable(db_session) -> None:
     repo = Repository(db_session)
     job = repo.create_csv_job(batch_id="running_summary", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={})
