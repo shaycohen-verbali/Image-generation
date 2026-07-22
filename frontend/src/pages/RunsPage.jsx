@@ -314,11 +314,16 @@ function csvTaskProgressSummary(tasks, itemId) {
 }
 
 function csvJobWordSummary(items, tasks) {
-  const counts = { pending: 0, running: 0, completed: 0, failure: 0, previously_done: 0 }
+  const counts = { pending: 0, running: 0, completed: 0, failure: 0, previously_done: 0, not_applicable: 0 }
   ;(Array.isArray(items) ? items : []).forEach((item) => {
     const backendStatus = String(item?.main_status || '').toLowerCase()
     const state = backendStatus || csvTaskProgressSummary(tasks, item.id).mainStatus
     if (Object.prototype.hasOwnProperty.call(counts, state)) counts[state] += 1
+    if ((Array.isArray(tasks) ? tasks : []).some((task) => (
+      task.csv_job_item_id === item.id
+      && task.status === 'completed'
+      && String(task.error_summary || '').toLowerCase().includes('no person required')
+    ))) counts.not_applicable += 1
   })
   return counts
 }
@@ -1865,6 +1870,7 @@ export default function RunsPage() {
                     {csvPrettyStatus(statusKey)} {count}
                   </button>
                 ))}
+                <span className="csv-status-chip">not applicable: {csvJobLiveCounts.not_applicable || 0}</span>
               </div>
               {csvJobOverview.is_stale ? (
                 <p className="config-help-text" role="status">

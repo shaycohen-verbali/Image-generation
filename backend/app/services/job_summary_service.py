@@ -59,10 +59,10 @@ class JobSummaryService:
             and (
                 not tasks_by_item.get(item.id)
                 or "already exist" in str(item.error_detail or "").lower()
-                or all("no person required" in str(task.error_summary or "").lower() for task in tasks_by_item[item.id])
+                or any("no person required" in str(task.error_summary or "").lower() for task in tasks_by_item[item.id])
             )
         }
-        completed_items = [item for item in items if str(item.status or "").lower() == "completed" and item.id not in skipped_items]
+        completed_items = [item for item in items if str(item.status or "").lower() == "completed"]
         failed_items = [item for item in items if str(item.status or "").lower() in {"failed", "canceled"}]
 
         task_durations: list[tuple[Any, float]] = []

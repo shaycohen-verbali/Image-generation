@@ -130,6 +130,126 @@ def test_job_summary_uses_only_aggregate_status_data(db_session) -> None:
     assert summary["export_ready"] is False
 
 
+def test_no_person_variant_completes_parent_item_and_reports_not_applicable(db_session, monkeypatch) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="accordion")
+    repo.update_entry_has_person(entry.id, "no")
+    job = repo.create_csv_job(
+        batch_id="csv_no_person", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={}
+    )
+    job = repo.update_csv_job(job, status="running", started_at=datetime.utcnow())
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id, entry_id=entry.id, row_index=1, source_row={"word": "accordion"}
+    )
+    shadow_run = repo.create_shadow_run(entry_id=entry.id, quality_threshold=95, max_optimization_attempts=3)
+    item = repo.update_csv_job_item(item, status="running", shadow_run_id=shadow_run.id)
+    repo.create_csv_task_node(
+        csv_job_id=job.id, csv_job_item_id=item.id, step_name="step1_base", task_key="row1:base",
+        profile_key="male:kid:white", source_profile_key="", branch_role="base",
+        dependency_keys=[], dependency_task_ids=[], status="completed",
+    )
+    variant = repo.create_csv_task_node(
+        csv_job_id=job.id, csv_job_item_id=item.id, step_name="step2_variant", task_key="row1:variant",
+        profile_key="female:kid:white", source_profile_key="male:kid:white", branch_role="variant",
+        dependency_keys=[], dependency_task_ids=[], status="running",
+    )
+
+    class FakePipelineRunner:
+        def __init__(self, db):
+            self.google_images = type("GoogleImages", (), {"close": lambda self: None})()
+
+    monkeypatch.setattr("app.services.csv_dag_service.PipelineRunner", FakePipelineRunner)
+
+    finished = service.execute_task(variant.id)
+    refreshed_item = repo.get_csv_job_item(item.id)
+    summary = service.job_summary(job.id)
+
+    assert finished.status == "completed"
+    assert finished.error_summary == "Not applicable: no person required for this word"
+    assert refreshed_item is not None and refreshed_item.status == "completed"
+    assert refreshed_item.error_detail == ""
+    assert summary is not None
+    assert summary["word_counts"]["running"] == 0
+    assert summary["word_counts"]["completed"] == 1
+    assert summary["word_counts"]["not_applicable"] == 1
+
+
+def test_finalize_reconciles_stale_terminal_items_from_task_statuses(db_session) -> None:
+    repo = Repository(db_session)
+    job = repo.create_csv_job(
+        batch_id="csv_reconcile", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={}
+    )
+    job = repo.update_csv_job(job, status="running", started_at=datetime.utcnow())
+    completed_entry = _make_entry(repo, word="accuracy")
+    completed_item = repo.create_csv_job_item(
+        csv_job_id=job.id, entry_id=completed_entry.id, row_index=1, source_row={"word": "accuracy"}
+    )
+    repo.update_csv_job_item(completed_item, status="running", error_detail="stale")
+    repo.create_csv_task_node(
+        csv_job_id=job.id, csv_job_item_id=completed_item.id, step_name="step2_variant", task_key="row1:variant",
+        profile_key="female:kid:white", source_profile_key="male:kid:white", branch_role="variant",
+        dependency_keys=[], dependency_task_ids=[], status="completed",
+    )
+    failed_entry = _make_entry(repo, word="actual-failure")
+    failed_item = repo.create_csv_job_item(
+        csv_job_id=job.id, entry_id=failed_entry.id, row_index=2, source_row={"word": "actual-failure"}
+    )
+    repo.update_csv_job_item(failed_item, status="running")
+    failed_task = repo.create_csv_task_node(
+        csv_job_id=job.id, csv_job_item_id=failed_item.id, step_name="step1_base", task_key="row2:base",
+        profile_key="male:kid:white", source_profile_key="", branch_role="base",
+        dependency_keys=[], dependency_task_ids=[], status="failed",
+    )
+    repo.update_csv_task(failed_task, error_summary="real failure")
+
+    finalized = repo.finalize_csv_job_status(job.id)
+
+    assert repo.get_csv_job_item(completed_item.id).status == "completed"
+    assert repo.get_csv_job_item(completed_item.id).error_detail == ""
+    assert repo.get_csv_job_item(failed_item.id).status == "failed"
+    assert repo.get_csv_job_item(failed_item.id).error_detail == "real failure"
+    assert finalized is not None and finalized.status == "partial_failed"
+
+
+def test_cannot_complete_variant_finalizes_parent_item(db_session, monkeypatch) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="account")
+    repo.update_entry_has_person(entry.id, "yes")
+    job = repo.create_csv_job(
+        batch_id="csv_missing_dependency", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={}
+    )
+    job = repo.update_csv_job(job, status="running", started_at=datetime.utcnow())
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id, entry_id=entry.id, row_index=1, source_row={"word": "account"}
+    )
+    shadow_run = repo.create_shadow_run(entry_id=entry.id, quality_threshold=95, max_optimization_attempts=3)
+    item = repo.update_csv_job_item(item, status="running", shadow_run_id=shadow_run.id)
+    variant = repo.create_csv_task_node(
+        csv_job_id=job.id, csv_job_item_id=item.id, step_name="step2_variant", task_key="row1:variant",
+        profile_key="female:kid:white", source_profile_key="male:kid:white", branch_role="variant",
+        dependency_keys=[], dependency_task_ids=[], status="running",
+    )
+
+    class FakePipelineRunner:
+        def __init__(self, db):
+            self.google_images = type("GoogleImages", (), {"close": lambda self: None})()
+
+    monkeypatch.setattr("app.services.csv_dag_service.PipelineRunner", FakePipelineRunner)
+    monkeypatch.setattr(
+        "app.services.csv_dag_service.InventorySyncService.slot_path_for_entry_profile",
+        lambda *args, **kwargs: None,
+    )
+
+    finished = service.execute_task(variant.id)
+
+    assert finished.status == "failed"
+    assert "dependency image" in finished.error_summary
+    assert repo.get_csv_job_item(item.id).status == "failed"
+    assert repo.get_csv_job(job.id).status == "failed"
+
+
 def test_job_items_page_bounds_items_and_tasks(db_session) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)

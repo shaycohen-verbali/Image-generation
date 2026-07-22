@@ -759,7 +759,7 @@ class CsvDagService:
         if job is None:
             return None
         counts = self.repo.get_csv_job_summary_counts(job_id)
-        word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0, "previously_done": 0}
+        word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0, "previously_done": 0, "not_applicable": 0}
         for status, count in counts["item_counts"].items():
             normalized = str(status or "").lower()
             if normalized == "completed":
@@ -770,6 +770,7 @@ class CsvDagService:
                 word_counts["running"] += count
             else:
                 word_counts["pending"] += count
+        word_counts["not_applicable"] = int(counts.get("not_applicable_count") or 0)
         duration_seconds = 0.0
         if job.started_at:
             duration_end = job.finished_at or datetime.utcnow()
@@ -1214,6 +1215,14 @@ class CsvDagService:
             return self.repo.update_csv_job_item(item, status="canceled", error_detail="Canceled by user")
         return self.repo.update_csv_job_item(item, status="completed", error_detail="")
 
+    def _finalize_task_outcome(self, item: CsvJobItem, job: CsvJob, *, include_postprocessing: bool = False) -> None:
+        """Apply the existing item/job cleanup for every terminal task exit."""
+        self._update_item_status(item)
+        self.repo.finalize_csv_job_status(job.id)
+        if include_postprocessing:
+            self._backfill_has_person_for_job(job.id)
+            InventorySyncService(self.db).sync_csv_job_item(job.id, item.id)
+
     def execute_task(self, task_id: str) -> CsvTaskNode:
         task = self.repo.get_csv_task(task_id)
         if task is None:
@@ -1268,6 +1277,7 @@ class CsvDagService:
                     )
                 current_task = self.repo.get_csv_task(task.id)
                 if current_task is None or current_task.status != "running":
+                    self._finalize_task_outcome(item, job)
                     return current_task or task
                 self.repo.add_csv_task_attempt(
                     csv_task_node_id=task.id,
@@ -1325,7 +1335,7 @@ class CsvDagService:
                     self.repo.update_csv_task(
                         task,
                         status="completed",
-                        error_summary="No person required for this word",
+                        error_summary="Not applicable: no person required for this word",
                         finished_at=datetime.utcnow(),
                     )
                     self.repo.add_csv_task_attempt(
@@ -1336,6 +1346,7 @@ class CsvDagService:
                         response_json={"skipped": True, "reason": "No person required for this word"},
                         finished_at=datetime.utcnow(),
                     )
+                    self._finalize_task_outcome(item, job)
                     return self.repo.get_csv_task(task.id) or task
                 dependency_ids = [str(value) for value in json.loads(task.dependency_task_ids_json or "[]") if str(value)]
                 target_profile = _parse_profile_key(task.profile_key)
@@ -1381,6 +1392,7 @@ class CsvDagService:
                         error_detail=reason,
                         finished_at=datetime.utcnow(),
                     )
+                    self._finalize_task_outcome(item, job)
                     return self.repo.get_csv_task(task.id) or task
 
                 if dependency_ids:
@@ -1421,6 +1433,7 @@ class CsvDagService:
                 white_bg_asset = created["white_bg_asset"]
                 current_task = self.repo.get_csv_task(task.id)
                 if current_task is None or current_task.status != "running":
+                    self._finalize_task_outcome(item, job)
                     return current_task or task
                 self.repo.add_csv_task_attempt(
                     csv_task_node_id=task.id,
@@ -1448,6 +1461,7 @@ class CsvDagService:
             self.db.rollback()
             current_task = self.repo.get_csv_task(task.id)
             if current_task is None or current_task.status != "running":
+                self._finalize_task_outcome(item, job)
                 return current_task or task
             request_json = getattr(exc, "request_json", {}) if isinstance(getattr(exc, "request_json", {}), dict) else {}
             response_json = getattr(exc, "response_json", {}) if isinstance(getattr(exc, "response_json", {}), dict) else {}
@@ -1477,10 +1491,7 @@ class CsvDagService:
         finally:
             runner.google_images.close()
 
-        self._update_item_status(item)
-        finalized_job = self.repo.finalize_csv_job_status(job.id)
-        self._backfill_has_person_for_job(job.id)
-        InventorySyncService(self.db).sync_csv_job_item(job.id, item.id)
+        self._finalize_task_outcome(item, job, include_postprocessing=True)
         return self.repo.get_csv_task(task.id) or finished_task
 
     def _serialize_job(self, job: CsvJob, overview: dict[str, Any]) -> dict[str, Any]:
@@ -1695,7 +1706,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
         }
         available_profiles_by_entry = inventory_service.available_profiles_for_entries(list(entries_by_id.values()))
         items_payload: list[dict[str, Any]] = []
-        word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0, "previously_done": 0}
+        word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0, "previously_done": 0, "not_applicable": 0}
         total_estimated_cost_usd = 0.0
         provider_breakdown = {"google": 0.0, "replicate": 0.0, "openai": 0.0}
         for item in overview["items"]:
@@ -1723,6 +1734,13 @@ Debugging and backwards-compatible files are under `_metadata/`.
                         provider_breakdown[provider_name] += float(provider_cost or 0.0)
             available_profiles = available_profiles_by_entry.get(item.entry_id, []) if entry else []
             word_counts[item_progress["main_status"]] += 1
+            if any(
+                task.csv_job_item_id == item.id
+                and task.status == "completed"
+                and "no person required" in str(task.error_summary or "").lower()
+                for task in overview["tasks"]
+            ):
+                word_counts["not_applicable"] += 1
             items_payload.append(
                 {
                     "id": item.id,
