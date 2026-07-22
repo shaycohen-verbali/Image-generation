@@ -927,6 +927,8 @@ export default function SubmitPage() {
                         <th>Sense ID</th>
                         <th>Word sense</th>
                         <th>Word synonyms for better meaning</th>
+                        <th>Image score</th>
+                        <th>Needs person attention?</th>
                         <th>Image</th>
                       </tr>
                     </thead>
@@ -950,6 +952,8 @@ export default function SubmitPage() {
                           <td>{row.sense_id}</td>
                           <td>{row.sense_wordnet || row.sense_oxford || '-'}</td>
                           <td>{row.word_synonyms_for_better_meaning || '-'}</td>
+                          <td>{row.image_score === null || row.image_score === undefined ? '-' : Number(row.image_score).toFixed(1)}</td>
+                          <td>{row.needs_person_attention ? 'Yes' : 'No'}</td>
                           <td>{row.has_existing_image ? 'Exists' : 'Missing'}</td>
                         </tr>
                       ))}

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import threading
+import time
 from datetime import datetime
 from uuid import uuid4
 
@@ -19,6 +22,13 @@ from app.inventory_models import (
 )
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry
 from app.services.repository import Repository
+from app.services.http_client import get_http_session
+from app.core.config import get_settings
+
+
+logger = logging.getLogger(__name__)
+_SENSE_SYNC_COUNTER_LOCK = threading.Lock()
+_SENSE_SYNC_IMAGE_COUNTER = 0
 
 CSV_JOB_EXPORT_BASE_FIELD_SPECS: tuple[dict[str, str], ...] = (
     {"key": "row_index", "label": "Row index"},
@@ -65,6 +75,65 @@ class InventorySyncService:
 
     def enabled(self) -> bool:
         return inventory_enabled()
+
+    @staticmethod
+    def _sense_images_sync_url() -> str:
+        settings = get_settings()
+        configured = str(getattr(settings, "supabase_sense_images_sync_rpc_url", "") or "").strip()
+        if configured:
+            return configured.rstrip("/")
+        base_url = str(getattr(settings, "supabase_url", "") or "").strip().rstrip("/")
+        function_name = str(
+            getattr(settings, "supabase_sense_images_sync_function", "aac_sync_sense_images_from_inventory")
+            or "aac_sync_sense_images_from_inventory"
+        ).strip()
+        return f"{base_url}/rest/v1/rpc/{function_name}" if base_url and function_name else ""
+
+    def sync_sense_images(self, *, reason: str, retries: int = 3) -> bool:
+        """Refresh the Supabase sense-image index without affecting the DAG job."""
+        settings = get_settings()
+        url = self._sense_images_sync_url()
+        service_key = str(getattr(settings, "supabase_service_role_key", "") or "").strip()
+        if not url or not service_key:
+            return False
+        payload = {
+            "requested_image_style": str(getattr(settings, "supabase_sense_images_style", "aac_current") or "aac_current"),
+            "requested_style_version": str(getattr(settings, "supabase_sense_images_style_version", "1") or "1"),
+            "requested_storage_bucket": str(getattr(settings, "supabase_sense_images_bucket", "aac-images-v1") or "aac-images-v1"),
+        }
+        headers = {
+            "Authorization": f"Bearer {service_key}",
+            "apikey": service_key,
+            "Content-Type": "application/json",
+        }
+        attempts = max(1, int(retries or 3))
+        for attempt in range(1, attempts + 1):
+            try:
+                response = get_http_session().post(url, headers=headers, json=payload, timeout=20)
+                if 200 <= response.status_code < 300:
+                    logger.info("Supabase sense-image sync completed", extra={"reason": reason, "attempt": attempt})
+                    return True
+                detail = response.text[:300]
+                raise RuntimeError(f"HTTP {response.status_code}: {detail}")
+            except Exception as exc:  # noqa: BLE001
+                if attempt >= attempts:
+                    logger.warning("Supabase sense-image sync failed after retries", extra={"reason": reason, "error": str(exc)})
+                    return False
+                time.sleep(min(2.0, 0.5 * (2 ** (attempt - 1))))
+        return False
+
+    def _sync_sense_images_if_due(self, image_count: int, *, reason: str) -> None:
+        global _SENSE_SYNC_IMAGE_COUNTER
+        settings = get_settings()
+        if not self._sense_images_sync_url() or not str(getattr(settings, "supabase_service_role_key", "") or "").strip():
+            return
+        threshold = max(1, int(getattr(settings, "supabase_sense_images_sync_batch_size", 100) or 100))
+        with _SENSE_SYNC_COUNTER_LOCK:
+            _SENSE_SYNC_IMAGE_COUNTER += max(1, int(image_count or 1))
+            if _SENSE_SYNC_IMAGE_COUNTER < threshold:
+                return
+            _SENSE_SYNC_IMAGE_COUNTER = 0
+        self.sync_sense_images(reason=reason)
 
     def _prompt_for_stage(self, *, run_id: str, stage_name: str, attempt: int = 0):
         prompt = None
@@ -462,7 +531,16 @@ class InventorySyncService:
             return 0
         tasks = [task for task in self.repo.list_csv_tasks(csv_job_id) if task.csv_job_item_id == csv_job_item_id]
         with inventory_engine.begin() as conn:
-            return self._sync_single_item(conn=conn, job=job, item=item, tasks=tasks)
+            synced = self._sync_single_item(conn=conn, job=job, item=item, tasks=tasks)
+        if synced:
+            generated_image_count = sum(
+                1 for task in tasks if task.regular_asset_id or task.white_bg_asset_id
+            )
+            self._sync_sense_images_if_due(generated_image_count or synced, reason="image_batch")
+            refreshed_job = self.repo.get_csv_job(csv_job_id)
+            if refreshed_job is not None and str(refreshed_job.status or "").lower() in {"completed", "failed", "partial_failed", "canceled"}:
+                self.sync_sense_images(reason="job_finished")
+        return synced
 
     def sync_csv_job(self, csv_job_id: str) -> int:
         if inventory_engine is None:
@@ -486,4 +564,5 @@ class InventorySyncService:
                     item=item,
                     tasks=tasks_by_item.get(item.id, []),
                 )
+        self.sync_sense_images(reason="job_finished")
         return synced

@@ -309,6 +309,8 @@ class WordSourceRowOut(BaseModel):
     category: str = ""
     context: str = ""
     job_status: str = ""
+    image_score: float | None = None
+    needs_person_attention: bool = False
     fully_complete: bool = False
     has_existing_image: bool = False
     updated_at: str | None = None

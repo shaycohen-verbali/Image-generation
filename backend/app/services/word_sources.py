@@ -115,6 +115,8 @@ class WordSourceService:
             selected.c.category,
             selected.c.context,
             selected.c.job_status,
+            selected.c.image_score,
+            selected.c.needs_person_attention,
             selected.c.fully_complete,
             case((has_existing_image, True), else_=False).label("has_existing_image"),
             selected.c.updated_at,

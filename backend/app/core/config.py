@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     supabase_url: str = Field(default="", alias="SUPABASE_URL")
     supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
     supabase_image_bucket: str = Field(default="generated-images", alias="SUPABASE_IMAGE_BUCKET")
+    supabase_sense_images_sync_rpc_url: str = Field(default="", alias="SUPABASE_SENSE_IMAGES_SYNC_RPC_URL")
+    supabase_sense_images_sync_function: str = Field(
+        default="aac_sync_sense_images_from_inventory",
+        alias="SUPABASE_SENSE_IMAGES_SYNC_FUNCTION",
+    )
+    supabase_sense_images_style: str = Field(default="aac_current", alias="SUPABASE_SENSE_IMAGES_STYLE")
+    supabase_sense_images_style_version: str = Field(default="1", alias="SUPABASE_SENSE_IMAGES_STYLE_VERSION")
+    supabase_sense_images_bucket: str = Field(default="aac-images-v1", alias="SUPABASE_SENSE_IMAGES_BUCKET")
+    supabase_sense_images_sync_batch_size: int = Field(default=100, alias="SUPABASE_SENSE_IMAGES_SYNC_BATCH_SIZE")
     supabase_export_bucket: str = Field(default="exports", alias="SUPABASE_EXPORT_BUCKET")
     supabase_csv_bucket: str = Field(default="csv-imports", alias="SUPABASE_CSV_BUCKET")
     slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")

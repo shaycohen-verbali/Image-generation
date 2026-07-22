@@ -51,6 +51,8 @@ def _seed_inventory_row(
                 context="standing steadily",
                 job_status="approved",
                 has_person="yes",
+                image_score=88.5,
+                needs_person_attention=True,
                 fully_complete=False,
                 created_at=now,
                 updated_at=now,
@@ -87,6 +89,8 @@ def test_word_inventory_read_import_and_writeback_targets_same_row(db_session, m
     listed = source.list_rows("word_inventory", search="balance")
     assert listed["total"] == 1
     assert listed["rows"][0]["id"] == "inv_source_1"
+    assert listed["rows"][0]["image_score"] == 88.5
+    assert listed["rows"][0]["needs_person_attention"] is True
 
     rows = source.get_rows(
         "word_inventory",
