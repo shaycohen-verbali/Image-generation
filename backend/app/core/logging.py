@@ -18,9 +18,8 @@ class JsonFormatter(logging.Formatter):
             "queued_tasks", "running_tasks", "failed_tasks", "stale_tasks",
             "oldest_running_age_seconds", "worker_heartbeat_age_seconds", "query_ms",
         ):
-            value = getattr(record, field, None)
-            if value is not None:
-                payload[field] = value
+            if hasattr(record, field):
+                payload[field] = getattr(record, field)
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=True)
