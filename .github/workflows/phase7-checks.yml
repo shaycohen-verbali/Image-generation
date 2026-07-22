@@ -14,6 +14,8 @@ jobs:
   focused-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      RUNTIME_DATA_ROOT: /tmp/aac-image-generator-ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
