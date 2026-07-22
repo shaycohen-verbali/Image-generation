@@ -1,6 +1,7 @@
 import csv
 import json
 import zipfile
+from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
 
@@ -120,6 +121,81 @@ def test_start_job_records_started_at_even_before_first_claim(db_session) -> Non
 
     assert started.started_at is not None
     assert started.status == "queued"
+
+
+def test_stale_csv_task_timeout_excludes_work_owned_by_live_worker(db_session) -> None:
+    repo = Repository(db_session)
+    entry = _make_entry(repo, word="abby")
+    job = repo.create_csv_job(
+        batch_id="csv_test_live_task_timeout",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={},
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=22,
+        source_row={"word": "abby"},
+    )
+    task = repo.create_csv_task_node(
+        csv_job_id=job.id,
+        csv_job_item_id=item.id,
+        step_name="step1_base",
+        task_key="row22:base",
+        profile_key="male:kid:white",
+        source_profile_key="",
+        branch_role="base",
+        dependency_keys=[],
+        dependency_task_ids=[],
+        status="running",
+    )
+    repo.update_csv_task(task, started_at=datetime.utcnow() - timedelta(minutes=20))
+
+    timed_out_ids = repo.fail_stale_running_csv_tasks(
+        timeout_seconds=420,
+        exclude_task_ids={task.id},
+    )
+
+    assert timed_out_ids == []
+    assert repo.get_csv_task(task.id).status == "running"
+
+
+def test_stale_csv_task_timeout_still_recovers_orphaned_work(db_session) -> None:
+    repo = Repository(db_session)
+    entry = _make_entry(repo, word="orphan")
+    job = repo.create_csv_job(
+        batch_id="csv_test_orphan_task_timeout",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={},
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "orphan"},
+    )
+    task = repo.create_csv_task_node(
+        csv_job_id=job.id,
+        csv_job_item_id=item.id,
+        step_name="step1_base",
+        task_key="row1:base",
+        profile_key="male:kid:white",
+        source_profile_key="",
+        branch_role="base",
+        dependency_keys=[],
+        dependency_task_ids=[],
+        status="running",
+    )
+    repo.update_csv_task(task, started_at=datetime.utcnow() - timedelta(minutes=20))
+
+    timed_out_ids = repo.fail_stale_running_csv_tasks(timeout_seconds=420)
+
+    assert timed_out_ids == [task.id]
+    refreshed = repo.get_csv_task(task.id)
+    assert refreshed.status == "failed"
+    assert refreshed.error_summary == "Timed out after 420 seconds"
 
 
 def test_item_progress_uses_item_status_when_no_tasks_exist(db_session) -> None:

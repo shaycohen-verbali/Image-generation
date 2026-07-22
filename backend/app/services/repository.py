@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
 
@@ -1261,15 +1262,22 @@ class Repository:
                 return claimed
         return None
 
-    def fail_stale_running_csv_tasks(self, *, timeout_seconds: int) -> list[str]:
+    def fail_stale_running_csv_tasks(
+        self,
+        *,
+        timeout_seconds: int,
+        exclude_task_ids: Collection[str] = (),
+    ) -> list[str]:
         cutoff = datetime.utcnow().timestamp() - max(1, int(timeout_seconds))
-        stale_tasks = list(
-            self.db.execute(
-                select(CsvTaskNode)
-                .where(CsvTaskNode.status == "running")
-                .where(CsvTaskNode.started_at.is_not(None))
-            ).scalars()
+        query = (
+            select(CsvTaskNode)
+            .where(CsvTaskNode.status == "running")
+            .where(CsvTaskNode.started_at.is_not(None))
         )
+        protected_task_ids = {str(task_id) for task_id in exclude_task_ids if str(task_id).strip()}
+        if protected_task_ids:
+            query = query.where(CsvTaskNode.id.not_in(protected_task_ids))
+        stale_tasks = list(self.db.execute(query).scalars())
         timed_out_ids: list[str] = []
         affected_item_ids: set[str] = set()
         affected_job_ids: set[str] = set()
