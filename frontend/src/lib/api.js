@@ -114,6 +114,10 @@ export async function getCsvJobOverview(jobId) {
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/overview`, {}, 2)
 }
 
+export async function getCsvJobMetadata(jobId) {
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/metadata`, {}, 1)
+}
+
 export async function getCsvJobSummary(jobId) {
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary`, {}, 1)
 }

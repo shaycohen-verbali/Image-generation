@@ -9,7 +9,7 @@ import {
   deleteRun,
   exportCsvJob,
   getConfig,
-  getCsvJobOverview,
+  getCsvJobMetadata,
   getCsvJobItems,
   getCsvJobItemDetail,
   getCsvJobSummary,
@@ -906,7 +906,7 @@ export default function RunsPage() {
     if (csvOverviewRequestInFlightRef.current) return
     csvOverviewRequestInFlightRef.current = true
     try {
-      const data = await getCsvJobOverview(jobId)
+      const data = await getCsvJobMetadata(jobId)
       if (selectedCsvJobIdRef.current && selectedCsvJobIdRef.current !== jobId) {
         return
       }

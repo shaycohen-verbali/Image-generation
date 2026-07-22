@@ -154,6 +154,15 @@ def get_csv_job_summary(job_id: str, db: Session = Depends(db_dependency)) -> Cs
     return CsvJobSummaryOut(**summary)
 
 
+@router.get("/{job_id}/metadata", response_model=CsvJobOverviewOut)
+def get_csv_job_metadata(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobOverviewOut:
+    service = CsvDagService(db)
+    metadata = service.job_metadata(job_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="CSV job not found")
+    return CsvJobOverviewOut(**metadata)
+
+
 @router.get("/{job_id}/items", response_model=CsvJobItemsPageOut)
 def get_csv_job_items(
     job_id: str,

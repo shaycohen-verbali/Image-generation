@@ -158,6 +158,12 @@ def test_job_items_page_bounds_items_and_tasks(db_session) -> None:
     assert len(detail["tasks"]) == 1
     assert detail["tasks"][0]["csv_job_item_id"] == detail["item"]["id"]
 
+    metadata = service.job_metadata(job.id)
+    assert metadata is not None
+    assert metadata["job"]["total_row_count"] == 3
+    assert metadata["items"] == []
+    assert metadata["tasks"] == []
+
 
 def test_start_job_records_started_at_even_before_first_claim(db_session) -> None:
     repo = Repository(db_session)

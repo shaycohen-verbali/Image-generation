@@ -800,6 +800,23 @@ class CsvDagService:
             "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
         }
 
+    def job_metadata(self, job_id: str) -> dict[str, Any] | None:
+        summary = self.job_summary(job_id)
+        if summary is None:
+            return None
+        job = self.repo.get_csv_job(job_id)
+        if job is None:
+            return None
+        return {
+            "job": summary["job"],
+            "step_counts": summary["step_counts"],
+            "items": [],
+            "tasks": [],
+            "word_counts": summary["word_counts"],
+            "requested_profile_history": self._requested_profile_history(job),
+            "export_ready": summary["export_ready"],
+        }
+
     def clear_terminal_jobs(self) -> dict[str, Any]:
         deleted = self.repo.delete_csv_jobs(terminal_only=True)
         return {"deleted_job_count": deleted}

@@ -296,6 +296,7 @@ def list_runs(
     entry_id: str | None = Query(default=None),
     min_score: float | None = Query(default=None),
     max_score: float | None = Query(default=None),
+    include_costs: bool = Query(default=False),
     db: Session = Depends(db_dependency),
 ) -> list[RunOut]:
     repo = Repository(db)
@@ -303,10 +304,12 @@ def list_runs(
     payload_rows: list[RunOut] = []
     for run in runs:
         entry = repo.get_entry(run.entry_id)
-        _, stages, assets, _ = repo.run_snapshot(run.id)
-        cost_summary = summarize_run_costs(stages, assets)
-        if entry and entry.batch:
-            cost_summary["batch_job"] = repo.batch_job_summary(entry.batch)
+        cost_summary = {}
+        if include_costs:
+            _, stages, assets, _ = repo.run_snapshot(run.id)
+            cost_summary = summarize_run_costs(stages, assets)
+            if entry and entry.batch:
+                cost_summary["batch_job"] = repo.batch_job_summary(entry.batch)
         payload_rows.append(_run_out(run, entry, cost_summary=cost_summary))
     return payload_rows
 
