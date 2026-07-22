@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from threading import Lock
+from time import monotonic
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -26,6 +28,10 @@ from app.services.csv_dag_service import CsvDagService
 from app.services.storage import materialize_path
 
 router = APIRouter(prefix="/api/v1/csv-jobs", tags=["csv-jobs"])
+
+_OVERVIEW_CACHE_SECONDS = 5.0
+_overview_cache: dict[str, tuple[float, dict]] = {}
+_overview_cache_lock = Lock()
 
 _SAMPLE_CSV_CONTENT = (
     "word,part of speech,category\n"
@@ -112,8 +118,25 @@ def get_csv_job(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobOut:
 
 @router.get("/{job_id}/overview", response_model=CsvJobOverviewOut)
 def get_csv_job_overview(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobOverviewOut:
-    service = CsvDagService(db)
-    overview = service.job_overview(job_id)
+    now = monotonic()
+    cached = _overview_cache.get(job_id)
+    if cached is not None and now - cached[0] < _OVERVIEW_CACHE_SECONDS:
+        return CsvJobOverviewOut(**cached[1])
+
+    # Several fast browser polls can otherwise execute the same expensive
+    # snapshot query concurrently. Coalesce them into one database read.
+    with _overview_cache_lock:
+        now = monotonic()
+        cached = _overview_cache.get(job_id)
+        if cached is not None and now - cached[0] < _OVERVIEW_CACHE_SECONDS:
+            return CsvJobOverviewOut(**cached[1])
+        service = CsvDagService(db)
+        overview = service.job_overview(job_id)
+        if overview is not None:
+            validated = CsvJobOverviewOut(**overview)
+            cached_payload = validated.model_dump()
+            _overview_cache[job_id] = (now, cached_payload)
+            return validated
     if overview is None:
         raise HTTPException(status_code=404, detail="CSV job not found")
     return CsvJobOverviewOut(**overview)

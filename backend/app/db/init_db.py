@@ -236,6 +236,12 @@ def _ensure_hot_indexes() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_jobs_status_created_at ON csv_jobs (status, created_at DESC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_job_status_created_at ON csv_task_nodes (csv_job_id, status, created_at ASC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_item_status ON csv_task_nodes (csv_job_item_id, status)"))
+        # CSV job overviews read these tables by run and then display them in
+        # creation order. Composite indexes avoid sorting/scanning the full
+        # history while a batch is actively producing rows.
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_stage_results_run_created_at ON stage_results (run_id, created_at ASC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assets_run_created_at ON assets (run_id, created_at ASC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scores_run_created_at ON scores (run_id, created_at ASC)"))
 
 
 def _ensure_runtime_config_columns() -> None:
