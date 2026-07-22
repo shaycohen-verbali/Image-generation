@@ -89,6 +89,20 @@ class RecordingPromptEngineerOpenAI(MockOpenAI):
         return {"upgraded prompt": "responses api upgraded prompt"}, {"raw_text": '{"upgraded prompt":"responses api upgraded prompt"}'}
 
 
+class RetryOnceStage1OpenAI(MockOpenAI):
+    def __init__(self, scores: list[int]):
+        super().__init__(scores)
+        self.stage1_calls = 0
+        self.stage1_kwargs = []
+
+    def generate_first_prompt(self, user_text: str, assistant_id: str, **kwargs):
+        self.stage1_calls += 1
+        self.stage1_kwargs.append(kwargs)
+        if self.stage1_calls == 1:
+            raise RuntimeError("temporary Stage 1 failure")
+        return {"first prompt": "retry succeeded", "need a person": "no"}, {"raw_text": "ok"}
+
+
 class PersonVariantOpenAI(MockOpenAI):
     def generate_first_prompt(self, user_text: str, assistant_id: str, **_kwargs):
         return {"first prompt": "person-centered action image", "need a person": "yes"}, {"raw_text": "ok"}
@@ -790,6 +804,23 @@ def test_stage1_assistant_failure_records_last_error_payload(db_session):
     assert stage1_error.status == "error"
     assert response_json.get("last_error", {}).get("code") == "server_error"
     assert response_json.get("run_payload", {}).get("status") == "failed"
+
+
+def test_stage1_restarts_once_without_nested_request_retries(db_session):
+    run = _create_run(db_session)
+    mock_openai = RetryOnceStage1OpenAI(scores=[95])
+    runner = PipelineRunner(
+        db_session,
+        openai_client=mock_openai,
+        replicate_client=MockReplicate(),
+        google_image_client=MockGoogleImageClient(),
+    )
+
+    result = runner.process_run(run.id)
+
+    assert result.status == "completed_pass"
+    assert mock_openai.stage1_calls == 2
+    assert [kwargs["request_retries"] for kwargs in mock_openai.stage1_kwargs] == [0, 0]
 
 
 def test_responses_api_prompt_engineer_mode_is_recorded(db_session):
