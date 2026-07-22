@@ -1,5 +1,8 @@
+import json
+import logging
 from datetime import datetime, timedelta
 
+from app.core.logging import JsonFormatter
 from app.services.repository import Repository
 from app.services.task_health_monitor import TaskHealthMonitor
 
@@ -36,3 +39,23 @@ def test_task_health_monitor_uses_one_query_and_skips_overlapping_cycles(db_sess
     assert summary["oldest_running_age_seconds"] >= 479
     assert summary["worker_heartbeat_age_seconds"] is None
     assert skipped is None
+
+
+def test_health_log_keeps_unavailable_age_fields_as_json_null() -> None:
+    record = logging.LogRecord(
+        "app.services.task_health_monitor", logging.INFO, __file__, 1, "csv task health", (), None
+    )
+    record.queued_tasks = 0
+    record.running_tasks = 0
+    record.failed_tasks = 0
+    record.stale_tasks = 0
+    record.oldest_running_age_seconds = None
+    record.worker_heartbeat_age_seconds = None
+    record.query_ms = 12.5
+
+    payload = json.loads(JsonFormatter().format(record))
+
+    assert "oldest_running_age_seconds" in payload
+    assert payload["oldest_running_age_seconds"] is None
+    assert "worker_heartbeat_age_seconds" in payload
+    assert payload["worker_heartbeat_age_seconds"] is None
