@@ -19,6 +19,7 @@ from app.schemas import (
     CsvJobImportResponse,
     CsvJobInventorySyncResponse,
     CsvJobItemsPageOut,
+    CsvJobItemDetailOut,
     CsvJobOut,
     CsvJobOverviewOut,
     CsvJobRetryResponse,
@@ -165,6 +166,17 @@ def get_csv_job_items(
     if page is None:
         raise HTTPException(status_code=404, detail="CSV job not found")
     return CsvJobItemsPageOut(**page)
+
+
+@router.get("/{job_id}/items/{item_id}", response_model=CsvJobItemDetailOut)
+def get_csv_job_item_detail(
+    job_id: str, item_id: str, db: Session = Depends(db_dependency)
+) -> CsvJobItemDetailOut:
+    service = CsvDagService(db)
+    detail = service.job_item_detail(job_id, item_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="CSV job item not found")
+    return CsvJobItemDetailOut(**detail)
 
 
 @router.post("/{job_id}/start", response_model=CsvJobStartResponse)

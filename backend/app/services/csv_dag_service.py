@@ -1763,18 +1763,19 @@ Debugging and backwards-compatible files are under `_metadata/`.
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }
 
-    def job_items_page(self, job_id: str, *, offset: int, limit: int) -> dict[str, Any] | None:
+    def job_items_page(self, job_id: str, *, offset: int, limit: int, include_tasks: bool = False) -> dict[str, Any] | None:
         job = self.repo.get_csv_job(job_id)
         if job is None:
             return None
         items, total = self.repo.list_csv_job_items_page(job_id, offset=offset, limit=limit)
-        tasks = self.repo.list_csv_tasks_for_items(job_id, [item.id for item in items])
+        item_tasks = self.repo.list_csv_tasks_for_items(job_id, [item.id for item in items])
+        tasks = item_tasks if include_tasks else []
         entries_by_id = self.repo.get_entries_by_ids([item.entry_id for item in items])
         runs_by_id = self.repo.get_runs_by_ids(
             [item.shadow_run_id for item in items if str(item.shadow_run_id or "").strip()]
         )
         tasks_by_item: dict[str, list[CsvTaskNode]] = {}
-        for task in tasks:
+        for task in item_tasks:
             tasks_by_item.setdefault(task.csv_job_item_id, []).append(task)
         items_payload: list[dict[str, Any]] = []
         for item in items:
@@ -1815,6 +1816,19 @@ Debugging and backwards-compatible files are under `_metadata/`.
             "created_at": task.created_at, "updated_at": task.updated_at,
         } for task in tasks]
         return {"items": items_payload, "tasks": tasks_payload, "total": total, "offset": offset, "limit": limit}
+
+    def job_item_detail(self, job_id: str, item_id: str) -> dict[str, Any] | None:
+        item = self.repo.get_csv_job_item(item_id)
+        if item is None or item.csv_job_id != job_id:
+            return None
+        preceding_items = sum(
+            1 for candidate in self.repo.list_csv_job_items(job_id)
+            if candidate.row_index < item.row_index
+        )
+        page = self.job_items_page(job_id, offset=preceding_items, limit=1, include_tasks=True)
+        if page is None or not page["items"]:
+            return None
+        return {"item": page["items"][0], "tasks": page["tasks"]}
 
     def _reconcile_terminal_shadow_runs(self, job_id: str) -> bool:
         overview = self.repo.csv_job_overview(job_id)

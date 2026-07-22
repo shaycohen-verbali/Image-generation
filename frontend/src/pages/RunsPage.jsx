@@ -11,6 +11,7 @@ import {
   getConfig,
   getCsvJobOverview,
   getCsvJobItems,
+  getCsvJobItemDetail,
   getCsvJobSummary,
   getRun,
   listCsvJobs,
@@ -596,6 +597,7 @@ export default function RunsPage() {
   const [selectedCsvJobId, setSelectedCsvJobId] = useState('')
   const [csvJobOverview, setCsvJobOverview] = useState(null)
   const [csvItemsPage, setCsvItemsPage] = useState({ items: [], tasks: [], total: 0, offset: 0, limit: 50 })
+  const [csvItemDetail, setCsvItemDetail] = useState(null)
   const [selectedCsvItemId, setSelectedCsvItemId] = useState('')
   const [csvShadowRunDetail, setCsvShadowRunDetail] = useState(null)
   const [selectedCsvStatusFilter, setSelectedCsvStatusFilter] = useState('')
@@ -623,6 +625,7 @@ export default function RunsPage() {
   const csvOverviewRequestInFlightRef = useRef(false)
   const csvSummaryRequestInFlightRef = useRef(false)
   const csvItemsRequestInFlightRef = useRef(false)
+  const csvItemDetailRequestInFlightRef = useRef(false)
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
@@ -729,13 +732,18 @@ export default function RunsPage() {
     if (!selectedCsvStatusFilter) return csvJobItems
     return csvJobItems.filter((item) => String(item.main_status || '').toLowerCase() === selectedCsvStatusFilter)
   }, [csvJobItems, selectedCsvStatusFilter])
-  const selectedCsvItem = useMemo(
+  const selectedCsvListItem = useMemo(
     () => filteredCsvJobItems.find((item) => item.id === selectedCsvItemId) || filteredCsvJobItems[0] || null,
     [filteredCsvJobItems, selectedCsvItemId]
   )
+  const selectedCsvItem = csvItemDetail?.item?.id === selectedCsvListItem?.id
+    ? { ...selectedCsvListItem, ...csvItemDetail.item }
+    : selectedCsvListItem
   const selectedCsvItemTasks = useMemo(
-    () => csvJobTasks.filter((task) => task.csv_job_item_id === selectedCsvItem?.id),
-    [csvJobTasks, selectedCsvItem?.id]
+    () => csvItemDetail?.item?.id === selectedCsvItem?.id
+      ? (csvItemDetail.tasks || [])
+      : csvJobTasks.filter((task) => task.csv_job_item_id === selectedCsvItem?.id),
+    [csvItemDetail, csvJobTasks, selectedCsvItem?.id]
   )
   const csvScoreHistory = useMemo(
     () => [...(Array.isArray(csvShadowRunDetail?.scores) ? csvShadowRunDetail.scores : [])].sort((left, right) => (left.attempt || 0) - (right.attempt || 0)),
@@ -956,6 +964,19 @@ export default function RunsPage() {
     }
   }
 
+  async function loadCsvItemDetail(jobId, itemId) {
+    if (!jobId || !itemId || csvItemDetailRequestInFlightRef.current) return
+    csvItemDetailRequestInFlightRef.current = true
+    try {
+      const data = await getCsvJobItemDetail(jobId, itemId)
+      if (selectedCsvJobIdRef.current === jobId) setCsvItemDetail(data)
+    } catch (error) {
+      setMessage(`Error loading CSV word detail: ${error.message}`)
+    } finally {
+      csvItemDetailRequestInFlightRef.current = false
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     const loadConfig = async () => {
@@ -1092,9 +1113,16 @@ export default function RunsPage() {
 
   useEffect(() => {
     setCsvShadowRunDetail(null)
+    setCsvItemDetail(null)
     setShowCsvScoreHistory(false)
     setShowCsvPromptHistory(false)
   }, [selectedCsvItem?.id])
+
+  useEffect(() => {
+    if (selectedCsvJobId && selectedCsvListItem?.id) {
+      loadCsvItemDetail(selectedCsvJobId, selectedCsvListItem.id)
+    }
+  }, [selectedCsvJobId, selectedCsvListItem?.id])
 
   useEffect(() => {
     const shadowRunId = String(selectedCsvItem?.shadow_run_id || '').trim()

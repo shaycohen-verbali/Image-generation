@@ -444,6 +444,11 @@ class CsvJobItemsPageOut(BaseModel):
     limit: int = 50
 
 
+class CsvJobItemDetailOut(BaseModel):
+    item: CsvJobItemOut
+    tasks: list[CsvJobTaskOut] = Field(default_factory=list)
+
+
 class CsvJobSummaryOut(BaseModel):
     job: CsvJobOut
     word_counts: dict[str, int] = Field(default_factory=dict)

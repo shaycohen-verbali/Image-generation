@@ -151,8 +151,12 @@ def test_job_items_page_bounds_items_and_tasks(db_session) -> None:
     assert page["total"] == 3
     assert page["offset"] == 1
     assert [item["row_index"] for item in page["items"]] == [2]
-    assert len(page["tasks"]) == 1
-    assert page["tasks"][0]["csv_job_item_id"] == page["items"][0]["id"]
+    assert page["tasks"] == []
+
+    detail = service.job_item_detail(job.id, page["items"][0]["id"])
+    assert detail is not None
+    assert len(detail["tasks"]) == 1
+    assert detail["tasks"][0]["csv_job_item_id"] == detail["item"]["id"]
 
 
 def test_start_job_records_started_at_even_before_first_claim(db_session) -> None:
