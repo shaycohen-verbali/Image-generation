@@ -1559,6 +1559,11 @@ class Repository:
         job = self.get_csv_job(csv_job_id)
         if job is None:
             return None
+        terminal_finished_at = (
+            job.finished_at
+            if job.finished_at is not None and str(job.status or "").lower() in {"completed", "failed", "partial_failed", "canceled"}
+            else datetime.utcnow()
+        )
         items = self.list_csv_job_items(csv_job_id)
         tasks = self.list_csv_tasks(csv_job_id)
         changed_blocked_tasks = False
@@ -1617,17 +1622,17 @@ class Repository:
                     return self.update_csv_job(
                         job,
                         status="partial_failed" if mixed_terminal else "failed",
-                        finished_at=datetime.utcnow(),
+                        finished_at=terminal_finished_at,
                         error_detail="Some CSV DAG rows failed" if mixed_terminal else "One or more CSV DAG rows failed",
                     )
                 if any(status == "canceled" for status in item_statuses):
                     return self.update_csv_job(
                         job,
                         status="canceled",
-                        finished_at=datetime.utcnow(),
+                        finished_at=terminal_finished_at,
                         error_detail=job.error_detail or "Canceled by user",
                     )
-                return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
+                return self.update_csv_job(job, status="completed", finished_at=terminal_finished_at, error_detail="")
         if not tasks:
             if not items:
                 # Job was just created and the import hasn't committed yet — keep current status
@@ -1639,17 +1644,17 @@ class Repository:
                     return self.update_csv_job(
                         job,
                         status="partial_failed" if mixed_terminal else "failed",
-                        finished_at=datetime.utcnow(),
+                        finished_at=terminal_finished_at,
                         error_detail="Some CSV DAG rows failed" if mixed_terminal else "One or more CSV DAG rows failed",
                     )
                 if any(status == "canceled" for status in item_statuses):
                     return self.update_csv_job(
                         job,
                         status="canceled",
-                        finished_at=datetime.utcnow(),
+                        finished_at=terminal_finished_at,
                         error_detail=job.error_detail or "Canceled by user",
                     )
-                return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
+                return self.update_csv_job(job, status="completed", finished_at=terminal_finished_at, error_detail="")
             if any(status == "running" for status in item_statuses):
                 return self.update_csv_job(job, status="running", finished_at=None, error_detail="")
             if any(status == "queued" for status in item_statuses):
@@ -1658,7 +1663,7 @@ class Repository:
             if any(status == "pending" for status in item_statuses):
                 next_status = "running" if job.started_at is not None else "imported"
                 return self.update_csv_job(job, status=next_status, finished_at=None, error_detail="")
-            return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
+            return self.update_csv_job(job, status="completed", finished_at=terminal_finished_at, error_detail="")
         statuses = [task.status for task in tasks]
         if any(status == "running" for status in statuses):
             if job.status == "cancel_requested":
@@ -1683,13 +1688,13 @@ class Repository:
                     return self.update_csv_job(
                         job,
                         status="canceled",
-                        finished_at=datetime.utcnow(),
+                        finished_at=terminal_finished_at,
                         error_detail=blocked_reasons[0] if blocked_reasons else "Canceled by dependency chain",
                     )
                 return self.update_csv_job(
                     job,
                     status="failed",
-                    finished_at=datetime.utcnow(),
+                    finished_at=terminal_finished_at,
                     error_detail=blocked_reasons[0] if blocked_reasons else "Queued tasks are blocked by failed dependencies",
                 )
             if job.status == "cancel_requested":
@@ -1700,11 +1705,11 @@ class Repository:
                 next_status = "queued"
             return self.update_csv_job(job, status=next_status)
         if job.status == "cancel_requested" and any(status == "canceled" for status in statuses):
-            return self.update_csv_job(job, status="canceled", finished_at=datetime.utcnow(), error_detail="Canceled by user")
+            return self.update_csv_job(job, status="canceled", finished_at=terminal_finished_at, error_detail="Canceled by user")
         if all(status == "canceled" for status in statuses):
-            return self.update_csv_job(job, status="canceled", finished_at=datetime.utcnow())
+            return self.update_csv_job(job, status="canceled", finished_at=terminal_finished_at)
         if any(status == "failed" for status in statuses):
-            finished_at = None if any(status in {"queued", "running"} for status in statuses) else datetime.utcnow()
+            finished_at = None if any(status in {"queued", "running"} for status in statuses) else terminal_finished_at
             mixed_progress = any(status in {"completed", "canceled"} for status in statuses)
             return self.update_csv_job(
                 job,
@@ -1712,7 +1717,7 @@ class Repository:
                 finished_at=finished_at,
                 error_detail="Some CSV DAG tasks failed" if mixed_progress else "One or more CSV DAG tasks failed",
             )
-        return self.update_csv_job(job, status="completed", finished_at=datetime.utcnow(), error_detail="")
+        return self.update_csv_job(job, status="completed", finished_at=terminal_finished_at, error_detail="")
 
     def csv_job_overview(self, csv_job_id: str) -> dict[str, Any] | None:
         job = self.get_csv_job(csv_job_id)

@@ -180,7 +180,13 @@ def test_finalize_reconciles_stale_terminal_items_from_task_statuses(db_session)
     job = repo.create_csv_job(
         batch_id="csv_reconcile", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={}
     )
-    job = repo.update_csv_job(job, status="running", started_at=datetime.utcnow())
+    original_finished_at = datetime.utcnow() - timedelta(minutes=5)
+    job = repo.update_csv_job(
+        job,
+        status="partial_failed",
+        started_at=original_finished_at - timedelta(minutes=2),
+        finished_at=original_finished_at,
+    )
     completed_entry = _make_entry(repo, word="accuracy")
     completed_item = repo.create_csv_job_item(
         csv_job_id=job.id, entry_id=completed_entry.id, row_index=1, source_row={"word": "accuracy"}
@@ -210,6 +216,7 @@ def test_finalize_reconciles_stale_terminal_items_from_task_statuses(db_session)
     assert repo.get_csv_job_item(failed_item.id).status == "failed"
     assert repo.get_csv_job_item(failed_item.id).error_detail == "real failure"
     assert finalized is not None and finalized.status == "partial_failed"
+    assert finalized.finished_at == original_finished_at
 
 
 def test_cannot_complete_variant_finalizes_parent_item(db_session, monkeypatch) -> None:
