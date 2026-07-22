@@ -43,6 +43,7 @@ from app.services.storage import (
 from app.services.utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
+STAGE1_ATTEMPT_LIMIT = 2
 
 
 class RunCanceledError(RuntimeError):
@@ -822,7 +823,7 @@ class PipelineRunner:
 
         return self.repo.get_run(run.id) or run
 
-    def _run_stage1(self, run: Run, entry: Entry, assistant_id: str, retry_limit: int) -> Run:
+    def _run_stage1(self, run: Run, entry: Entry, assistant_id: str, _retry_limit: int) -> Run:
         run = self.repo.update_run(run, current_stage="stage1_prompt")
         self._record_event(
             run_id=run.id,
@@ -851,6 +852,7 @@ class PipelineRunner:
                     mode=runtime_config.prompt_engineer_mode,
                     responses_model=runtime_config.responses_prompt_engineer_model,
                     vector_store_id=runtime_config.responses_vector_store_id,
+                    request_retries=0,
                 )
             except AssistantRunFailedError as exc:
                 exc.request_json = {"prompt": prompt_payload, **(exc.request_json or {})}
@@ -937,7 +939,7 @@ class PipelineRunner:
                 },
             )
 
-        self._execute_with_stage_retry(retry_limit, _exec)
+        self._execute_with_stage_retry(STAGE1_ATTEMPT_LIMIT, _exec)
         return self.repo.get_run(run.id) or run
 
     def _run_stage2(self, run: Run, entry: Entry, retry_limit: int) -> Run:

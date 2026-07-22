@@ -95,6 +95,12 @@ DEFAULT_STAGE1_PROMPT_TEMPLATE = (
     "{photorealistic_style_block}\n"
 )
 
+STAGE1_WORD_FIDELITY_RULE = (
+    "Word fidelity rule:\n"
+    "- Use the supplied word exactly as provided.\n"
+    "- Never autocorrect, replace, stem, or reinterpret it as another word."
+)
+
 
 DEFAULT_STAGE3_PROMPT_TEMPLATE = (
     "Create an upgraded image prompt for the given word. Return STRICT JSON:\n"
@@ -328,7 +334,7 @@ def build_stage1_prompt(
     visual_style_block: str = DEFAULT_VISUAL_STYLE_PROMPT_BLOCK,
 ) -> str:
     default_profile = entry_default_profile(entry)
-    return _render_with_visual_style(
+    rendered = _render_with_visual_style(
         template_text or DEFAULT_STAGE1_PROMPT_TEMPLATE,
         {
             "context": entry.context,
@@ -351,6 +357,9 @@ def build_stage1_prompt(
         visual_style_name=visual_style_name,
         visual_style_block=visual_style_block,
     )
+    if STAGE1_WORD_FIDELITY_RULE not in rendered:
+        rendered = f"{rendered.rstrip()}\n\n{STAGE1_WORD_FIDELITY_RULE}"
+    return rendered
 
 
 def build_stage3_prompt(

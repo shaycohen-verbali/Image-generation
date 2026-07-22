@@ -89,7 +89,15 @@ class OpenAIClient:
             retryable=(requests.RequestException,),
         )
 
-    def _request_gemini(self, method: str, url: str, *, json_body: dict[str, Any] | None = None, timeout: int = 180) -> dict[str, Any]:
+    def _request_gemini(
+        self,
+        method: str,
+        url: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        timeout: int = 180,
+        retries: int | None = None,
+    ) -> dict[str, Any]:
         if not self.settings.google_api_key:
             raise RuntimeError("GOOGLE_API_KEY is required when using Gemini models")
 
@@ -122,7 +130,7 @@ class OpenAIClient:
 
         return with_backoff(
             _call,
-            retries=self.settings.max_api_retries,
+            retries=self.settings.max_api_retries if retries is None else max(0, int(retries)),
             retryable=(requests.RequestException,),
         )
 
@@ -236,10 +244,21 @@ class OpenAIClient:
                         texts.append(str(text_value.get("value")).strip())
         return "\n".join(texts).strip()
 
-    def _responses_json(self, user_text: str, *, model: str, vector_store_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _responses_json(
+        self,
+        user_text: str,
+        *,
+        model: str,
+        vector_store_id: str,
+        request_retries: int | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         normalized_model = normalize_prompt_engineer_model(model)
         if is_gemini_model(normalized_model):
-            return self._gemini_text_json(user_text, model=normalized_model)
+            return self._gemini_text_json(
+                user_text,
+                model=normalized_model,
+                request_retries=request_retries,
+            )
         if not str(vector_store_id or "").strip():
             raise RuntimeError("Responses prompt engineer requires a vector store id")
         payload = {
@@ -263,7 +282,13 @@ class OpenAIClient:
             "vector_store_id": vector_store_id,
         }
 
-    def _gemini_text_json(self, user_text: str, *, model: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _gemini_text_json(
+        self,
+        user_text: str,
+        *,
+        model: str,
+        request_retries: int | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         normalized_model = normalize_prompt_engineer_model(model)
         model_path = quote(normalized_model, safe="")
         url = f"{GOOGLE_BASE_URL}/models/{model_path}:generateContent"
@@ -281,7 +306,12 @@ class OpenAIClient:
                 "responseMimeType": "application/json",
             },
         }
-        response = self._request_gemini("POST", url, json_body=payload)
+        response = self._request_gemini(
+            "POST",
+            url,
+            json_body=payload,
+            retries=request_retries,
+        )
         candidates = response.get("candidates", [])
         parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
         content = "\n".join(str(part.get("text", "")) for part in parts if part.get("text")).strip()
@@ -302,9 +332,15 @@ class OpenAIClient:
         mode: str = "assistant",
         responses_model: str = "gpt-5.4",
         vector_store_id: str = "",
+        request_retries: int | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if mode == "responses_api":
-            return self._responses_json(user_text, model=responses_model, vector_store_id=vector_store_id)
+            return self._responses_json(
+                user_text,
+                model=responses_model,
+                vector_store_id=vector_store_id,
+                request_retries=request_retries,
+            )
         return self._assistant_json(user_text=user_text, assistant_id=assistant_id)
 
     def generate_upgraded_prompt(

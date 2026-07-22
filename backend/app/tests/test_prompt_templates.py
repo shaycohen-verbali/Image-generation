@@ -40,6 +40,15 @@ def test_stage1_prompt_includes_both_style_paths() -> None:
     assert "{word_sense}" not in prompt
     assert "{category}" not in prompt
     assert prompt.index("Word sense: food") < prompt.index("Word synonyms for better meaning: pail, container")
+    assert "Use the supplied word exactly as provided" in prompt
+    assert "Never autocorrect, replace, stem, or reinterpret it as another word" in prompt
+
+
+def test_stage1_prompt_enforces_word_fidelity_for_saved_custom_template() -> None:
+    prompt = build_stage1_prompt(make_entry(), template_text="Word: {word}")
+
+    assert prompt.startswith("Word: bucket")
+    assert "Never autocorrect, replace, stem, or reinterpret it as another word" in prompt
 
 
 def test_stage3_prompt_appends_visual_style_even_when_template_has_no_placeholder() -> None:
