@@ -12,8 +12,10 @@ from app.services.csv_dag_service import CsvDagService
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
 
-# At higher CSV concurrency, a healthy base word can take several minutes end-to-end.
-# Keep a timeout guard, but leave enough room for legitimate stage3/stage4/quality latency.
+# Recover stale database tasks that were orphaned by a worker crash or restart.
+# Tasks still owned by a live future must never be failed here: Python cannot
+# cancel a running future, so releasing its slot would hide ongoing work and
+# allow the process to exceed its configured parallelism.
 CSV_TASK_TIMEOUT_SECONDS = 420
 # The image pipeline is heavy on both providers and the database. Keep a
 # reasonable upper bound so a burst of queued work does not create a second
@@ -63,19 +65,17 @@ def run_worker() -> None:
                     config = repo.get_runtime_config()
                     max_parallel_runs = max(1, int(config.max_parallel_runs or 1))
                     poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
-                    timed_out_task_ids = repo.fail_stale_running_csv_tasks(timeout_seconds=CSV_TASK_TIMEOUT_SECONDS)
+                    timed_out_task_ids = repo.fail_stale_running_csv_tasks(
+                        timeout_seconds=CSV_TASK_TIMEOUT_SECONDS,
+                        exclude_task_ids=active_csv_tasks.values(),
+                    )
 
                 if timed_out_task_ids:
-                    timed_out = set(timed_out_task_ids)
-                    released_futures = [future for future, task_id in active_csv_tasks.items() if task_id in timed_out]
-                    for future in released_futures:
-                        active_csv_tasks.pop(future, None)
                     logger.warning(
-                        "csv tasks timed out",
+                        "orphaned csv tasks timed out",
                         extra={
                             "csv_task_ids": timed_out_task_ids,
                             "timeout_seconds": CSV_TASK_TIMEOUT_SECONDS,
-                            "released_slots": len(released_futures),
                         },
                     )
 
