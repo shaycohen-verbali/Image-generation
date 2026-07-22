@@ -173,6 +173,9 @@ def test_no_person_variant_completes_parent_item_and_reports_not_applicable(db_s
     assert summary["word_counts"]["running"] == 0
     assert summary["word_counts"]["completed"] == 1
     assert summary["word_counts"]["not_applicable"] == 1
+    overview = service.job_overview(job.id)
+    assert overview is not None
+    assert overview["items"][0]["sub_status"] == "Completed · person variant not applicable"
 
 
 def test_finalize_reconciles_stale_terminal_items_from_task_statuses(db_session) -> None:

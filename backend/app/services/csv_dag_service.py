@@ -1145,7 +1145,15 @@ class CsvDagService:
             current_step = self._step_label(failed_task.step_name) if failed_task is not None else current_step
         elif total > 0 and counts["completed"] == total:
             main_status = "completed"
-            sub_status = "All requested images are ready"
+            no_person_variant = any(
+                "no person required" in str(task.error_summary or "").lower()
+                for task in relevant
+            )
+            sub_status = (
+                "Completed · person variant not applicable"
+                if no_person_variant
+                else "All requested images are ready"
+            )
             current_step = ""
         elif running_task is not None:
             main_status = "running"
