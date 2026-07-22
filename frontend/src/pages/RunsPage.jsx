@@ -736,14 +736,17 @@ export default function RunsPage() {
     () => filteredCsvJobItems.find((item) => item.id === selectedCsvItemId) || filteredCsvJobItems[0] || null,
     [filteredCsvJobItems, selectedCsvItemId]
   )
-  const selectedCsvItem = csvItemDetail?.item?.id === selectedCsvListItem?.id
+  const hasMatchingCsvItemDetail = Boolean(
+    csvItemDetail?.item?.id && selectedCsvListItem?.id && csvItemDetail.item.id === selectedCsvListItem.id,
+  )
+  const selectedCsvItem = hasMatchingCsvItemDetail
     ? { ...selectedCsvListItem, ...csvItemDetail.item }
     : selectedCsvListItem
   const selectedCsvItemTasks = useMemo(
-    () => csvItemDetail?.item?.id === selectedCsvItem?.id
+    () => hasMatchingCsvItemDetail
       ? (csvItemDetail.tasks || [])
       : csvJobTasks.filter((task) => task.csv_job_item_id === selectedCsvItem?.id),
-    [csvItemDetail, csvJobTasks, selectedCsvItem?.id]
+    [hasMatchingCsvItemDetail, csvItemDetail, csvJobTasks, selectedCsvItem?.id]
   )
   const csvScoreHistory = useMemo(
     () => [...(Array.isArray(csvShadowRunDetail?.scores) ? csvShadowRunDetail.scores : [])].sort((left, right) => (left.attempt || 0) - (right.attempt || 0)),
