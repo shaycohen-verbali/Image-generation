@@ -1989,13 +1989,20 @@ Debugging and backwards-compatible files are under `_metadata/`.
             changed = True
         return changed
 
-    def export_job(self, job_id: str, export_fields: list[str] | None = None) -> dict[str, Any]:
+    def export_job(
+        self,
+        job_id: str,
+        export_fields: list[str] | None = None,
+        *,
+        inventory_rows_override: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         inventory_service = InventorySyncService(self.db)
         export_warnings: list[str] = []
-        try:
-            inventory_service.sync_csv_job(job_id)
-        except Exception as exc:  # noqa: BLE001
-            export_warnings.append(f"Inventory sync skipped during export: {exc}")
+        if inventory_rows_override is None:
+            try:
+                inventory_service.sync_csv_job(job_id)
+            except Exception as exc:  # noqa: BLE001
+                export_warnings.append(f"Inventory sync skipped during export: {exc}")
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
@@ -2074,7 +2081,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
                     }
                 )
 
-        inventory_rows = inventory_service.build_export_rows(job_id)
+        inventory_rows = inventory_rows_override if inventory_rows_override is not None else inventory_service.build_export_rows(job_id)
         selected_export_fields = normalize_csv_job_export_fields(export_fields)
         legacy_inventory_fieldnames = list(selected_export_fields)
         with legacy_inventory_csv.open("w", newline="", encoding="utf-8") as handle:

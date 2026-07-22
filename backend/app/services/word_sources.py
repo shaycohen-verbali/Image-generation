@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, desc, func, or_, select
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
 from app.inventory_models import aac_word_lookup, word_inventory
@@ -266,3 +266,66 @@ class WordSourceService:
                 }
             )
         return rows
+
+    def get_export_rows(
+        self,
+        table_name: str,
+        *,
+        selection_mode: str,
+        row_id: str = "",
+        range_start: int | None = None,
+        range_end: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return inventory rows in the shape consumed by the package exporter."""
+        normalized, table = self.approved_table(table_name)
+        if inventory_engine is None:
+            raise RuntimeError("Inventory database is not configured")
+
+        mode = str(selection_mode or "last_job").strip().lower()
+        if mode == "last_job":
+            with inventory_engine.connect() as conn:
+                latest_job_id = conn.execute(
+                    select(table.c.source_csv_job_id)
+                    .where(table.c.is_active.is_(True), func.length(func.trim(table.c.source_csv_job_id)) > 0)
+                    .order_by(desc(table.c.updated_at), desc(table.c.created_at))
+                    .limit(1)
+                ).scalar_one_or_none()
+                if not latest_job_id:
+                    return []
+                selected = select(*table.c).where(
+                    table.c.is_active.is_(True), table.c.source_csv_job_id == latest_job_id
+                ).subquery()
+                found = conn.execute(select(selected).order_by(func.lower(selected.c.word), selected.c.part_of_speech, selected.c.id)).mappings()
+                return [self._export_row(dict(row), position=index + 1, table_name=normalized) for index, row in enumerate(found)]
+
+        selected = self._selection_query(
+            table,
+            selection_mode=mode,
+            row_id=row_id,
+            range_start=range_start,
+            range_end=range_end,
+        ).subquery()
+        with inventory_engine.connect() as conn:
+            found = conn.execute(select(selected).order_by(selected.c.position)).mappings()
+            return [self._export_row(dict(row), position=int(row.get("position") or 0), table_name=normalized) for row in found]
+
+    @staticmethod
+    def _export_row(row: dict[str, Any], *, position: int, table_name: str) -> dict[str, Any]:
+        part_of_speech = str(row.get("part_of_speech") or row.get("part_of_sentence") or "")
+        return {
+            **row,
+            "row_index": position,
+            "part_of_sentence": part_of_speech,
+            "category": str(row.get("category") or row.get("sense_wordnet") or row.get("sense_oxford") or ""),
+            "context": str(row.get("context") or ""),
+            "_word_source_table": table_name,
+            "_word_source_row_id": str(row.get("id") or ""),
+            "_word_source_word": str(row.get("word") or ""),
+            "_word_source_part_of_speech": part_of_speech,
+            "_word_source_sense_id": str(row.get("sense_id") or ""),
+            "_word_source_existing_paths": {
+                key: str(value or "")
+                for key, value in row.items()
+                if key.endswith("_path") and str(value or "").strip()
+            },
+        }

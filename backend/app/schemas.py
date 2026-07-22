@@ -335,6 +335,14 @@ class WordSourceImportRequest(BaseModel):
     override_existing_variants: bool = False
 
 
+class WordSourceExportRequest(BaseModel):
+    selection_mode: Literal["last_job", "single", "range", "all"] = "last_job"
+    row_id: str | None = None
+    range_start: int | None = Field(default=None, ge=1)
+    range_end: int | None = Field(default=None, ge=1, le=100_000)
+    export_fields: list[str] | None = None
+
+
 class CsvJobOut(BaseModel):
     id: str
     batch_id: str

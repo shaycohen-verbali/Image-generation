@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { buildApiUrl, createExport, exportCsvJob, listCsvJobs, listRuns } from '../lib/api'
+import { buildApiUrl, createExport, exportCsvJob, exportWordSourceRows, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
 
 const LEGACY_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -166,6 +166,13 @@ export default function ExportsPage() {
   const [selectedCsvExportRace, setSelectedCsvExportRace] = useState('all')
   const [includeCsvExportPrompt, setIncludeCsvExportPrompt] = useState(false)
   const [includeCsvExportWhiteBackground, setIncludeCsvExportWhiteBackground] = useState(true)
+  const [inventorySelectionMode, setInventorySelectionMode] = useState('last_job')
+  const [inventoryRangeStart, setInventoryRangeStart] = useState(1)
+  const [inventoryRangeEnd, setInventoryRangeEnd] = useState(1000)
+  const [inventorySearch, setInventorySearch] = useState('')
+  const [inventoryRows, setInventoryRows] = useState([])
+  const [selectedInventoryRowId, setSelectedInventoryRowId] = useState('')
+  const [inventoryLoading, setInventoryLoading] = useState(false)
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -220,8 +227,26 @@ export default function ExportsPage() {
     }
   }, [sourceMode, runs.length, csvJobs.length])
 
+  const loadInventoryRows = async () => {
+    setInventoryLoading(true)
+    try {
+      const result = await listWordSourceRows('word_inventory', {
+        search: inventorySearch,
+        selection_mode: 'all',
+        limit: 200,
+      })
+      setInventoryRows(result.rows || [])
+      setSelectedInventoryRowId('')
+      setMessage(`Matched ${result.total || 0} word_inventory rows; showing the first ${result.rows?.length || 0}`)
+    } catch (error) {
+      setMessage(`Error: ${error.message}`)
+    } finally {
+      setInventoryLoading(false)
+    }
+  }
+
   const create = async () => {
-    setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : 'Preparing legacy export package...')
+    setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : sourceMode === 'word_inventory' ? 'Preparing word inventory package...' : 'Preparing legacy export package...')
     try {
       if (sourceMode === 'csv_job') {
         if (!selectedCsvJobId) {
@@ -248,6 +273,38 @@ export default function ExportsPage() {
         }
         setPreparedExport(nextPrepared)
         setMessage(`Prepared CSV job package for ${result.job_id}`)
+        triggerDownload(result.download_url)
+        return
+      }
+
+      if (sourceMode === 'word_inventory') {
+        if (inventorySelectionMode === 'single' && !selectedInventoryRowId) {
+          setMessage('Choose a specific word + POS first')
+          return
+        }
+        const csvExportOptions = {
+          age: selectedCsvExportAge,
+          gender: selectedCsvExportGender,
+          race: selectedCsvExportRace,
+          includePrompt: includeCsvExportPrompt,
+          includeWhiteBackground: includeCsvExportWhiteBackground,
+        }
+        const result = await exportWordSourceRows('word_inventory', {
+          selection_mode: inventorySelectionMode,
+          row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined,
+          range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined,
+          range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined,
+          export_fields: csvExportFieldsFromSelection(csvExportOptions),
+        })
+        setPreparedExport({
+          kind: 'inventory',
+          id: result.job_id,
+          batch_id: result.batch_id,
+          file_name: result.file_name,
+          package_download_url: result.download_url,
+          export_summary: `${inventorySelectionMode.replaceAll('_', ' ')} | ${csvExportSummary(csvExportOptions)}`,
+        })
+        setMessage('Prepared word_inventory package')
         triggerDownload(result.download_url)
         return
       }
@@ -294,6 +351,7 @@ export default function ExportsPage() {
             Source
             <select value={sourceMode} onChange={(e) => setSourceMode(e.target.value)}>
               <option value="csv_job">CSV DAG job package</option>
+              <option value="word_inventory">word_inventory</option>
               <option value="legacy_run">Legacy run bundle</option>
             </select>
           </label>
@@ -374,6 +432,53 @@ export default function ExportsPage() {
                 </p>
               </div>
             </>
+          ) : sourceMode === 'word_inventory' ? (
+            <>
+              <label>
+                Export selection
+                <select value={inventorySelectionMode} onChange={(e) => setInventorySelectionMode(e.target.value)}>
+                  <option value="last_job">Last job</option>
+                  <option value="range">Range of words</option>
+                  <option value="single">Specific word + POS</option>
+                  <option value="all">All info in the table</option>
+                </select>
+              </label>
+              {inventorySelectionMode === 'range' ? (
+                <div className="form-grid">
+                  <label>First word position<input type="number" min="1" value={inventoryRangeStart} onChange={(e) => setInventoryRangeStart(Math.max(1, Number(e.target.value) || 1))} /></label>
+                  <label>Last word position<input type="number" min="1" value={inventoryRangeEnd} onChange={(e) => setInventoryRangeEnd(Math.max(1, Number(e.target.value) || 1))} /></label>
+                </div>
+              ) : null}
+              {inventorySelectionMode === 'single' ? (
+                <div>
+                  <div className="inline-fields">
+                    <input value={inventorySearch} onChange={(e) => setInventorySearch(e.target.value)} placeholder="Search word or POS" />
+                    <button type="button" className="button-secondary" onClick={loadInventoryRows} disabled={inventoryLoading}>{inventoryLoading ? 'Loading…' : 'Find word + POS'}</button>
+                  </div>
+                  {inventoryRows.length ? (
+                    <label>
+                      Choose word + POS
+                      <select value={selectedInventoryRowId} onChange={(e) => setSelectedInventoryRowId(e.target.value)}>
+                        <option value="">Select a word + POS</option>
+                        {inventoryRows.map((row) => <option key={row.id} value={row.id}>{`${row.word} · ${row.part_of_speech || row.part_of_sentence}${row.sense_id ? ` · ${row.sense_id}` : ''}`}</option>)}
+                      </select>
+                    </label>
+                  ) : <p className="config-help-text">Search to choose the exact word and part of speech.</p>}
+                </div>
+              ) : null}
+              <div>
+                <p className="config-help-text">Choose the same image variants, prompts, and white-background files available in CSV job packages.</p>
+                <div className="form-grid">
+                  <label>Age<select value={selectedCsvExportAge} onChange={(e) => setSelectedCsvExportAge(e.target.value)}>{CSV_JOB_AGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                  <label>Gender<select value={selectedCsvExportGender} onChange={(e) => setSelectedCsvExportGender(e.target.value)}>{CSV_JOB_GENDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                  <label>Race<select value={selectedCsvExportRace} onChange={(e) => setSelectedCsvExportRace(e.target.value)}>{CSV_JOB_RACE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                </div>
+                <div className="inline-fields">
+                  <label><input type="checkbox" checked={includeCsvExportPrompt} onChange={(e) => setIncludeCsvExportPrompt(e.target.checked)} /> Include prompt</label>
+                  <label><input type="checkbox" checked={includeCsvExportWhiteBackground} onChange={(e) => setIncludeCsvExportWhiteBackground(e.target.checked)} /> Include white background images</label>
+                </div>
+              </div>
+            </>
           ) : (
             <>
               <label>
@@ -448,7 +553,7 @@ export default function ExportsPage() {
 
         <div className="inline-fields">
           <button onClick={create}>
-            {sourceMode === 'csv_job' ? 'Download CSV Job Package' : 'Create And Download Export'}
+            {sourceMode === 'csv_job' ? 'Download CSV Job Package' : sourceMode === 'word_inventory' ? 'Download word_inventory Package' : 'Create And Download Export'}
           </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
         </div>
@@ -460,9 +565,9 @@ export default function ExportsPage() {
 
         {preparedExport ? (
           <div className="form-grid">
-            {preparedExport.kind === 'csv_job' ? (
+            {preparedExport.kind === 'csv_job' || preparedExport.kind === 'inventory' ? (
               <>
-                <p className="config-help-text"><strong>CSV job number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.id}</span></p>
+                <p className="config-help-text"><strong>{preparedExport.kind === 'inventory' ? 'Export job number' : 'CSV job number'}:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.id}</span></p>
                 <p className="config-help-text"><strong>Batch number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>
                 <p className="config-help-text"><strong>File name:</strong> {preparedExport.file_name}</p>
                 <p className="config-help-text">

@@ -102,6 +102,15 @@ export async function importWordSourceRows(tableName, payload) {
   return parseResponse(response)
 }
 
+export async function exportWordSourceRows(tableName, payload) {
+  const response = await fetch(`${API_BASE}/word-sources/${encodeURIComponent(tableName)}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return parseResponse(response)
+}
+
 export async function listCsvJobs() {
   return fetchJson(`${API_BASE}/csv-jobs`, {}, 2)
 }

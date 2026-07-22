@@ -153,6 +153,26 @@ def test_range_and_pos_selection_use_global_stable_positions(monkeypatch) -> Non
     assert preview["parts_of_speech"] == ["adjective", "noun", "verb"]
 
 
+def test_export_rows_support_last_job_range_and_exact_word_pos(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    inventory_metadata.create_all(bind=engine)
+    _seed_inventory_row(engine, "inv_1", word="apple", part_of_speech="noun", sense_id="sense-1")
+    _seed_inventory_row(engine, "inv_2", word="balance", part_of_speech="verb", sense_id="sense-2")
+
+    import app.services.word_sources as word_sources_module
+
+    monkeypatch.setattr(word_sources_module, "inventory_engine", engine)
+    source = WordSourceService()
+    last_job = source.get_export_rows("word_inventory", selection_mode="last_job")
+    exact = source.get_export_rows("word_inventory", selection_mode="single", row_id="inv_2")
+    ranged = source.get_export_rows("word_inventory", selection_mode="range", range_start=1, range_end=1)
+
+    assert [row["word"] for row in last_job] == ["apple", "balance"]
+    assert exact[0]["part_of_sentence"] == "verb"
+    assert exact[0]["_word_source_row_id"] == "inv_2"
+    assert [row["word"] for row in ranged] == ["apple"]
+
+
 def test_preview_serializes_missing_senses_as_blank_strings(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     inventory_metadata.create_all(bind=engine)
