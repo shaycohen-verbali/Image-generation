@@ -280,6 +280,10 @@ class PipelineRunner:
         nano_banana_safety_level: str | None = None,
     ) -> dict[str, Any]:
         runtime_config = self.repo.get_runtime_config()
+        # Runtime configuration is read-only here. End the implicit SELECT
+        # transaction before waiting on an external image provider so each
+        # worker does not reserve a Supabase connection for the full request.
+        self.db.commit()
         resolved_retries = int(max_api_retries if max_api_retries is not None else runtime_config.max_api_retries)
         resolved_workers = max(
             1,
@@ -838,6 +842,7 @@ class PipelineRunner:
         def _exec():
             start = perf_counter()
             runtime_config = self.repo.get_runtime_config()
+            self.db.commit()
             prompt_payload = build_stage1_prompt(
                 entry,
                 runtime_config.stage1_prompt_template,
@@ -960,6 +965,7 @@ class PipelineRunner:
         def _exec():
             start = perf_counter()
             runtime_config = self.repo.get_runtime_config()
+            self.db.commit()
             result = self.replicate.flux_schnell(
                 first_prompt.prompt_text,
                 aspect_ratio=runtime_config.image_aspect_ratio,
@@ -1348,6 +1354,7 @@ class PipelineRunner:
             raise RuntimeError("No source asset available for stage 3")
         critique_path = self._local_asset_path(critique_source_asset)
         runtime_config = self.repo.get_runtime_config()
+        self.db.commit()
         critique_model = runtime_config.stage3_critique_model
         anatomy_critique_model = runtime_config.stage3_anatomy_critique_model
         accessibility_critique_model = runtime_config.stage3_accessibility_critique_model
@@ -1502,6 +1509,7 @@ class PipelineRunner:
             recommendations = f"{recommendations}\nPrevious score feedback: {previous_score_explanation}"
 
         runtime_config = self.repo.get_runtime_config()
+        self.db.commit()
         upgrade_request = build_stage3_prompt(
             entry,
             old_prompt=previous_prompt.prompt_text,
@@ -1806,6 +1814,7 @@ class PipelineRunner:
             raise RuntimeError(f"Missing winner image for variant generation attempt {winner_attempt}")
 
         runtime_config = self.repo.get_runtime_config()
+        self.db.commit()
         aspect_ratio = runtime_config.image_aspect_ratio
         image_size = runtime_config.image_resolution
         variant_worker_limit = max(1, min(int(getattr(runtime_config, "max_variant_workers", 2)), 8))
@@ -2785,6 +2794,7 @@ class PipelineRunner:
         if upgraded_asset is None:
             raise RuntimeError(f"Missing winner image for attempt {winner_attempt}")
         runtime_config = self.repo.get_runtime_config()
+        self.db.commit()
         white_bg_request = self.google_images.white_bg_request_summary(
             self._local_asset_path(upgraded_asset),
             word=entry.word,
@@ -2962,6 +2972,7 @@ class PipelineRunner:
             raise RuntimeError(f"Missing stage3 upgraded image for winner attempt {winner_attempt}")
         quality_path = self._local_asset_path(quality_asset)
         runtime_config = self.repo.get_runtime_config()
+        self.db.commit()
         critique_model = runtime_config.post_quality_accessibility_critique_model
         generate_model = runtime_config.post_quality_accessibility_generate_model
         critique_prompt_text = build_post_quality_accessibility_critique_prompt(

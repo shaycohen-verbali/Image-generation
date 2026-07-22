@@ -353,28 +353,29 @@ class Repository:
         return {row.id: row for row in rows}
 
     def get_run_snapshots_by_ids(self, run_ids: list[str]) -> dict[str, dict[str, Any]]:
-        normalized = [str(value or "").strip() for value in run_ids if str(value or "").strip()]
+        # De-duplicate IDs so large/continued jobs do not inflate the IN list.
+        normalized = list(dict.fromkeys(str(value or "").strip() for value in run_ids if str(value or "").strip()))
         if not normalized:
             return {}
         stages = list(
             self.db.execute(
                 select(StageResult)
                 .where(StageResult.run_id.in_(normalized))
-                .order_by(StageResult.created_at.asc())
+                .order_by(StageResult.run_id.asc(), StageResult.created_at.asc())
             ).scalars()
         )
         assets = list(
             self.db.execute(
                 select(Asset)
                 .where(Asset.run_id.in_(normalized))
-                .order_by(Asset.created_at.asc())
+                .order_by(Asset.run_id.asc(), Asset.created_at.asc())
             ).scalars()
         )
         scores = list(
             self.db.execute(
                 select(Score)
                 .where(Score.run_id.in_(normalized))
-                .order_by(Score.created_at.asc())
+                .order_by(Score.run_id.asc(), Score.created_at.asc())
             ).scalars()
         )
         grouped: dict[str, dict[str, Any]] = {run_id: {"stages": [], "assets": [], "scores": []} for run_id in normalized}

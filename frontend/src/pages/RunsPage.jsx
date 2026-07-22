@@ -27,10 +27,10 @@ const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
 const RUNS_POLL_MS = 30000
 const DETAIL_POLL_RUNNING_MS = 12000
 const DETAIL_POLL_WAITING_MS = 20000
-const CSV_LIST_POLL_MS = 5000
-const CSV_LIST_POLL_FAST_MS = 1500
-const CSV_DETAIL_POLL_MS = 5000
-const CSV_DETAIL_POLL_FAST_MS = 1500
+const CSV_LIST_POLL_MS = 15000
+const CSV_LIST_POLL_FAST_MS = 5000
+const CSV_DETAIL_POLL_MS = 15000
+const CSV_DETAIL_POLL_FAST_MS = 5000
 
 function isTerminalRunStatus(status) {
   const value = String(status || '').toLowerCase()
@@ -614,6 +614,8 @@ export default function RunsPage() {
   const detailStateRef = useRef(null)
   const detailRef = useRef(null)
   const selectedCsvJobIdRef = useRef('')
+  const csvListRequestInFlightRef = useRef(false)
+  const csvOverviewRequestInFlightRef = useRef(false)
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
@@ -850,6 +852,8 @@ export default function RunsPage() {
   }
 
   async function refreshCsvJobs({ isPolling = false } = {}) {
+    if (csvListRequestInFlightRef.current) return
+    csvListRequestInFlightRef.current = true
     try {
       const data = await listCsvJobs()
       setCsvJobs(data)
@@ -866,11 +870,15 @@ export default function RunsPage() {
       if (!isPolling) {
         setMessage(`Error loading CSV jobs: ${error.message}`)
       }
+    } finally {
+      csvListRequestInFlightRef.current = false
     }
   }
 
   async function loadCsvJobDetail(jobId, { isPolling = false } = {}) {
     if (!jobId) return
+    if (csvOverviewRequestInFlightRef.current) return
+    csvOverviewRequestInFlightRef.current = true
     try {
       const data = await getCsvJobOverview(jobId)
       if (selectedCsvJobIdRef.current && selectedCsvJobIdRef.current !== jobId) {
@@ -881,6 +889,8 @@ export default function RunsPage() {
       if (!isPolling) {
         setMessage(`Error loading CSV job detail: ${error.message}`)
       }
+    } finally {
+      csvOverviewRequestInFlightRef.current = false
     }
   }
 
