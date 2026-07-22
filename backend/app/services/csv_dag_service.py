@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ EXPORT_GENDER_ABBREVIATIONS = {"male": "m", "female": "f"}
 EXPORT_AGE_ABBREVIATIONS = {"toddler": "td", "kid": "kd", "tween": "tw", "teenager": "tn"}
 EXPORT_SKIN_ABBREVIATIONS = {"white": "w", "black": "b", "asian": "as", "brown": "br"}
 EXPORT_BACKGROUND_ABBREVIATIONS = {"regular": "reg", "white_bg": "wbg"}
+EXPORT_DOWNLOAD_WORKERS = 12
 EXPORT_IMAGES_CSV_FIELDS = [
     "row_index",
     "word",
@@ -2122,6 +2124,20 @@ Debugging and backwards-compatible files are under `_metadata/`.
             if str(row.get(field_name) or "").strip()
         ]
         assets_by_path = self.repo.get_assets_by_abs_paths(source_paths)
+        materialized_by_path: dict[str, Path] = {}
+        unique_source_paths = sorted(set(source_paths))
+        if unique_source_paths:
+            with ThreadPoolExecutor(max_workers=min(EXPORT_DOWNLOAD_WORKERS, len(unique_source_paths))) as executor:
+                pending = {
+                    executor.submit(materialize_path, source_path, cache_namespace="csv_job_export"): source_path
+                    for source_path in unique_source_paths
+                }
+                for future in as_completed(pending):
+                    source_path = pending[future]
+                    try:
+                        materialized_by_path[source_path] = future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        export_warnings.append(f"Skipped {source_path}: {exc}")
         image_rows: list[dict[str, Any]] = []
         prompt_rows: list[dict[str, Any]] = []
         image_zip_members: list[tuple[Path, str]] = []
@@ -2156,10 +2172,8 @@ Debugging and backwards-compatible files are under `_metadata/`.
                 )
                 if image_relative_path in seen_arcnames:
                     continue
-                try:
-                    materialized = materialize_path(source_path, cache_namespace="csv_job_export")
-                except Exception as exc:  # noqa: BLE001
-                    export_warnings.append(f"Skipped {field_name} for row {row_index}: {exc}")
+                materialized = materialized_by_path.get(source_path)
+                if materialized is None:
                     continue
                 if not materialized.exists():
                     export_warnings.append(f"Skipped {field_name} for row {row_index}: file not found")

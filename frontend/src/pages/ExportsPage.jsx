@@ -168,7 +168,7 @@ export default function ExportsPage() {
   const [includeCsvExportWhiteBackground, setIncludeCsvExportWhiteBackground] = useState(true)
   const [inventorySelectionMode, setInventorySelectionMode] = useState('last_job')
   const [inventoryRangeStart, setInventoryRangeStart] = useState(1)
-  const [inventoryRangeEnd, setInventoryRangeEnd] = useState(1000)
+  const [inventoryRangeEnd, setInventoryRangeEnd] = useState(100)
   const [inventorySearch, setInventorySearch] = useState('')
   const [inventoryRows, setInventoryRows] = useState([])
   const [selectedInventoryRowId, setSelectedInventoryRowId] = useState('')
@@ -246,7 +246,7 @@ export default function ExportsPage() {
   }
 
   const create = async () => {
-    setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : sourceMode === 'word_inventory' ? 'Preparing word inventory package...' : 'Preparing legacy export package...')
+    setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : sourceMode === 'word_inventory' ? 'Fetching selected Supabase data and images, then building the ZIP...' : 'Preparing legacy export package...')
     try {
       if (sourceMode === 'csv_job') {
         if (!selectedCsvJobId) {
@@ -467,7 +467,7 @@ export default function ExportsPage() {
                 </div>
               ) : null}
               <div>
-                <p className="config-help-text">Choose the same image variants, prompts, and white-background files available in CSV job packages.</p>
+                <p className="config-help-text">This fetches the selected rows and images from Supabase. Large ranges download every selected image before the ZIP is ready; ranges start at 100 words to avoid accidental long exports.</p>
                 <div className="form-grid">
                   <label>Age<select value={selectedCsvExportAge} onChange={(e) => setSelectedCsvExportAge(e.target.value)}>{CSV_JOB_AGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                   <label>Gender<select value={selectedCsvExportGender} onChange={(e) => setSelectedCsvExportGender(e.target.value)}>{CSV_JOB_GENDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
