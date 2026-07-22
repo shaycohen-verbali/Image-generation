@@ -75,15 +75,27 @@ def test_no_person_variant_is_an_informational_skipped_subset(db_session) -> Non
     assert summary["counts"]["skipped"] == 1
 
 
-def test_running_job_summary_marks_cost_and_skipped_count_unavailable(db_session) -> None:
+def test_running_job_summary_reports_recorded_cost_so_far(db_session) -> None:
     repo = Repository(db_session)
+    entry = repo.create_entry({"word": "running", "part_of_sentence": "noun", "category": "", "batch": "test"})
     job = repo.create_csv_job(batch_id="running_summary", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={})
     repo.update_csv_job(job, status="running", started_at=datetime.utcnow())
+    run = repo.create_runs([entry.id], quality_threshold=95, max_optimization_attempts=3, execution_mode="csv_shadow")[0]
+    repo.add_stage_result(
+        run_id=run.id, stage_name="stage2_draft", attempt=1, status="completed", idempotency_key="running:draft",
+        request_json={}, response_json={"model": "black-forest-labs/flux-schnell"},
+    )
+    item = repo.create_csv_job_item(csv_job_id=job.id, entry_id=entry.id, row_index=1, source_row={})
+    repo.update_csv_job_item(item, shadow_run_id=run.id, status="running")
 
-    payload = CsvDagService(db_session).job_summary(job.id)
+    service = CsvDagService(db_session)
+    payload = service.job_summary(job.id)
+    details = service.job_summary_details(job.id)
 
     assert payload is not None
     assert payload["job_summary"]["is_final"] is False
     assert payload["job_summary"]["counts"]["skipped"] is None
-    assert payload["job_summary"]["total_cost_usd"] is None
-    assert payload["job_summary"]["cost_basis"] == "unavailable"
+    assert payload["job_summary"]["total_cost_usd"] == 0.003
+    assert payload["job_summary"]["cost_basis"] == "estimated"
+    assert details is not None
+    assert details["cost"]["cost_by_provider"] == {"replicate": 0.003}

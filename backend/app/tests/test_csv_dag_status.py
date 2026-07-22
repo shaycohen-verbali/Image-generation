@@ -130,6 +130,27 @@ def test_job_summary_uses_only_aggregate_status_data(db_session) -> None:
     assert summary["export_ready"] is False
 
 
+def test_job_overview_reports_cost_for_a_running_shadow_run(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="live_cost")
+    job = repo.create_csv_job(batch_id="csv_live_cost", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={})
+    run = repo.create_shadow_run(entry_id=entry.id, quality_threshold=95, max_optimization_attempts=3)
+    repo.add_stage_result(
+        run_id=run.id, stage_name="stage2_draft", attempt=1, status="completed", idempotency_key="live-cost:draft",
+        request_json={}, response_json={"model": "black-forest-labs/flux-schnell"},
+    )
+    item = repo.create_csv_job_item(csv_job_id=job.id, entry_id=entry.id, row_index=1, source_row={})
+    repo.update_csv_job_item(item, shadow_run_id=run.id, status="running")
+
+    overview = service.job_overview(job.id)
+
+    assert overview is not None
+    assert overview["estimated_total_cost_usd"] == 0.003
+    assert overview["provider_breakdown"]["replicate"] == 0.003
+    assert overview["items"][0]["estimated_total_cost_usd"] == 0.003
+
+
 def test_no_person_variant_completes_parent_item_and_reports_not_applicable(db_session, monkeypatch) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)

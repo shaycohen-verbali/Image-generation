@@ -12,7 +12,7 @@ from app.models import CsvJobAggregate, CsvTaskAttempt, CsvTaskNode
 from app.services.cost_estimator import summarize_run_costs
 from app.services.repository import Repository
 
-PRICING_VERSION = "provider-pricing-2026-03-27-v1"
+PRICING_VERSION = "provider-pricing-2026-07-22-v2"
 TERMINAL_JOB_STATUSES = {"completed", "failed", "partial_failed", "canceled"}
 
 
@@ -39,9 +39,62 @@ class JobSummaryService:
             return None
         return Repository.json_field_dict(row.details_json)
 
+    def live_details(self, job_id: str) -> dict[str, Any] | None:
+        """Return the cost accumulated so far without persisting a mutable summary."""
+        items = self.repo.list_csv_job_items(job_id)
+        run_ids = list(dict.fromkeys(
+            str(item.shadow_run_id) for item in items if str(item.shadow_run_id or "").strip()
+        ))
+        snapshots = self.repo.get_run_cost_inputs_by_ids(run_ids)
+        cost_entries: list[dict[str, Any]] = []
+        for snapshot in snapshots.values():
+            cost_entries.extend(summarize_run_costs(snapshot.get("stages", []), snapshot.get("assets", []))["stage_costs"])
+
+        cost_by_stage: dict[str, float] = defaultdict(float)
+        cost_by_provider: dict[str, float] = defaultdict(float)
+        cost_by_model: dict[str, float] = defaultdict(float)
+        billable_calls = 0
+        for entry in cost_entries:
+            cost = float(entry.get("estimated_cost_usd") or 0.0)
+            cost_by_stage[str(entry.get("stage_name") or "unknown")] += cost
+            cost_by_provider[str(entry.get("provider") or "unknown")] += cost
+            cost_by_model[str(entry.get("model") or "unknown")] += cost
+            if cost > 0:
+                billable_calls += max(1, int(entry.get("unit_count") or 1))
+
+        total_cost = round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in cost_entries), 6)
+        return {
+            "available": True,
+            "is_final": False,
+            "timing": {
+                "wall_clock_seconds": None,
+                "combined_processing_seconds": None,
+                "queue_wait_seconds": None,
+                "provider_wait_seconds": None,
+                "provider_wait_label": "Available after the final job summary is stored",
+                "retry_count": None,
+                "retry_duration_seconds": None,
+                "retry_duration_label": "Available after the final job summary is stored",
+            },
+            "cost": {
+                "total_cost_usd": total_cost,
+                "basis": "estimated" if cost_entries else "unavailable",
+                "pricing_version": PRICING_VERSION if cost_entries else None,
+                "cost_by_stage": {key: round(value, 6) for key, value in cost_by_stage.items()},
+                "cost_by_provider": {key: round(value, 6) for key, value in cost_by_provider.items()},
+                "cost_by_model": {key: round(value, 6) for key, value in cost_by_model.items()},
+                "billable_calls": billable_calls if cost_entries else None,
+                "retry_cost_usd": None,
+                "failed_call_cost_usd": None,
+                "unit_prices_used": [],
+            },
+            "slowest_stages": [],
+            "slowest_words": [],
+        }
+
     def finalize_if_terminal(self, job_id: str) -> dict[str, Any] | None:
         existing = self.db.get(CsvJobAggregate, job_id)
-        if existing is not None and existing.is_final:
+        if existing is not None and existing.is_final and existing.pricing_version == PRICING_VERSION:
             return Repository.json_field_dict(existing.summary_json)
         job = self.repo.get_csv_job(job_id)
         if job is None or str(job.status or "").lower() not in TERMINAL_JOB_STATUSES:

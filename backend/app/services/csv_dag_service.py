@@ -806,7 +806,14 @@ class CsvDagService:
         active_status = str(job.status or "").lower() in {"queued", "retry_queued", "running"}
         from app.services.job_summary_service import JobSummaryService
 
-        stored_summary = JobSummaryService(self.db).get(job_id)
+        summary_service = JobSummaryService(self.db)
+        stored_summary = summary_service.get(job_id)
+        if str(job.status or "").lower() in {"completed", "failed", "partial_failed", "canceled"}:
+            stored_summary = summary_service.finalize_if_terminal(job_id) or stored_summary
+        live_cost = {}
+        if stored_summary is None:
+            live_cost_details = summary_service.live_details(job_id)
+            live_cost = (live_cost_details or {}).get("cost") or {}
         live_summary = stored_summary or {
             "available": True,
             "is_final": False,
@@ -820,12 +827,16 @@ class CsvDagService:
             },
             "wall_clock_seconds": None,
             "average_elapsed_per_completed_word_seconds": None,
-            "total_cost_usd": None,
-            "average_cost_per_completed_word_usd": None,
-            "cost_basis": "unavailable",
-            "cost_label": "Available after the final job summary is stored",
-            "pricing_version": None,
-            "billable_calls": None,
+            "total_cost_usd": live_cost.get("total_cost_usd"),
+            "average_cost_per_completed_word_usd": (
+                round(float(live_cost.get("total_cost_usd") or 0.0) / word_counts["completed"], 6)
+                if word_counts["completed"] and live_cost.get("basis") == "estimated"
+                else None
+            ),
+            "cost_basis": live_cost.get("basis") or "unavailable",
+            "cost_label": "Estimated from recorded usage and image operations so far" if live_cost.get("basis") == "estimated" else "Cost unavailable",
+            "pricing_version": live_cost.get("pricing_version"),
+            "billable_calls": live_cost.get("billable_calls"),
         }
         return {
             "job": self._serialize_job(
@@ -849,7 +860,8 @@ class CsvDagService:
 
         if self.repo.get_csv_job(job_id) is None:
             return None
-        return JobSummaryService(self.db).get_details(job_id)
+        summary_service = JobSummaryService(self.db)
+        return summary_service.get_details(job_id) or summary_service.live_details(job_id)
 
     def job_metadata(self, job_id: str) -> dict[str, Any] | None:
         summary = self.job_summary(job_id)
@@ -1730,10 +1742,9 @@ Debugging and backwards-compatible files are under `_metadata/`.
         runs_by_id = self.repo.get_runs_by_ids(
             [item.shadow_run_id for item in overview["items"] if str(item.shadow_run_id or "").strip()]
         )
-        terminal_shadow_run_ids = [
-            run.id for run in runs_by_id.values() if str(run.status or "").strip().lower() in TERMINAL_RUN_STATUSES
-        ]
-        run_snapshots = self.repo.get_run_snapshots_by_ids(terminal_shadow_run_ids)
+        # Cost is recorded stage-by-stage, so a live job can show the spend already
+        # incurred rather than waiting for every shadow run to become terminal.
+        run_snapshots = self.repo.get_run_snapshots_by_ids(list(runs_by_id))
         cost_summary_by_run_id = {
             run_id: summarize_run_costs(snapshot.get("stages", []), snapshot.get("assets", []))
             for run_id, snapshot in run_snapshots.items()
@@ -1754,11 +1765,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
             cost_summary = cost_summary_by_run_id.get(shadow_run.id, {}) if shadow_run else {}
             estimated_item_cost = (
                 float(cost_summary.get("estimated_total_cost_usd") or 0.0)
-                if (
-                    shadow_run
-                    and str(shadow_run.status or "").strip().lower() in TERMINAL_RUN_STATUSES
-                    and item_progress["main_status"] == "completed"
-                )
+                if shadow_run and shadow_run.id in run_snapshots
                 else None
             )
             if estimated_item_cost is not None:
@@ -1857,7 +1864,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
             "tasks": tasks_payload,
             "word_counts": word_counts,
             "requested_profile_history": self._requested_profile_history(job),
-            "estimated_total_cost_usd": round(total_estimated_cost_usd, 6) if total_estimated_cost_usd > 0 else None,
+            "estimated_total_cost_usd": round(total_estimated_cost_usd, 6) if run_snapshots else None,
             "provider_breakdown": {
                 key: round(value, 6) for key, value in provider_breakdown.items()
             },
