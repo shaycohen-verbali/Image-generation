@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     phase7_monitoring_enabled: bool = Field(default=True, alias="PHASE7_MONITORING_ENABLED")
     phase7_monitoring_interval_seconds: int = Field(default=300, alias="PHASE7_MONITORING_INTERVAL_SECONDS")
     phase7_monitoring_query_timeout_ms: int = Field(default=1000, alias="PHASE7_MONITORING_QUERY_TIMEOUT_MS")
+    phase7_job_summary_enabled: bool = Field(default=True, alias="PHASE7_JOB_SUMMARY_ENABLED")
 
 
 @lru_cache(maxsize=1)

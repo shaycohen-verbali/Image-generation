@@ -268,6 +268,21 @@ class CsvTaskAttempt(Base):
     task: Mapped[CsvTaskNode] = relationship(back_populates="attempts")
 
 
+class CsvJobAggregate(Base):
+    __tablename__ = "csv_job_aggregates"
+
+    csv_job_id: Mapped[str] = mapped_column(
+        ForeignKey("csv_jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    summary_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    details_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    pricing_version: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    cost_basis: Mapped[str] = mapped_column(String(32), default="unavailable", nullable=False)
+    is_final: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class RuntimeConfig(Base):
     __tablename__ = "runtime_config"
 
