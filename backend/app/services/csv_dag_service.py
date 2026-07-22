@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry, Run
+from app.core.config import get_settings
 from app.inventory_models import inventory_slot_column_name
 from app.schemas import ExecutionMode
 from app.services.cost_estimator import summarize_run_costs
@@ -776,6 +777,29 @@ class CsvDagService:
         last_progress_at = counts["last_progress_at"] or job.updated_at
         stale_seconds = max(0, int((datetime.utcnow() - last_progress_at).total_seconds())) if last_progress_at else 0
         active_status = str(job.status or "").lower() in {"queued", "retry_queued", "running"}
+        from app.services.job_summary_service import JobSummaryService
+
+        stored_summary = JobSummaryService(self.db).get(job_id)
+        live_summary = stored_summary or {
+            "available": True,
+            "is_final": False,
+            "status": str(job.status or ""),
+            "counts": {
+                "completed": word_counts["completed"],
+                "failed": word_counts["failure"],
+                "skipped": None,
+                "queued": word_counts["pending"],
+                "running": word_counts["running"],
+            },
+            "wall_clock_seconds": None,
+            "average_elapsed_per_completed_word_seconds": None,
+            "total_cost_usd": None,
+            "average_cost_per_completed_word_usd": None,
+            "cost_basis": "unavailable",
+            "cost_label": "Available after the final job summary is stored",
+            "pricing_version": None,
+            "billable_calls": None,
+        }
         return {
             "job": self._serialize_job(
                 job,
@@ -790,7 +814,15 @@ class CsvDagService:
             "stale_seconds": stale_seconds,
             "is_stale": active_status and stale_seconds >= 180,
             "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
+            "job_summary": live_summary,
         }
+
+    def job_summary_details(self, job_id: str) -> dict[str, Any] | None:
+        from app.services.job_summary_service import JobSummaryService
+
+        if self.repo.get_csv_job(job_id) is None:
+            return None
+        return JobSummaryService(self.db).get_details(job_id)
 
     def job_metadata(self, job_id: str) -> dict[str, Any] | None:
         summary = self.job_summary(job_id)
@@ -807,6 +839,7 @@ class CsvDagService:
             "word_counts": summary["word_counts"],
             "requested_profile_history": self._requested_profile_history(job),
             "export_ready": summary["export_ready"],
+            "job_summary": summary["job_summary"],
         }
 
     def clear_terminal_jobs(self) -> dict[str, Any]:
@@ -820,6 +853,10 @@ class CsvDagService:
         tasks = self.repo.list_csv_tasks(job_id)
         if not tasks:
             finalized = self.repo.finalize_csv_job_status(job_id) or job
+            if get_settings().phase7_job_summary_enabled:
+                from app.services.job_summary_service import JobSummaryService
+
+                JobSummaryService(self.db).finalize_if_terminal(job_id)
             return finalized
         self.repo.queue_pending_csv_tasks(job_id)
         started_at = job.started_at or datetime.utcnow()
@@ -837,6 +874,10 @@ class CsvDagService:
         job = self.repo.finalize_csv_job_status(job_id) or self.repo.get_csv_job(job_id)
         if job is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
+        if get_settings().phase7_job_summary_enabled:
+            from app.services.job_summary_service import JobSummaryService
+
+            JobSummaryService(self.db).finalize_if_terminal(job_id)
         return job, canceled
 
     def sync_inventory(self, job_id: str) -> dict[str, Any]:

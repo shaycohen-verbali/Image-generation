@@ -434,6 +434,7 @@ class CsvJobOverviewOut(BaseModel):
     provider_breakdown: dict[str, float] = Field(default_factory=dict)
     export_ready: bool = False
     export_id: str | None = None
+    job_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class CsvJobItemsPageOut(BaseModel):
@@ -457,6 +458,16 @@ class CsvJobSummaryOut(BaseModel):
     stale_seconds: int = 0
     is_stale: bool = False
     export_ready: bool = False
+    job_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class CsvJobSummaryDetailsOut(BaseModel):
+    available: bool = False
+    is_final: bool = False
+    timing: dict[str, Any] = Field(default_factory=dict)
+    cost: dict[str, Any] = Field(default_factory=dict)
+    slowest_stages: list[dict[str, Any]] = Field(default_factory=list)
+    slowest_words: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CsvJobStartResponse(BaseModel):

@@ -13,6 +13,7 @@ import {
   getCsvJobItems,
   getCsvJobItemDetail,
   getCsvJobSummary,
+  getCsvJobSummaryDetails,
   getRun,
   listCsvJobs,
   listRuns,
@@ -25,6 +26,7 @@ import {
 import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 import DeferredAssetImage from '../components/DeferredAssetImage'
+import { formatDurationSeconds, jobElapsedSeconds } from '../lib/jobSummary'
 
 const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
 const RUNS_POLL_MS = 30000
@@ -598,6 +600,8 @@ export default function RunsPage() {
   const [csvJobOverview, setCsvJobOverview] = useState(null)
   const [csvItemsPage, setCsvItemsPage] = useState({ items: [], tasks: [], total: 0, offset: 0, limit: 50 })
   const [csvItemDetail, setCsvItemDetail] = useState(null)
+  const [csvJobSummaryDetails, setCsvJobSummaryDetails] = useState(null)
+  const [summaryClockNow, setSummaryClockNow] = useState(() => Date.now())
   const [selectedCsvItemId, setSelectedCsvItemId] = useState('')
   const [csvShadowRunDetail, setCsvShadowRunDetail] = useState(null)
   const [selectedCsvStatusFilter, setSelectedCsvStatusFilter] = useState('')
@@ -626,6 +630,7 @@ export default function RunsPage() {
   const csvSummaryRequestInFlightRef = useRef(false)
   const csvItemsRequestInFlightRef = useRef(false)
   const csvItemDetailRequestInFlightRef = useRef(false)
+  const csvSummaryDetailsRequestInFlightRef = useRef(false)
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
@@ -643,7 +648,15 @@ export default function RunsPage() {
       person_skin_color_options: [],
       override_existing_variants: false,
     })
+    setCsvJobSummaryDetails(null)
   }, [selectedCsvJobId])
+
+  useEffect(() => {
+    const isFinal = Boolean(csvJobOverview?.job_summary?.is_final)
+    if (!selectedCsvJobId || isFinal) return undefined
+    const timer = window.setInterval(() => setSummaryClockNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [selectedCsvJobId, csvJobOverview?.job_summary?.is_final])
 
   useEffect(() => {
     runsRef.current = runs
@@ -768,6 +781,16 @@ export default function RunsPage() {
     [csvJobOverview]
   )
   const csvJobHasProviderCost = csvJobOverview?.estimated_total_cost_usd != null
+  const compactJobSummary = csvJobOverview?.job_summary || null
+  const compactJobCounts = compactJobSummary?.counts || {}
+  const liveJobElapsedSeconds = useMemo(() => {
+    return jobElapsedSeconds({
+      startedAt: csvJobOverview?.job?.started_at,
+      isFinal: Boolean(compactJobSummary?.is_final),
+      finalSeconds: compactJobSummary?.wall_clock_seconds,
+      nowMs: summaryClockNow,
+    })
+  }, [compactJobSummary, csvJobOverview?.job?.started_at, summaryClockNow])
   const csvSelectedItemProviderBreakdown = useMemo(
     () => normalizeProviderBreakdown(csvShadowRunDetail?.cost_summary?.provider_breakdown || selectedCsvItem?.provider_breakdown),
     [csvShadowRunDetail, selectedCsvItem]
@@ -944,6 +967,7 @@ export default function RunsPage() {
           stale_seconds: data.stale_seconds,
           is_stale: data.is_stale,
           export_ready: data.export_ready,
+          job_summary: data.job_summary,
         }
       })
     } catch (error) {
@@ -979,6 +1003,19 @@ export default function RunsPage() {
       setMessage(`Error loading CSV word detail: ${error.message}`)
     } finally {
       csvItemDetailRequestInFlightRef.current = false
+    }
+  }
+
+  async function loadCsvJobSummaryDetails(jobId) {
+    if (!jobId || csvSummaryDetailsRequestInFlightRef.current || csvJobSummaryDetails) return
+    csvSummaryDetailsRequestInFlightRef.current = true
+    try {
+      const data = await getCsvJobSummaryDetails(jobId)
+      if (selectedCsvJobIdRef.current === jobId) setCsvJobSummaryDetails(data)
+    } catch (error) {
+      setMessage(`Error loading job summary details: ${error.message}`)
+    } finally {
+      csvSummaryDetailsRequestInFlightRef.current = false
     }
   }
 
@@ -1715,6 +1752,68 @@ export default function RunsPage() {
           {csvJobOverview ? (
             <div className="card csv-job-overview-card" style={{ marginTop: 16 }}>
               <h3>CSV Job Overview</h3>
+              <section className="csv-job-summary-card" aria-label="Job summary">
+                <div className="csv-section-head">
+                  <div>
+                    <h3>Job summary</h3>
+                    <p>Wall-clock time is separate from combined processing time because words may run concurrently.</p>
+                  </div>
+                  <span className="csv-status-chip">{compactJobSummary?.cost_label || 'Cost unavailable'}</span>
+                </div>
+                <div className="csv-job-stat-grid">
+                  <div><strong>Status</strong><p>{csvPrettyStatus(compactJobSummary?.status || csvJobOverview.job.status)}</p></div>
+                  <div><strong>Completed</strong><p>{compactJobCounts.completed ?? '-'}</p></div>
+                  <div><strong>Failed</strong><p>{compactJobCounts.failed ?? '-'}</p></div>
+                  <div><strong>Skipped</strong><p>{compactJobCounts.skipped ?? 'Unavailable while running'}</p></div>
+                  <div><strong>Queued</strong><p>{compactJobCounts.queued ?? '-'}</p></div>
+                  <div><strong>Running</strong><p>{compactJobCounts.running ?? '-'}</p></div>
+                  <div><strong>Elapsed wall-clock</strong><p data-testid="job-elapsed-time">{formatDurationSeconds(liveJobElapsedSeconds)}</p></div>
+                  <div><strong>Total cost</strong><p>{formatUsd(compactJobSummary?.total_cost_usd)}</p></div>
+                  <div><strong>Average cost / completed word</strong><p>{formatUsd(compactJobSummary?.average_cost_per_completed_word_usd)}</p></div>
+                </div>
+                <details
+                  onToggle={(event) => {
+                    if (event.currentTarget.open) loadCsvJobSummaryDetails(selectedCsvJobId)
+                  }}
+                >
+                  <summary>Show details</summary>
+                  {!csvJobSummaryDetails ? <p className="config-help-text">Loading stored details…</p> : null}
+                  {csvJobSummaryDetails && !csvJobSummaryDetails.available ? (
+                    <p className="config-help-text">Detailed timing and cost are unavailable until a final summary is stored.</p>
+                  ) : null}
+                  {csvJobSummaryDetails?.available ? (
+                    <div className="csv-summary-details">
+                      <div className="csv-job-stat-grid">
+                        <div><strong>Combined processing</strong><p>{formatDurationSeconds(csvJobSummaryDetails.timing?.combined_processing_seconds)}</p></div>
+                        <div><strong>Queue / wait</strong><p>{formatDurationSeconds(csvJobSummaryDetails.timing?.queue_wait_seconds)}</p></div>
+                        <div><strong>Provider wait</strong><p>{formatDurationSeconds(csvJobSummaryDetails.timing?.provider_wait_seconds)}</p><small>{csvJobSummaryDetails.timing?.provider_wait_label}</small></div>
+                        <div><strong>Retries</strong><p>{csvJobSummaryDetails.timing?.retry_count ?? '-'}</p></div>
+                        <div><strong>Retry duration</strong><p>{formatDurationSeconds(csvJobSummaryDetails.timing?.retry_duration_seconds)}</p><small>{csvJobSummaryDetails.timing?.retry_duration_label}</small></div>
+                        <div><strong>Billable calls</strong><p>{csvJobSummaryDetails.cost?.billable_calls ?? '-'}</p></div>
+                        <div><strong>Retry cost</strong><p>{csvJobSummaryDetails.cost?.basis === 'unavailable' ? '-' : formatUsd(csvJobSummaryDetails.cost?.retry_cost_usd)}</p></div>
+                        <div><strong>Failed-call cost</strong><p>{csvJobSummaryDetails.cost?.basis === 'unavailable' ? '-' : formatUsd(csvJobSummaryDetails.cost?.failed_call_cost_usd)}</p></div>
+                        <div><strong>Pricing snapshot</strong><p>{csvJobSummaryDetails.cost?.pricing_version || '-'}</p></div>
+                      </div>
+                      {[
+                        ['Cost by provider', csvJobSummaryDetails.cost?.cost_by_provider],
+                        ['Cost by model', csvJobSummaryDetails.cost?.cost_by_model],
+                        ['Cost by stage', csvJobSummaryDetails.cost?.cost_by_stage],
+                      ].map(([title, values]) => (
+                        <div key={title}>
+                          <strong>{title}</strong>
+                          <div className="csv-request-chip-row">
+                            {Object.entries(values || {}).length
+                              ? Object.entries(values || {}).map(([key, value]) => <span className="csv-status-chip" key={key}>{key}: {formatUsd(value)}</span>)
+                              : <span className="config-help-text">Unavailable</span>}
+                          </div>
+                        </div>
+                      ))}
+                      <div><strong>Slowest stages</strong><p>{(csvJobSummaryDetails.slowest_stages || []).map((row) => `${row.stage}: ${formatDurationSeconds(row.combined_processing_seconds)}`).join(' · ') || 'Unavailable'}</p></div>
+                      <div><strong>Slowest words</strong><p>{(csvJobSummaryDetails.slowest_words || []).map((row) => `${row.word || `Row ${row.row_index}`}: ${formatDurationSeconds(row.processing_seconds)}`).join(' · ') || 'Unavailable'}</p></div>
+                    </div>
+                  ) : null}
+                </details>
+              </section>
               <div className="csv-job-stat-grid">
                 <div>
                   <strong>Job</strong>

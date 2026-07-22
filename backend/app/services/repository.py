@@ -387,6 +387,32 @@ class Repository:
             grouped.setdefault(score.run_id, {"stages": [], "assets": [], "scores": []})["scores"].append(score)
         return grouped
 
+    def get_run_cost_inputs_by_ids(self, run_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Load only the recorded stage and asset rows used by terminal cost summaries."""
+        normalized = list(dict.fromkeys(str(value or "").strip() for value in run_ids if str(value or "").strip()))
+        if not normalized:
+            return {}
+        stages = list(
+            self.db.execute(
+                select(StageResult)
+                .where(StageResult.run_id.in_(normalized))
+                .order_by(StageResult.run_id.asc(), StageResult.created_at.asc())
+            ).scalars()
+        )
+        assets = list(
+            self.db.execute(
+                select(Asset)
+                .where(Asset.run_id.in_(normalized))
+                .order_by(Asset.run_id.asc(), Asset.created_at.asc())
+            ).scalars()
+        )
+        grouped: dict[str, dict[str, Any]] = {run_id: {"stages": [], "assets": []} for run_id in normalized}
+        for stage in stages:
+            grouped.setdefault(stage.run_id, {"stages": [], "assets": []})["stages"].append(stage)
+        for asset in assets:
+            grouped.setdefault(asset.run_id, {"stages": [], "assets": []})["assets"].append(asset)
+        return grouped
+
     def list_runs(
         self,
         *,

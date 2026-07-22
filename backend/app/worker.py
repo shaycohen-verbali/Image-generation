@@ -11,6 +11,8 @@ from app.db.session import SessionLocal
 from app.services.csv_dag_service import CsvDagService
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
+from app.services.task_health_monitor import TaskHealthMonitor
+from app.services.job_summary_service import JobSummaryService
 
 # Recover stale database tasks that were orphaned by a worker crash or restart.
 # Tasks still owned by a live future must never be failed here: Python cannot
@@ -24,6 +26,7 @@ WORKER_EXECUTOR_MAX = 64
 WORKER_CLAIM_BURST_MAX = 2
 WORKER_CLAIM_SETTLE_SECONDS = 0.5
 WORKER_ERROR_BACKOFF_MAX_SECONDS = 15.0
+logger = logging.getLogger(__name__)
 
 
 def _process_single_run(run_id: str) -> None:
@@ -35,7 +38,16 @@ def _process_single_run(run_id: str) -> None:
 def _process_single_csv_task(task_id: str) -> None:
     with SessionLocal() as db:
         service = CsvDagService(db)
-        service.execute_task(task_id)
+        task = service.execute_task(task_id)
+        if get_settings().phase7_job_summary_enabled:
+            try:
+                JobSummaryService(db).finalize_if_terminal(task.csv_job_id)
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                logger.warning(
+                    "job summary skipped",
+                    extra={"status": type(exc).__name__},
+                )
 
 
 def _claim_budget(active_count: int, target_parallelism: int) -> int:
@@ -50,12 +62,16 @@ def run_worker() -> None:
     configure_logging(settings.app_log_level)
     init_db()
 
-    logger = logging.getLogger(__name__)
     logger.info("worker started")
     active_runs: dict[Future, str] = {}
     active_csv_tasks: dict[Future, str] = {}
     idle_poll_seconds = settings.worker_poll_seconds or 2.0
     error_backoff_seconds = idle_poll_seconds
+    task_health_monitor = TaskHealthMonitor(
+        interval_seconds=settings.phase7_monitoring_interval_seconds,
+        timeout_ms=settings.phase7_monitoring_query_timeout_ms,
+        stale_seconds=CSV_TASK_TIMEOUT_SECONDS,
+    )
 
     with ThreadPoolExecutor(max_workers=WORKER_EXECUTOR_MAX) as executor:
         while True:
@@ -69,6 +85,8 @@ def run_worker() -> None:
                         timeout_seconds=CSV_TASK_TIMEOUT_SECONDS,
                         exclude_task_ids=active_csv_tasks.values(),
                     )
+                    if settings.phase7_monitoring_enabled:
+                        task_health_monitor.maybe_emit(db)
 
                 if timed_out_task_ids:
                     logger.warning(
