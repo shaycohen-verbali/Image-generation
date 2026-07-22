@@ -991,7 +991,7 @@ class CsvDagService:
         shadow_run = self.repo.get_run(shadow_run_id)
         winner_attempt = max(1, int((shadow_run.optimization_attempt if shadow_run else 1) or 1))
         shadow_assets = self.repo.run_snapshot(shadow_run_id)[2]
-        regular_asset = next(
+        quality_asset = next(
             (
                 asset for asset in shadow_assets
                 if asset.stage_name == "stage3_upgraded" and int(asset.attempt or 0) == winner_attempt
@@ -1013,6 +1013,9 @@ class CsvDagService:
             ),
             None,
         )
+        # The white-background image is generated from the soften pass when it
+        # exists, so the matching regular output must be that same final image.
+        regular_asset = soften_asset or quality_asset
         return winner_attempt, regular_asset, white_bg_asset, soften_asset
 
     @staticmethod

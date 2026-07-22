@@ -151,6 +151,7 @@ class ExportService:
                 for asset in assets:
                     by_stage_attempt[asset.stage_name][asset.attempt] = asset
                 stage3_by_attempt = by_stage_attempt.get("stage3_upgraded", {})
+                soften_by_attempt = by_stage_attempt.get("stage3_post_quality_accessibility_generate", {})
                 stage4_by_attempt = by_stage_attempt.get("stage4_white_bg", {})
                 stage2_by_attempt = by_stage_attempt.get("stage2_draft", {})
                 last_stage3_attempt = max(stage3_by_attempt.keys()) if stage3_by_attempt else None
@@ -178,7 +179,12 @@ class ExportService:
 
                 file_name_1 = self._unique_export_name(base_slug, run.id, last_stage2) if last_stage2 else ""
                 file_name_2 = self._unique_export_name(base_slug, run.id, first_stage3) if first_stage3 else ""
-                selected_stage3 = winner_stage3 or last_stage3
+                selected_stage3 = (
+                    soften_by_attempt.get(winner_attempt)
+                    or winner_stage3
+                    or soften_by_attempt.get(last_stage3_attempt)
+                    or last_stage3
+                )
                 selected_stage4 = winner_stage4 or last_stage4
                 file_name_upgraded = self._unique_export_name(base_slug, run.id, selected_stage3) if selected_stage3 else ""
                 file_name_without_background = self._unique_export_name(base_slug, run.id, selected_stage4) if selected_stage4 else ""
@@ -221,7 +227,15 @@ class ExportService:
                 elif stage_name == "stage3_upgraded":
                     selected_assets = []
                     preferred_attempt = int(run.optimization_attempt or 0)
-                    selected = self._latest_asset_for_stage(assets, "stage3_upgraded", preferred_attempt=preferred_attempt)
+                    selected = self._latest_asset_for_stage(
+                        assets,
+                        "stage3_post_quality_accessibility_generate",
+                        preferred_attempt=preferred_attempt,
+                    ) or self._latest_asset_for_stage(
+                        assets,
+                        "stage3_upgraded",
+                        preferred_attempt=preferred_attempt,
+                    )
                     if selected is not None:
                         selected_assets.append(selected)
                     selected_assets.extend(asset for asset in assets if asset.stage_name == "stage4_variant_generate")

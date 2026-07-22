@@ -860,6 +860,34 @@ def test_variant_task_prefers_softened_base_asset_when_present(db_session, monke
     assert finished.status == "completed"
 
 
+def test_winner_base_assets_uses_softened_image_as_final_regular_output(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="soften_final")
+    run = repo.create_shadow_run(entry_id=entry.id, quality_threshold=95, max_optimization_attempts=3)
+    repo.update_run(run, optimization_attempt=1)
+    quality_asset = repo.add_asset(
+        run_id=run.id, stage_name="stage3_upgraded", attempt=1, file_name="quality.jpg", abs_path="/tmp/quality-final.jpg",
+        mime_type="image/jpeg", sha256="quality-final", width=100, height=100, origin_url="", model_name="test",
+    )
+    soften_asset = repo.add_asset(
+        run_id=run.id, stage_name="stage3_post_quality_accessibility_generate", attempt=1, file_name="soften.jpg", abs_path="/tmp/soften-final.jpg",
+        mime_type="image/jpeg", sha256="soften-final", width=100, height=100, origin_url="", model_name="test",
+    )
+    white_bg_asset = repo.add_asset(
+        run_id=run.id, stage_name="stage4_white_bg", attempt=1, file_name="white.jpg", abs_path="/tmp/white-final.jpg",
+        mime_type="image/jpeg", sha256="white-final", width=100, height=100, origin_url="", model_name="test",
+    )
+
+    winner_attempt, regular_asset, selected_white_bg, selected_soften = service._winner_base_assets(run.id)
+
+    assert winner_attempt == 1
+    assert regular_asset is not None and regular_asset.id == soften_asset.id
+    assert selected_soften is not None and selected_soften.id == soften_asset.id
+    assert selected_white_bg is not None and selected_white_bg.id == white_bg_asset.id
+    assert quality_asset.id != regular_asset.id
+
+
 def test_job_overview_is_read_only_for_completed_base_shadow_run(db_session) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)

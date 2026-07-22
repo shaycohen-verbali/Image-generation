@@ -340,16 +340,17 @@ function csvItemImages(item, tasks, { includeBaseOutputs = true } = {}) {
   if (includeBaseOutputs) {
     addImage({
       id: item?.base_regular_asset_id || '',
-      label: 'Quality image',
-      kind: 'quality',
+      label: 'Final regular image',
+      kind: 'regular',
       missing: !item?.base_regular_asset_id,
     })
-    addImage({
-      id: item?.base_soften_asset_id || '',
-      label: 'Soften image',
-      kind: 'soften',
-      missing: !item?.base_soften_asset_id,
-    })
+    if (item?.base_soften_asset_id && item.base_soften_asset_id !== item.base_regular_asset_id) {
+      addImage({
+        id: item.base_soften_asset_id,
+        label: 'Soften image',
+        kind: 'soften',
+      })
+    }
     addImage({
       id: item?.base_white_bg_asset_id || '',
       label: 'White background image',

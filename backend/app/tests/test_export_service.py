@@ -10,8 +10,10 @@ from app.services.export_service import ExportService
 
 def test_create_export_honors_selected_csv_fields(db_session, tmp_path: Path) -> None:
     stage3_path = tmp_path / "stage3_upgraded.jpg"
+    soften_path = tmp_path / "stage3_softened.jpg"
     stage4_path = tmp_path / "stage4_white_bg.jpg"
     stage3_path.write_bytes(b"stage3")
+    soften_path.write_bytes(b"soften")
     stage4_path.write_bytes(b"stage4")
 
     entry = Entry(
@@ -72,14 +74,27 @@ def test_create_export_honors_selected_csv_fields(db_session, tmp_path: Path) ->
         origin_url="",
         model_name="test-model",
     )
-    db_session.add_all([entry, run, prompt, stage3_asset, stage4_asset])
+    soften_asset = Asset(
+        run_id=run.id,
+        stage_name="stage3_post_quality_accessibility_generate",
+        attempt=1,
+        file_name="apple_soften.jpg",
+        abs_path=soften_path.as_posix(),
+        mime_type="image/jpeg",
+        sha256="sha_soften",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test-model",
+    )
+    db_session.add_all([entry, run, prompt, stage3_asset, soften_asset, stage4_asset])
     db_session.commit()
 
     service = ExportService(db_session)
     record = service.create_export(
         {
             "run_ids": [run.id],
-            "export_fields": ["word", "image_without_background", "word", "not_a_real_field"],
+            "export_fields": ["word", "upgraded_image_2", "image_without_background", "word", "not_a_real_field"],
         }
     )
 
@@ -93,8 +108,9 @@ def test_create_export_honors_selected_csv_fields(db_session, tmp_path: Path) ->
     assert rows
     assert rows[0] == {
         "word": "apple",
+        "upgraded image 2": soften_path.as_posix(),
         "image without background": stage4_path.as_posix(),
     }
 
     filter_json = json.loads(record.filter_json)
-    assert filter_json["export_fields"] == ["word", "image_without_background"]
+    assert filter_json["export_fields"] == ["word", "upgraded_image_2", "image_without_background"]

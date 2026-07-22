@@ -406,7 +406,7 @@ function buildProfileCoverageData(stages, selectedAttempt, filteredAssets, profi
   })
 
   safeArray(filteredAssets).forEach((asset) => {
-    if (asset.stage_name === 'stage3_upgraded' || asset.stage_name === 'stage4_white_bg') {
+    if (['stage3_upgraded', 'stage3_post_quality_accessibility_generate', 'stage4_white_bg'].includes(asset.stage_name)) {
       const baseProfile = { gender: 'male', age: 'kid', skin_color: 'white' }
       profiles.set(profileKeyString(baseProfile), baseProfile)
       return
@@ -429,6 +429,15 @@ function buildProfileCoverageData(stages, selectedAttempt, filteredAssets, profi
 
   safeArray(filteredAssets).forEach((asset) => {
     if (asset.stage_name === 'stage3_upgraded') {
+      const key = profileKeyString({ gender: 'male', age: 'kid', skin_color: 'white' })
+      const row = statusByProfile.get(key)
+      if (row) {
+        row.regular = true
+        row.regularAsset = asset
+      }
+      return
+    }
+    if (asset.stage_name === 'stage3_post_quality_accessibility_generate') {
       const key = profileKeyString({ gender: 'male', age: 'kid', skin_color: 'white' })
       const row = statusByProfile.get(key)
       if (row) {
