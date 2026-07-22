@@ -109,39 +109,17 @@ def export_word_source_rows(
     if not rows:
         raise HTTPException(status_code=404, detail="No word_inventory rows matched this selection")
 
-    # A lightweight local job gives the existing exporter its usual manifest and
-    # download lifecycle. Passing the selected inventory rows directly preserves
-    # the source table unchanged while packaging its current paths and prompts.
+    # An export-only job gives the existing exporter its usual manifest and
+    # download lifecycle without creating runnable DAG tasks. Passing the selected
+    # inventory rows directly preserves the source table unchanged.
     service = CsvDagService(db)
-    job_rows = [
-        {
-            "word": row.get("word", ""),
-            "part_of_sentence": row.get("part_of_sentence", ""),
-            "category": row.get("category", ""),
-            "context": row.get("context", ""),
-            "sense_id": row.get("sense_id", ""),
-            "_word_source_table": row.get("_word_source_table", table_name),
-            "_word_source_row_id": row.get("_word_source_row_id", ""),
-            "_word_source_word": row.get("_word_source_word", ""),
-            "_word_source_part_of_speech": row.get("_word_source_part_of_speech", ""),
-            "_word_source_sense_id": row.get("_word_source_sense_id", ""),
-            "_word_source_existing_paths": row.get("_word_source_existing_paths", {}),
-        }
-        for row in rows
-    ]
-    imported = service.import_word_source_rows(
-        table_name=table_name,
-        rows=job_rows,
-        person_gender_options=[],
-        person_age_options=[],
-        person_skin_color_options=[],
-    )
+    export_job = service.create_word_source_export_job(table_name=table_name)
     result = service.export_job(
-        imported["job_id"],
+        export_job["job_id"],
         export_fields=payload.export_fields,
         inventory_rows_override=rows,
     )
     return CsvJobExportResponse(
         **result,
-        download_url=f"/api/v1/csv-jobs/{imported['job_id']}/export/download",
+        download_url=f"/api/v1/csv-jobs/{export_job['job_id']}/export/download",
     )

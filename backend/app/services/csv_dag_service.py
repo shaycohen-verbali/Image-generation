@@ -617,6 +617,30 @@ class CsvDagService:
             "continued_from_job_id": None,
         }
 
+    def create_word_source_export_job(self, *, table_name: str) -> dict[str, str]:
+        """Create an export record without creating a runnable CSV-DAG job."""
+        batch_id = _generated_batch_id()
+        job = self.repo.create_csv_job(
+            batch_id=batch_id,
+            source_file_name=f"export:{table_name}",
+            execution_mode="csv_dag",
+            config_snapshot={
+                **self._runtime_snapshot(
+                    person_gender_options=[],
+                    person_age_options=[],
+                    person_skin_color_options=[],
+                ),
+                "word_source_type": "supabase_table_export",
+                "word_source_table": table_name,
+            },
+        )
+        completed = self.repo.update_csv_job(
+            job,
+            status="completed",
+            finished_at=datetime.utcnow(),
+        )
+        return {"job_id": completed.id, "batch_id": completed.batch_id}
+
     def continue_job(
         self,
         job_id: str,

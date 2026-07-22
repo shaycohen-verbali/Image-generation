@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import create_engine, func, select, text
 
 from app.inventory_models import inventory_metadata, inventory_slot_column_name, word_inventory
-from app.models import CsvTaskNode, Entry
+from app.models import CsvJobItem, CsvTaskNode, Entry
 from app.services.pipeline import PipelineRunner
 from app.services.csv_dag_service import CsvDagService
 from app.services.inventory_sync import InventorySyncService
@@ -171,6 +171,15 @@ def test_export_rows_support_last_job_range_and_exact_word_pos(monkeypatch) -> N
     assert exact[0]["part_of_sentence"] == "verb"
     assert exact[0]["_word_source_row_id"] == "inv_2"
     assert [row["word"] for row in ranged] == ["apple"]
+
+
+def test_word_source_export_job_is_completed_without_runnable_items(db_session) -> None:
+    result = CsvDagService(db_session).create_word_source_export_job(table_name="word_inventory")
+    job = CsvDagService(db_session).repo.get_csv_job(result["job_id"])
+
+    assert job is not None
+    assert job.status == "completed"
+    assert db_session.query(CsvJobItem).filter(CsvJobItem.csv_job_id == job.id).count() == 0
 
 
 def test_preview_serializes_missing_senses_as_blank_strings(monkeypatch) -> None:
