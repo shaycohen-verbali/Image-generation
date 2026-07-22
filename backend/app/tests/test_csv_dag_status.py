@@ -125,6 +125,8 @@ def test_job_summary_uses_only_aggregate_status_data(db_session) -> None:
     assert summary["word_counts"]["running"] == 1
     assert summary["step_counts"] == {"step1_base": {"running": 1}}
     assert summary["last_progress_at"] is not None
+    assert summary["stale_seconds"] >= 0
+    assert summary["is_stale"] is False
     assert summary["export_ready"] is False
 
 

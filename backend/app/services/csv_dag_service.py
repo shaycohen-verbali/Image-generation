@@ -303,6 +303,16 @@ class CsvDagService:
         source_existing_paths = source_row.get("_word_source_existing_paths")
         has_source_inventory_snapshot = isinstance(source_existing_paths, dict)
         source_existing_paths = source_existing_paths if has_source_inventory_snapshot else {}
+        inventory_row_loaded = has_source_inventory_snapshot
+
+        def ensure_inventory_row() -> dict[str, Any]:
+            nonlocal inventory_row_loaded, source_existing_paths
+            if not inventory_row_loaded:
+                source_existing_paths = inventory_service.latest_entry_inventory_row(
+                    entry, source_row_id=source_row_id
+                ) or {}
+                inventory_row_loaded = True
+            return source_existing_paths
         requested_profiles = self._requested_profiles(job)
         override = self._override_existing_variants_enabled(job)
 
@@ -312,39 +322,16 @@ class CsvDagService:
         skipped_notes: list[str] = []
 
         def inventory_regular_available(p: dict[str, str]) -> bool:
-            if has_source_inventory_snapshot:
-                slot_name = inventory_slot_column_name(p["age"], p["gender"], p["skin_color"], "regular")
-                return bool(str(source_existing_paths.get(slot_name) or "").strip())
-            return bool(
-                inventory_service.slot_path_for_entry_profile(
-                    entry,
-                    p,
-                    background="regular",
-                    source_row_id=source_row_id,
-                )
-            )
+            slot_name = inventory_slot_column_name(p["age"], p["gender"], p["skin_color"], "regular")
+            return bool(str(ensure_inventory_row().get(slot_name) or "").strip())
 
         def inventory_any_available(p: dict[str, str]) -> bool:
-            if has_source_inventory_snapshot:
-                regular_slot = inventory_slot_column_name(p["age"], p["gender"], p["skin_color"], "regular")
-                white_bg_slot = inventory_slot_column_name(p["age"], p["gender"], p["skin_color"], "white_bg")
-                return bool(
-                    str(source_existing_paths.get(regular_slot) or "").strip()
-                    or str(source_existing_paths.get(white_bg_slot) or "").strip()
-                )
+            regular_slot = inventory_slot_column_name(p["age"], p["gender"], p["skin_color"], "regular")
+            white_bg_slot = inventory_slot_column_name(p["age"], p["gender"], p["skin_color"], "white_bg")
+            row = ensure_inventory_row()
             return bool(
-                inventory_service.slot_path_for_entry_profile(
-                    entry,
-                    p,
-                    background="regular",
-                    source_row_id=source_row_id,
-                )
-                or inventory_service.slot_path_for_entry_profile(
-                    entry,
-                    p,
-                    background="white_bg",
-                    source_row_id=source_row_id,
-                )
+                str(row.get(regular_slot) or "").strip()
+                or str(row.get(white_bg_slot) or "").strip()
             )
 
         def _create_spec(p: dict[str, str], source_p: dict[str, str] | None, dep_task_key: str | None) -> str:
@@ -786,6 +773,9 @@ class CsvDagService:
         if job.started_at:
             duration_end = job.finished_at or datetime.utcnow()
             duration_seconds = max(0.0, (duration_end - job.started_at).total_seconds())
+        last_progress_at = counts["last_progress_at"] or job.updated_at
+        stale_seconds = max(0, int((datetime.utcnow() - last_progress_at).total_seconds())) if last_progress_at else 0
+        active_status = str(job.status or "").lower() in {"queued", "retry_queued", "running"}
         return {
             "job": self._serialize_job(
                 job,
@@ -796,7 +786,9 @@ class CsvDagService:
             ),
             "word_counts": word_counts,
             "step_counts": counts["step_counts"],
-            "last_progress_at": counts["last_progress_at"] or job.updated_at,
+            "last_progress_at": last_progress_at,
+            "stale_seconds": stale_seconds,
+            "is_stale": active_status and stale_seconds >= 180,
             "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
         }
 

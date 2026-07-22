@@ -454,6 +454,8 @@ class CsvJobSummaryOut(BaseModel):
     word_counts: dict[str, int] = Field(default_factory=dict)
     step_counts: dict[str, dict[str, int]] = Field(default_factory=dict)
     last_progress_at: datetime | None = None
+    stale_seconds: int = 0
+    is_stale: bool = False
     export_ready: bool = False
 
 

@@ -938,6 +938,8 @@ export default function RunsPage() {
           word_counts: data.word_counts,
           step_counts: data.step_counts,
           last_progress_at: data.last_progress_at,
+          stale_seconds: data.stale_seconds,
+          is_stale: data.is_stale,
           export_ready: data.export_ready,
         }
       })
@@ -1762,6 +1764,11 @@ export default function RunsPage() {
                   </button>
                 ))}
               </div>
+              {csvJobOverview.is_stale ? (
+                <p className="config-help-text" role="status">
+                  No recorded progress for {Math.max(3, Math.floor((csvJobOverview.stale_seconds || 0) / 60))} minutes. The job may be waiting on an external model or a worker recovery.
+                </p>
+              ) : null}
               <p className="config-help-text">
                 Click a status chip to filter the word list on the first floor.
               </p>
