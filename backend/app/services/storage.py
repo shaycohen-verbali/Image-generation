@@ -163,7 +163,15 @@ def persist_export_artifact(export_id: str, filename: str, payload: bytes, *, co
         return StoredObject(local_path=local_path, persisted_path=local_path.as_posix())
 
     object_key = f"exports/{sanitize_filename(export_id)}/{sanitize_filename(filename)}"
-    persisted_path = _upload_to_supabase(settings.supabase_export_bucket, object_key, payload, content_type=content_type)
+    try:
+        persisted_path = _upload_to_supabase(settings.supabase_export_bucket, object_key, payload, content_type=content_type)
+    except RuntimeError as exc:
+        # Supabase Storage enforces a per-object size limit. Keep an oversized
+        # package on the Render instance so the user can download it immediately
+        # instead of failing an otherwise-complete export with HTTP 500.
+        if "Payload too large" in str(exc):
+            return StoredObject(local_path=local_path, persisted_path=local_path.as_posix())
+        raise
     return StoredObject(
         local_path=local_path,
         persisted_path=persisted_path,
