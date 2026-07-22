@@ -118,6 +118,11 @@ export async function getCsvJobSummary(jobId) {
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary`, {}, 1)
 }
 
+export async function getCsvJobItems(jobId, { offset = 0, limit = 50 } = {}) {
+  const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/items?${query.toString()}`, {}, 1)
+}
+
 export async function startCsvJob(jobId) {
   const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/start`, { method: 'POST' })
   return parseResponse(response)

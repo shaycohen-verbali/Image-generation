@@ -10,6 +10,7 @@ import {
   exportCsvJob,
   getConfig,
   getCsvJobOverview,
+  getCsvJobItems,
   getCsvJobSummary,
   getRun,
   listCsvJobs,
@@ -594,6 +595,7 @@ export default function RunsPage() {
   const [csvJobs, setCsvJobs] = useState([])
   const [selectedCsvJobId, setSelectedCsvJobId] = useState('')
   const [csvJobOverview, setCsvJobOverview] = useState(null)
+  const [csvItemsPage, setCsvItemsPage] = useState({ items: [], tasks: [], total: 0, offset: 0, limit: 50 })
   const [selectedCsvItemId, setSelectedCsvItemId] = useState('')
   const [csvShadowRunDetail, setCsvShadowRunDetail] = useState(null)
   const [selectedCsvStatusFilter, setSelectedCsvStatusFilter] = useState('')
@@ -620,6 +622,7 @@ export default function RunsPage() {
   const csvListRequestInFlightRef = useRef(false)
   const csvOverviewRequestInFlightRef = useRef(false)
   const csvSummaryRequestInFlightRef = useRef(false)
+  const csvItemsRequestInFlightRef = useRef(false)
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
@@ -694,8 +697,8 @@ export default function RunsPage() {
     () => csvJobs.map((job) => `${job.id}:${job.status}:${job.updated_at || ''}`).join('|'),
     [csvJobs]
   )
-  const csvJobItems = Array.isArray(csvJobOverview?.items) ? csvJobOverview.items : []
-  const csvJobTasks = Array.isArray(csvJobOverview?.tasks) ? csvJobOverview.tasks : []
+  const csvJobItems = Array.isArray(csvItemsPage?.items) ? csvItemsPage.items : []
+  const csvJobTasks = Array.isArray(csvItemsPage?.tasks) ? csvItemsPage.tasks : []
   const requestedProfileHistory = Array.isArray(csvJobOverview?.requested_profile_history)
     ? csvJobOverview.requested_profile_history
     : []
@@ -718,7 +721,10 @@ export default function RunsPage() {
     }
     return [csvJobs[0]]
   }, [csvJobs, selectedCsvJobId, csvJobOverview])
-  const csvJobLiveCounts = useMemo(() => csvJobWordSummary(csvJobItems, csvJobTasks), [csvJobItems, csvJobTasks])
+  const csvJobLiveCounts = useMemo(
+    () => csvJobOverview?.word_counts || csvJobWordSummary(csvJobItems, csvJobTasks),
+    [csvJobOverview?.word_counts, csvJobItems, csvJobTasks],
+  )
   const filteredCsvJobItems = useMemo(() => {
     if (!selectedCsvStatusFilter) return csvJobItems
     return csvJobItems.filter((item) => String(item.main_status || '').toLowerCase() === selectedCsvStatusFilter)
@@ -936,6 +942,20 @@ export default function RunsPage() {
     }
   }
 
+  async function loadCsvJobItems(jobId, offset = 0) {
+    if (!jobId || csvItemsRequestInFlightRef.current) return
+    csvItemsRequestInFlightRef.current = true
+    try {
+      const data = await getCsvJobItems(jobId, { offset, limit: csvItemsPage.limit || 50 })
+      if (selectedCsvJobIdRef.current !== jobId) return
+      setCsvItemsPage(data)
+    } catch (error) {
+      setMessage(`Error loading CSV words: ${error.message}`)
+    } finally {
+      csvItemsRequestInFlightRef.current = false
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     const loadConfig = async () => {
@@ -1043,19 +1063,22 @@ export default function RunsPage() {
   useEffect(() => {
     if (!selectedCsvJobId) {
       setCsvJobOverview(null)
+      setCsvItemsPage({ items: [], tasks: [], total: 0, offset: 0, limit: 50 })
       setSelectedCsvItemId('')
       setSelectedCsvStatusFilter('')
       return undefined
     }
     loadCsvJobDetail(selectedCsvJobId)
+    loadCsvJobItems(selectedCsvJobId, 0)
     const timer = setInterval(() => {
       if (!pageVisible) return
       if (!selectedCsvJobId) return
       if (isTerminalCsvJobStatus(csvJobOverview?.job?.status)) return
       loadCsvJobSummary(selectedCsvJobId, { isPolling: true })
+      loadCsvJobItems(selectedCsvJobId, csvItemsPage.offset || 0)
     }, shouldFastPollCsv ? CSV_DETAIL_POLL_FAST_MS : CSV_DETAIL_POLL_MS)
     return () => clearInterval(timer)
-  }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status, shouldFastPollCsv])
+  }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status, shouldFastPollCsv, csvItemsPage.offset])
 
   useEffect(() => {
     if (!filteredCsvJobItems.length) {
@@ -1338,7 +1361,28 @@ export default function RunsPage() {
             </div>
             <div className="runs-floor-summary">
               <span>{showingCsvWords ? filteredCsvJobItems.length : filteredRuns.length} shown</span>
-              <span>{showingCsvWords ? csvJobItems.length : runs.length} total</span>
+              <span>{showingCsvWords ? csvItemsPage.total : runs.length} total</span>
+              {showingCsvWords ? (
+                <div className="csv-page-controls">
+                  <button
+                    type="button"
+                    disabled={csvItemsPage.offset <= 0}
+                    onClick={() => loadCsvJobItems(selectedCsvJobId, Math.max(0, csvItemsPage.offset - csvItemsPage.limit))}
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    {csvItemsPage.total ? csvItemsPage.offset + 1 : 0}–{Math.min(csvItemsPage.total, csvItemsPage.offset + csvItemsPage.items.length)}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={csvItemsPage.offset + csvItemsPage.limit >= csvItemsPage.total}
+                    onClick={() => loadCsvJobItems(selectedCsvJobId, csvItemsPage.offset + csvItemsPage.limit)}
+                  >
+                    Next
+                  </button>
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {

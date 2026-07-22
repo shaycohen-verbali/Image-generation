@@ -436,6 +436,14 @@ class CsvJobOverviewOut(BaseModel):
     export_id: str | None = None
 
 
+class CsvJobItemsPageOut(BaseModel):
+    items: list[CsvJobItemOut] = Field(default_factory=list)
+    tasks: list[CsvJobTaskOut] = Field(default_factory=list)
+    total: int = 0
+    offset: int = 0
+    limit: int = 50
+
+
 class CsvJobSummaryOut(BaseModel):
     job: CsvJobOut
     word_counts: dict[str, int] = Field(default_factory=dict)

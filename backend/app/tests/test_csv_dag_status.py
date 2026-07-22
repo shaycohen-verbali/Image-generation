@@ -128,6 +128,33 @@ def test_job_summary_uses_only_aggregate_status_data(db_session) -> None:
     assert summary["export_ready"] is False
 
 
+def test_job_items_page_bounds_items_and_tasks(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    job = repo.create_csv_job(
+        batch_id="csv_test_page", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={}
+    )
+    for row_index in range(1, 4):
+        entry = _make_entry(repo, word=f"word-{row_index}")
+        item = repo.create_csv_job_item(
+            csv_job_id=job.id, entry_id=entry.id, row_index=row_index, source_row={"word": entry.word}
+        )
+        repo.create_csv_task_node(
+            csv_job_id=job.id, csv_job_item_id=item.id, step_name="step1_base",
+            task_key=f"row{row_index}:base", profile_key="male:kid:white", source_profile_key="",
+            branch_role="base", dependency_keys=[], dependency_task_ids=[], status="pending",
+        )
+
+    page = service.job_items_page(job.id, offset=1, limit=1)
+
+    assert page is not None
+    assert page["total"] == 3
+    assert page["offset"] == 1
+    assert [item["row_index"] for item in page["items"]] == [2]
+    assert len(page["tasks"]) == 1
+    assert page["tasks"][0]["csv_job_item_id"] == page["items"][0]["id"]
+
+
 def test_start_job_records_started_at_even_before_first_claim(db_session) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)

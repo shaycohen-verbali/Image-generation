@@ -1099,6 +1099,23 @@ class Repository:
             ).scalars()
         )
 
+    def list_csv_job_items_page(self, csv_job_id: str, *, offset: int, limit: int) -> tuple[list[CsvJobItem], int]:
+        total = int(
+            self.db.execute(
+                select(func.count()).select_from(CsvJobItem).where(CsvJobItem.csv_job_id == csv_job_id)
+            ).scalar_one()
+        )
+        items = list(
+            self.db.execute(
+                select(CsvJobItem)
+                .where(CsvJobItem.csv_job_id == csv_job_id)
+                .order_by(CsvJobItem.row_index.asc())
+                .offset(offset)
+                .limit(limit)
+            ).scalars()
+        )
+        return items, total
+
     def get_csv_job_item(self, item_id: str) -> CsvJobItem | None:
         return self.db.execute(select(CsvJobItem).where(CsvJobItem.id == item_id)).scalar_one_or_none()
 
@@ -1180,6 +1197,19 @@ class Repository:
             self.db.execute(
                 select(CsvTaskNode)
                 .where(CsvTaskNode.csv_job_id == csv_job_id)
+                .order_by(CsvTaskNode.created_at.asc())
+            ).scalars()
+        )
+
+    def list_csv_tasks_for_items(self, csv_job_id: str, item_ids: Collection[str]) -> list[CsvTaskNode]:
+        normalized_ids = [str(item_id) for item_id in item_ids if str(item_id or "").strip()]
+        if not normalized_ids:
+            return []
+        return list(
+            self.db.execute(
+                select(CsvTaskNode)
+                .where(CsvTaskNode.csv_job_id == csv_job_id)
+                .where(CsvTaskNode.csv_job_item_id.in_(normalized_ids))
                 .order_by(CsvTaskNode.created_at.asc())
             ).scalars()
         )

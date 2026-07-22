@@ -1763,6 +1763,59 @@ Debugging and backwards-compatible files are under `_metadata/`.
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }
 
+    def job_items_page(self, job_id: str, *, offset: int, limit: int) -> dict[str, Any] | None:
+        job = self.repo.get_csv_job(job_id)
+        if job is None:
+            return None
+        items, total = self.repo.list_csv_job_items_page(job_id, offset=offset, limit=limit)
+        tasks = self.repo.list_csv_tasks_for_items(job_id, [item.id for item in items])
+        entries_by_id = self.repo.get_entries_by_ids([item.entry_id for item in items])
+        runs_by_id = self.repo.get_runs_by_ids(
+            [item.shadow_run_id for item in items if str(item.shadow_run_id or "").strip()]
+        )
+        tasks_by_item: dict[str, list[CsvTaskNode]] = {}
+        for task in tasks:
+            tasks_by_item.setdefault(task.csv_job_item_id, []).append(task)
+        items_payload: list[dict[str, Any]] = []
+        for item in items:
+            entry = entries_by_id.get(item.entry_id)
+            shadow_run = runs_by_id.get(item.shadow_run_id) if item.shadow_run_id else None
+            item_tasks = tasks_by_item.get(item.id, [])
+            progress = self._item_progress_payload(item, item_tasks, previously_done=False)
+            items_payload.append({
+                "id": item.id, "entry_id": item.entry_id, "row_index": item.row_index,
+                "word": entry.word if entry else "", "part_of_sentence": entry.part_of_sentence if entry else "",
+                "category": entry.category if entry else "", "status": item.status,
+                "error_detail": item.error_detail, "shadow_run_id": item.shadow_run_id,
+                "shadow_run_status": shadow_run.status if shadow_run else "",
+                "shadow_run_current_stage": shadow_run.current_stage if shadow_run else "",
+                "shadow_run_error_detail": shadow_run.error_detail if shadow_run else "",
+                "optimization_attempt": shadow_run.optimization_attempt if shadow_run else None,
+                "quality_score": shadow_run.quality_score if shadow_run else None,
+                "quality_threshold": shadow_run.quality_threshold if shadow_run else None,
+                "needs_person_attention": bool(shadow_run and shadow_run.quality_score is not None and shadow_run.quality_threshold is not None and float(shadow_run.quality_score) < float(shadow_run.quality_threshold)),
+                "base_regular_asset_id": item.base_regular_asset_id,
+                "base_soften_asset_id": item.base_soften_asset_id,
+                "base_white_bg_asset_id": item.base_white_bg_asset_id,
+                "main_status": progress["main_status"], "sub_status": progress["sub_status"],
+                "current_step": progress["current_step"], "current_profile_key": progress["current_profile_key"],
+                "requested_profile_keys": progress["requested_profile_keys"],
+                "blocking_reason": progress["blocking_reason"], "waiting_on_steps": progress["waiting_on_steps"],
+                "progress": progress["progress"], "has_person": str(getattr(entry, "has_person", "") or "") if entry else "",
+                "created_at": item.created_at, "updated_at": item.updated_at,
+            })
+        tasks_payload = [{
+            "id": task.id, "csv_job_item_id": task.csv_job_item_id, "step_name": task.step_name,
+            "task_key": task.task_key, "profile_key": task.profile_key, "source_profile_key": task.source_profile_key,
+            "branch_role": task.branch_role, "status": task.status, "attempt_count": task.attempt_count,
+            "max_attempts": task.max_attempts, "error_summary": task.error_summary,
+            "regular_asset_id": task.regular_asset_id, "white_bg_asset_id": task.white_bg_asset_id,
+            "dependency_task_ids": [str(value) for value in json.loads(task.dependency_task_ids_json or "[]") if str(value)],
+            "started_at": task.started_at, "finished_at": task.finished_at,
+            "created_at": task.created_at, "updated_at": task.updated_at,
+        } for task in tasks]
+        return {"items": items_payload, "tasks": tasks_payload, "total": total, "offset": offset, "limit": limit}
+
     def _reconcile_terminal_shadow_runs(self, job_id: str) -> bool:
         overview = self.repo.csv_job_overview(job_id)
         if overview is None:

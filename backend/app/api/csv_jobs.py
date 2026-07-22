@@ -4,7 +4,7 @@ import json
 from threading import Lock
 from time import monotonic
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from app.schemas import (
     CsvJobExportResponse,
     CsvJobImportResponse,
     CsvJobInventorySyncResponse,
+    CsvJobItemsPageOut,
     CsvJobOut,
     CsvJobOverviewOut,
     CsvJobRetryResponse,
@@ -150,6 +151,20 @@ def get_csv_job_summary(job_id: str, db: Session = Depends(db_dependency)) -> Cs
     if summary is None:
         raise HTTPException(status_code=404, detail="CSV job not found")
     return CsvJobSummaryOut(**summary)
+
+
+@router.get("/{job_id}/items", response_model=CsvJobItemsPageOut)
+def get_csv_job_items(
+    job_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(db_dependency),
+) -> CsvJobItemsPageOut:
+    service = CsvDagService(db)
+    page = service.job_items_page(job_id, offset=offset, limit=limit)
+    if page is None:
+        raise HTTPException(status_code=404, detail="CSV job not found")
+    return CsvJobItemsPageOut(**page)
 
 
 @router.post("/{job_id}/start", response_model=CsvJobStartResponse)
