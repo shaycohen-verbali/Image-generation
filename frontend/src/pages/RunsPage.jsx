@@ -613,6 +613,8 @@ export default function RunsPage() {
   const runsRef = useRef([])
   const detailStateRef = useRef(null)
   const detailRef = useRef(null)
+  const runsRequestInFlightRef = useRef(false)
+  const runDetailRequestInFlightRef = useRef(false)
   const selectedCsvJobIdRef = useRef('')
   const csvListRequestInFlightRef = useRef(false)
   const csvOverviewRequestInFlightRef = useRef(false)
@@ -786,6 +788,8 @@ export default function RunsPage() {
 
   async function loadRunDetail(runId, { isPolling = false, includeDebug = false } = {}) {
     if (!runId) return
+    if (runDetailRequestInFlightRef.current) return
+    runDetailRequestInFlightRef.current = true
     try {
       const data = await getRun(runId, { includeDebug })
       if (selectedRunIdRef.current && selectedRunIdRef.current !== runId) {
@@ -797,6 +801,8 @@ export default function RunsPage() {
         return
       }
       setMessage(`Error loading detail: ${error.message}`)
+    } finally {
+      runDetailRequestInFlightRef.current = false
     }
   }
 
@@ -818,6 +824,8 @@ export default function RunsPage() {
   }
 
   async function refreshRuns({ isPolling = false } = {}) {
+    if (runsRequestInFlightRef.current) return
+    runsRequestInFlightRef.current = true
     try {
       const data = await listRuns(query)
       setRuns(data)
@@ -848,6 +856,8 @@ export default function RunsPage() {
         return
       }
       setMessage(`Error loading runs: ${error.message}`)
+    } finally {
+      runsRequestInFlightRef.current = false
     }
   }
 
@@ -1038,7 +1048,10 @@ export default function RunsPage() {
       return undefined
     }
     let canceled = false
+    let requestInFlight = false
     const loadShadowRunDetail = async ({ isPolling = false } = {}) => {
+      if (requestInFlight) return
+      requestInFlight = true
       try {
         const data = await getRun(shadowRunId)
         if (!canceled && String(selectedCsvItem?.shadow_run_id || '').trim() === shadowRunId) {
@@ -1048,6 +1061,8 @@ export default function RunsPage() {
         if (!isPolling && !canceled) {
           setCsvShadowRunDetail(null)
         }
+      } finally {
+        requestInFlight = false
       }
     }
     loadShadowRunDetail()
