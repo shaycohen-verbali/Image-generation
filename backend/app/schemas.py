@@ -436,6 +436,14 @@ class CsvJobOverviewOut(BaseModel):
     export_id: str | None = None
 
 
+class CsvJobSummaryOut(BaseModel):
+    job: CsvJobOut
+    word_counts: dict[str, int] = Field(default_factory=dict)
+    step_counts: dict[str, dict[str, int]] = Field(default_factory=dict)
+    last_progress_at: datetime | None = None
+    export_ready: bool = False
+
+
 class CsvJobStartResponse(BaseModel):
     job_id: str
     status: str

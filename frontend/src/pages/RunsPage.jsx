@@ -10,6 +10,7 @@ import {
   exportCsvJob,
   getConfig,
   getCsvJobOverview,
+  getCsvJobSummary,
   getRun,
   listCsvJobs,
   listRuns,
@@ -618,6 +619,7 @@ export default function RunsPage() {
   const selectedCsvJobIdRef = useRef('')
   const csvListRequestInFlightRef = useRef(false)
   const csvOverviewRequestInFlightRef = useRef(false)
+  const csvSummaryRequestInFlightRef = useRef(false)
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId
@@ -904,6 +906,36 @@ export default function RunsPage() {
     }
   }
 
+  async function loadCsvJobSummary(jobId, { isPolling = false } = {}) {
+    if (!jobId) return
+    if (csvSummaryRequestInFlightRef.current) return
+    csvSummaryRequestInFlightRef.current = true
+    try {
+      const data = await getCsvJobSummary(jobId)
+      if (selectedCsvJobIdRef.current && selectedCsvJobIdRef.current !== jobId) {
+        return
+      }
+      setCsvJobs((previous) => previous.map((job) => (job.id === jobId ? { ...job, ...data.job } : job)))
+      setCsvJobOverview((previous) => {
+        if (!previous || previous.job?.id !== jobId) return previous
+        return {
+          ...previous,
+          job: data.job,
+          word_counts: data.word_counts,
+          step_counts: data.step_counts,
+          last_progress_at: data.last_progress_at,
+          export_ready: data.export_ready,
+        }
+      })
+    } catch (error) {
+      if (!isPolling) {
+        setMessage(`Error loading CSV job summary: ${error.message}`)
+      }
+    } finally {
+      csvSummaryRequestInFlightRef.current = false
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     const loadConfig = async () => {
@@ -977,7 +1009,7 @@ export default function RunsPage() {
 
   useEffect(() => {
     if (!selectedCsvJobId || !pageVisible) return
-    loadCsvJobDetail(selectedCsvJobId, { isPolling: true })
+    loadCsvJobSummary(selectedCsvJobId, { isPolling: true })
   }, [selectedCsvJobId, csvJobPollKey, pageVisible])
 
   useEffect(() => {
@@ -1020,7 +1052,7 @@ export default function RunsPage() {
       if (!pageVisible) return
       if (!selectedCsvJobId) return
       if (isTerminalCsvJobStatus(csvJobOverview?.job?.status)) return
-      loadCsvJobDetail(selectedCsvJobId, { isPolling: true })
+      loadCsvJobSummary(selectedCsvJobId, { isPolling: true })
     }, shouldFastPollCsv ? CSV_DETAIL_POLL_FAST_MS : CSV_DETAIL_POLL_MS)
     return () => clearInterval(timer)
   }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status, shouldFastPollCsv])
@@ -1089,7 +1121,7 @@ export default function RunsPage() {
       }
       if (selectedCsvJobIdRef.current) {
         refreshCsvJobs({ isPolling: true })
-        loadCsvJobDetail(selectedCsvJobIdRef.current, { isPolling: true })
+        loadCsvJobSummary(selectedCsvJobIdRef.current, { isPolling: true })
       }
     }
     window.addEventListener('focus', handleFocus)

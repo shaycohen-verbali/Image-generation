@@ -1012,6 +1012,36 @@ class Repository:
         )
         return {str(job_id): int(count or 0) for job_id, count in rows}
 
+    def get_csv_job_summary_counts(self, csv_job_id: str) -> dict[str, Any]:
+        item_rows = list(
+            self.db.execute(
+                select(CsvJobItem.status, func.count(CsvJobItem.id), func.max(CsvJobItem.updated_at))
+                .where(CsvJobItem.csv_job_id == csv_job_id)
+                .group_by(CsvJobItem.status)
+            )
+        )
+        task_rows = list(
+            self.db.execute(
+                select(CsvTaskNode.step_name, CsvTaskNode.status, func.count(CsvTaskNode.id), func.max(CsvTaskNode.updated_at))
+                .where(CsvTaskNode.csv_job_id == csv_job_id)
+                .group_by(CsvTaskNode.step_name, CsvTaskNode.status)
+            )
+        )
+        item_counts = {str(status or "pending"): int(count or 0) for status, count, _updated_at in item_rows}
+        step_counts: dict[str, dict[str, int]] = {}
+        progress_timestamps = [updated_at for _status, _count, updated_at in item_rows if updated_at is not None]
+        for step_name, status, count, updated_at in task_rows:
+            bucket = step_counts.setdefault(str(step_name or ""), {})
+            bucket[str(status or "pending")] = int(count or 0)
+            if updated_at is not None:
+                progress_timestamps.append(updated_at)
+        return {
+            "item_counts": item_counts,
+            "step_counts": step_counts,
+            "total_row_count": sum(item_counts.values()),
+            "last_progress_at": max(progress_timestamps) if progress_timestamps else None,
+        }
+
     def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
         managed = self._managed_instance(job)
         for key, value in updates.items():

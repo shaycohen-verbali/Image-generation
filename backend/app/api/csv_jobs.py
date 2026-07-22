@@ -22,6 +22,7 @@ from app.schemas import (
     CsvJobOverviewOut,
     CsvJobRetryResponse,
     CsvJobStartResponse,
+    CsvJobSummaryOut,
     ExecutionMode,
 )
 from app.services.csv_dag_service import CsvDagService
@@ -140,6 +141,15 @@ def get_csv_job_overview(job_id: str, db: Session = Depends(db_dependency)) -> C
     if overview is None:
         raise HTTPException(status_code=404, detail="CSV job not found")
     return CsvJobOverviewOut(**overview)
+
+
+@router.get("/{job_id}/summary", response_model=CsvJobSummaryOut)
+def get_csv_job_summary(job_id: str, db: Session = Depends(db_dependency)) -> CsvJobSummaryOut:
+    service = CsvDagService(db)
+    summary = service.job_summary(job_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="CSV job not found")
+    return CsvJobSummaryOut(**summary)
 
 
 @router.post("/{job_id}/start", response_model=CsvJobStartResponse)

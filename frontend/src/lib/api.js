@@ -114,6 +114,10 @@ export async function getCsvJobOverview(jobId) {
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/overview`, {}, 2)
 }
 
+export async function getCsvJobSummary(jobId) {
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary`, {}, 1)
+}
+
 export async function startCsvJob(jobId) {
   const response = await fetch(`${API_BASE}/csv-jobs/${jobId}/start`, { method: 'POST' })
   return parseResponse(response)

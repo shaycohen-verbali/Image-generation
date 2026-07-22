@@ -766,6 +766,40 @@ class CsvDagService:
             return None
         return self._serialize_job(overview["job"], overview)
 
+    def job_summary(self, job_id: str) -> dict[str, Any] | None:
+        job = self.repo.get_csv_job(job_id)
+        if job is None:
+            return None
+        counts = self.repo.get_csv_job_summary_counts(job_id)
+        word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0, "previously_done": 0}
+        for status, count in counts["item_counts"].items():
+            normalized = str(status or "").lower()
+            if normalized == "completed":
+                word_counts["completed"] += count
+            elif normalized in {"failed", "canceled"}:
+                word_counts["failure"] += count
+            elif normalized in {"running", "queued"}:
+                word_counts["running"] += count
+            else:
+                word_counts["pending"] += count
+        duration_seconds = 0.0
+        if job.started_at:
+            duration_end = job.finished_at or datetime.utcnow()
+            duration_seconds = max(0.0, (duration_end - job.started_at).total_seconds())
+        return {
+            "job": self._serialize_job(
+                job,
+                {
+                    "total_row_count": counts["total_row_count"],
+                    "duration_seconds": duration_seconds,
+                },
+            ),
+            "word_counts": word_counts,
+            "step_counts": counts["step_counts"],
+            "last_progress_at": counts["last_progress_at"] or job.updated_at,
+            "export_ready": job.status in {"completed", "failed", "partial_failed", "canceled"},
+        }
+
     def clear_terminal_jobs(self) -> dict[str, Any]:
         deleted = self.repo.delete_csv_jobs(terminal_only=True)
         return {"deleted_job_count": deleted}

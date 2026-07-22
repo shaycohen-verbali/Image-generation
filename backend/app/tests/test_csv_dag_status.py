@@ -88,6 +88,46 @@ def test_serialize_job_exposes_ui_facing_display_status(db_session) -> None:
     assert failed["display_sub_status"] == "One or more rows failed"
 
 
+def test_job_summary_uses_only_aggregate_status_data(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    entry = _make_entry(repo, word="summary")
+    job = repo.create_csv_job(
+        batch_id="csv_test_summary",
+        source_file_name="test.csv",
+        execution_mode="csv_dag",
+        config_snapshot={},
+    )
+    item = repo.create_csv_job_item(
+        csv_job_id=job.id,
+        entry_id=entry.id,
+        row_index=1,
+        source_row={"word": "summary"},
+    )
+    repo.create_csv_task_node(
+        csv_job_id=job.id,
+        csv_job_item_id=item.id,
+        step_name="step1_base",
+        task_key="row1:base",
+        profile_key="male:kid:white",
+        source_profile_key="",
+        branch_role="base",
+        dependency_keys=[],
+        dependency_task_ids=[],
+        status="running",
+    )
+    repo.update_csv_job_item(item, status="running")
+
+    summary = service.job_summary(job.id)
+
+    assert summary is not None
+    assert summary["job"]["total_row_count"] == 1
+    assert summary["word_counts"]["running"] == 1
+    assert summary["step_counts"] == {"step1_base": {"running": 1}}
+    assert summary["last_progress_at"] is not None
+    assert summary["export_ready"] is False
+
+
 def test_start_job_records_started_at_even_before_first_claim(db_session) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)
