@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     max_parallel_runs: int = Field(default=4, alias="MAX_PARALLEL_RUNS")
     max_variant_workers: int = Field(default=1, alias="MAX_VARIANT_WORKERS")
     flux_imagen_fallback_enabled: bool = Field(default=True, alias="FLUX_IMAGEN_FALLBACK_ENABLED")
+    phase7_monitoring_enabled: bool = Field(default=True, alias="PHASE7_MONITORING_ENABLED")
+    phase7_monitoring_interval_seconds: int = Field(default=300, alias="PHASE7_MONITORING_INTERVAL_SECONDS")
+    phase7_monitoring_query_timeout_ms: int = Field(default=1000, alias="PHASE7_MONITORING_QUERY_TIMEOUT_MS")
 
 
 @lru_cache(maxsize=1)

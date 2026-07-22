@@ -11,6 +11,7 @@ from app.db.session import SessionLocal
 from app.services.csv_dag_service import CsvDagService
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
+from app.services.task_health_monitor import TaskHealthMonitor
 
 # Recover stale database tasks that were orphaned by a worker crash or restart.
 # Tasks still owned by a live future must never be failed here: Python cannot
@@ -56,6 +57,11 @@ def run_worker() -> None:
     active_csv_tasks: dict[Future, str] = {}
     idle_poll_seconds = settings.worker_poll_seconds or 2.0
     error_backoff_seconds = idle_poll_seconds
+    task_health_monitor = TaskHealthMonitor(
+        interval_seconds=settings.phase7_monitoring_interval_seconds,
+        timeout_ms=settings.phase7_monitoring_query_timeout_ms,
+        stale_seconds=CSV_TASK_TIMEOUT_SECONDS,
+    )
 
     with ThreadPoolExecutor(max_workers=WORKER_EXECUTOR_MAX) as executor:
         while True:
@@ -69,6 +75,8 @@ def run_worker() -> None:
                         timeout_seconds=CSV_TASK_TIMEOUT_SECONDS,
                         exclude_task_ids=active_csv_tasks.values(),
                     )
+                    if settings.phase7_monitoring_enabled:
+                        task_health_monitor.maybe_emit(db)
 
                 if timed_out_task_ids:
                     logger.warning(
