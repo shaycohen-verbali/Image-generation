@@ -310,7 +310,7 @@ export default function ExportsPage() {
         })
         if (inventoryDestination === 'cloudflare') {
           setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
-          setMessage(`Cloudflare upload queued: ${result.row_count} selected rows contain ${result.total} images; processing is running in the background`)
+          setMessage(`Cloudflare upload started: ${result.row_count} selected rows contain ${result.total} images; processing is running on Render`)
           for (let attempt = 0; attempt < 120; attempt += 1) {
             await new Promise((resolve) => window.setTimeout(resolve, 3000))
             const status = await getCloudflareUploadStatus(result.batch_id)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import csv
+import logging
 from io import StringIO
+from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,8 @@ from app.services.csv_dag_service import CsvDagService
 from app.services.word_sources import WordSourceService
 
 router = APIRouter(prefix="/api/v1/word-sources", tags=["word-sources"])
+logger = logging.getLogger(__name__)
+_cloudflare_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cloudflare-upload")
 
 
 @router.get("", response_model=list[WordSourceOut])
@@ -97,6 +101,7 @@ def _run_cloudflare_upload(rows: list[dict], *, batch_id: str, bucket: str, qual
                 batch.status = "failed"
                 batch.error_detail = str(exc)[:2000]
                 session.commit()
+            logger.exception("Cloudflare upload batch %s failed", batch_id)
 
 
 @router.get("/{table_name}/rows", response_model=WordSourceRowsOut)
@@ -167,7 +172,6 @@ def import_word_source_rows(
 def export_word_source_rows(
     table_name: str,
     payload: WordSourceExportRequest,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(db_dependency),
 ) -> CsvJobExportResponse | CloudflareUploadResponse:
     source_service = WordSourceService()
@@ -193,14 +197,20 @@ def export_word_source_rows(
             bucket = payload.cloudflare_bucket or settings.cloudflare_r2_default_bucket
             batch_id = f"r2_{__import__('uuid').uuid4().hex[:24]}"
             total = sum(1 for row in rows for key, value in row.items() if str(key).endswith("_path") and str(value or "").strip())
-            batch = CloudUploadBatch(id=batch_id, bucket=bucket, row_count=len(rows), total=total, status="queued")
+            batch = CloudUploadBatch(id=batch_id, bucket=bucket, row_count=len(rows), total=total, status="running")
             db.add(batch)
             db.commit()
-            background_tasks.add_task(_run_cloudflare_upload, rows, batch_id=batch_id, bucket=bucket, quality=payload.compression_quality)
+            _cloudflare_executor.submit(
+                _run_cloudflare_upload,
+                rows,
+                batch_id=batch_id,
+                bucket=bucket,
+                quality=payload.compression_quality,
+            )
             result = {
                 "batch_id": batch_id,
                 "bucket": bucket,
-                "status": "queued",
+                "status": "running",
                 "row_count": len(rows),
                 "total": total,
                 "uploaded": 0,
