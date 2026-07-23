@@ -468,9 +468,17 @@ def _ensure_cloud_upload_columns() -> None:
             existing = {row[1] for row in rows}
             if "row_count" not in existing:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0"))
+            if "source_rows_json" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN source_rows_json TEXT NOT NULL DEFAULT '[]'"))
+            if "compression_quality" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN compression_quality INTEGER NOT NULL DEFAULT 79"))
         else:
             existing = _postgres_existing_columns(conn, "cloud_upload_batches")
             if "row_count" not in existing:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0"))
+            if "source_rows_json" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN source_rows_json TEXT NOT NULL DEFAULT '[]'"))
+            if "compression_quality" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN compression_quality INTEGER NOT NULL DEFAULT 79"))
 if __name__ == "__main__":
     init_db()

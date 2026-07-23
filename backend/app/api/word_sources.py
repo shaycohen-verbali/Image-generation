@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import csv
-import logging
+import json
 from io import StringIO
-from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
@@ -19,15 +18,12 @@ from app.schemas import (
     WordSourceOut,
     WordSourceRowsOut,
 )
-from app.db.session import SessionLocal
 from app.models import CloudUpload, CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService, configured_buckets
 from app.services.csv_dag_service import CsvDagService
 from app.services.word_sources import WordSourceService
 
 router = APIRouter(prefix="/api/v1/word-sources", tags=["word-sources"])
-logger = logging.getLogger(__name__)
-_cloudflare_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cloudflare-upload")
 
 
 @router.get("", response_model=list[WordSourceOut])
@@ -89,19 +85,6 @@ def cloudflare_upload_status(batch_id: str, db: Session = Depends(db_dependency)
         error_detail=batch.error_detail,
         report_url=f"/api/v1/word-sources/cloud-uploads/{batch.id}/report.csv",
     )
-
-
-def _run_cloudflare_upload(rows: list[dict], *, batch_id: str, bucket: str, quality: int) -> None:
-    with SessionLocal() as session:
-        try:
-            CloudflareUploadService(session).upload_rows(rows, bucket=bucket, quality=quality, batch_id=batch_id)
-        except Exception as exc:  # keep background failures visible in the batch record
-            batch = session.get(CloudUploadBatch, batch_id)
-            if batch is not None:
-                batch.status = "failed"
-                batch.error_detail = str(exc)[:2000]
-                session.commit()
-            logger.exception("Cloudflare upload batch %s failed", batch_id)
 
 
 @router.get("/{table_name}/rows", response_model=WordSourceRowsOut)
@@ -197,20 +180,21 @@ def export_word_source_rows(
             bucket = payload.cloudflare_bucket or settings.cloudflare_r2_default_bucket
             batch_id = f"r2_{__import__('uuid').uuid4().hex[:24]}"
             total = sum(1 for row in rows for key, value in row.items() if str(key).endswith("_path") and str(value or "").strip())
-            batch = CloudUploadBatch(id=batch_id, bucket=bucket, row_count=len(rows), total=total, status="running")
+            batch = CloudUploadBatch(
+                id=batch_id,
+                bucket=bucket,
+                source_rows_json=json.dumps(rows, default=str),
+                row_count=len(rows),
+                compression_quality=payload.compression_quality,
+                total=total,
+                status="queued",
+            )
             db.add(batch)
             db.commit()
-            _cloudflare_executor.submit(
-                _run_cloudflare_upload,
-                rows,
-                batch_id=batch_id,
-                bucket=bucket,
-                quality=payload.compression_quality,
-            )
             result = {
                 "batch_id": batch_id,
                 "bucket": bucket,
-                "status": "running",
+                "status": "queued",
                 "row_count": len(rows),
                 "total": total,
                 "uploaded": 0,

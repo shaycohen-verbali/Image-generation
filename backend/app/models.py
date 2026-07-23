@@ -202,7 +202,9 @@ class CloudUploadBatch(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     bucket: Mapped[str] = mapped_column(String(256), nullable=False)
+    source_rows_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    compression_quality: Mapped[int] = mapped_column(Integer, default=79, nullable=False)
     total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     uploaded: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+import json
 import logging
 import time
+
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -13,6 +16,8 @@ from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
 from app.services.task_health_monitor import TaskHealthMonitor
 from app.services.job_summary_service import JobSummaryService
+from app.models import CloudUploadBatch
+from app.services.cloudflare_upload import CloudflareUploadService
 
 # Recover stale database tasks that were orphaned by a worker crash or restart.
 # Tasks still owned by a live future must never be failed here: Python cannot
@@ -50,6 +55,55 @@ def _process_single_csv_task(task_id: str) -> None:
                 )
 
 
+def _process_cloud_upload_batch(batch_id: str) -> None:
+    with SessionLocal() as db:
+        batch = db.get(CloudUploadBatch, batch_id)
+        if batch is None:
+            return
+        try:
+            rows = json.loads(batch.source_rows_json or "[]")
+        except (TypeError, ValueError) as exc:
+            batch.status = "failed"
+            batch.error_detail = f"Saved upload selection is invalid: {exc}"[:2000]
+            db.commit()
+            return
+        if not isinstance(rows, list) or not rows:
+            batch.status = "failed"
+            batch.error_detail = "This upload batch has no saved source rows. Start a new upload."
+            db.commit()
+            return
+        try:
+            CloudflareUploadService(db).upload_rows(
+                rows,
+                bucket=batch.bucket,
+                quality=batch.compression_quality,
+                batch_id=batch.id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            batch = db.get(CloudUploadBatch, batch_id)
+            if batch is not None:
+                batch.status = "failed"
+                batch.error_detail = str(exc)[:2000]
+                db.commit()
+            raise
+
+
+def _claim_next_cloud_upload_batch() -> str | None:
+    with SessionLocal() as db:
+        batch = db.scalars(
+            select(CloudUploadBatch)
+            .where(CloudUploadBatch.status.in_(("queued", "running")))
+            .order_by(CloudUploadBatch.created_at.asc())
+            .limit(1)
+        ).first()
+        if batch is None:
+            return None
+        batch.status = "running"
+        db.commit()
+        return batch.id
+
+
 def _claim_budget(active_count: int, target_parallelism: int) -> int:
     available = max(0, int(target_parallelism) - int(active_count))
     if available <= 0:
@@ -65,6 +119,7 @@ def run_worker() -> None:
     logger.info("worker started")
     active_runs: dict[Future, str] = {}
     active_csv_tasks: dict[Future, str] = {}
+    active_cloud_uploads: dict[Future, str] = {}
     idle_poll_seconds = settings.worker_poll_seconds or 2.0
     error_backoff_seconds = idle_poll_seconds
     task_health_monitor = TaskHealthMonitor(
@@ -115,8 +170,28 @@ def run_worker() -> None:
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("csv task execution failed", extra={"csv_task_id": task_id, "error": str(exc)})
 
+                done_uploads = [future for future in active_cloud_uploads if future.done()]
+                for future in done_uploads:
+                    batch_id = active_cloud_uploads.pop(future)
+                    try:
+                        future.result()
+                        logger.info("cloud upload batch finished", extra={"cloud_upload_batch_id": batch_id})
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("cloud upload batch failed", extra={"cloud_upload_batch_id": batch_id, "error": str(exc)})
+
                 claimed_count = 0
-                active_total = len(active_runs) + len(active_csv_tasks)
+                active_total = len(active_runs) + len(active_csv_tasks) + len(active_cloud_uploads)
+                # Cloudflare exports are user-triggered and should not wait
+                # behind the normal CSV generation queue.
+                if not active_cloud_uploads and active_total < max_parallel_runs:
+                    batch_id = _claim_next_cloud_upload_batch()
+                    if batch_id is not None:
+                        claimed_count += 1
+                        logger.info("cloud upload batch claimed", extra={"cloud_upload_batch_id": batch_id})
+                        future = executor.submit(_process_cloud_upload_batch, batch_id)
+                        active_cloud_uploads[future] = batch_id
+                        active_total += 1
+
                 for _ in range(_claim_budget(active_total, max_parallel_runs)):
                     with SessionLocal() as db:
                         repo = Repository(db)
@@ -161,7 +236,7 @@ def run_worker() -> None:
 
                 if claimed_count and active_total < max_parallel_runs:
                     time.sleep(WORKER_CLAIM_SETTLE_SECONDS)
-                elif not claimed_count and not active_runs and not active_csv_tasks:
+                elif not claimed_count and not active_runs and not active_csv_tasks and not active_cloud_uploads:
                     time.sleep(poll_seconds)
                 elif not claimed_count:
                     time.sleep(0.25)
