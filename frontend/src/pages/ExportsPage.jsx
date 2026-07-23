@@ -310,7 +310,7 @@ export default function ExportsPage() {
         })
         if (inventoryDestination === 'cloudflare') {
           setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
-          setMessage(`Cloudflare upload queued: ${result.total} images will be processed in the background`)
+          setMessage(`Cloudflare upload queued: ${result.row_count} selected rows contain ${result.total} images; processing is running in the background`)
           for (let attempt = 0; attempt < 120; attempt += 1) {
             await new Promise((resolve) => window.setTimeout(resolve, 3000))
             const status = await getCloudflareUploadStatus(result.batch_id)
@@ -617,6 +617,7 @@ export default function ExportsPage() {
               <>
                 <p className="config-help-text"><strong>Upload batch:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>
                 <p className="config-help-text"><strong>Bucket:</strong> {preparedExport.bucket}</p>
+                <p className="config-help-text"><strong>Selected rows:</strong> {preparedExport.row_count} · <strong>Images:</strong> {preparedExport.total}</p>
                 <p className="config-help-text"><strong>Uploaded:</strong> {preparedExport.uploaded} · <strong>Skipped:</strong> {preparedExport.skipped} · <strong>Failed:</strong> {preparedExport.failed}</p>
                 {preparedExport.error_detail ? <p className="config-help-text"><strong>Error:</strong> {preparedExport.error_detail}</p> : null}
                 <button type="button" onClick={() => triggerDownload(preparedExport.report_url)}>Download upload history CSV</button>

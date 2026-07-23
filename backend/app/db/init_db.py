@@ -73,6 +73,7 @@ def init_db() -> None:
     _ensure_entry_columns()
     _ensure_run_columns()
     _ensure_csv_job_item_columns()
+    _ensure_cloud_upload_columns()
     _ensure_runtime_config_columns()
     settings = get_settings()
     with SessionLocal() as db:
@@ -459,5 +460,17 @@ def _ensure_csv_job_item_columns() -> None:
                 conn.execute(text("ALTER TABLE csv_job_items ADD COLUMN base_soften_asset_id TEXT"))
 
 
+def _ensure_cloud_upload_columns() -> None:
+    """Add fields introduced after the initial Cloudflare batch table."""
+    with engine.begin() as conn:
+        if str(engine.url).startswith("sqlite"):
+            rows = conn.execute(text("PRAGMA table_info(cloud_upload_batches)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "row_count" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0"))
+        else:
+            existing = _postgres_existing_columns(conn, "cloud_upload_batches")
+            if "row_count" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0"))
 if __name__ == "__main__":
     init_db()

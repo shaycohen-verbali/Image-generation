@@ -87,13 +87,13 @@ class CloudflareUploadService:
         if allowed and selected_bucket not in allowed:
             raise ValueError("That Cloudflare R2 bucket is not configured")
         compression_quality = max(1, min(100, int(quality or settings.cloudflare_r2_compression_quality)))
-        client = self._client()
         batch_id = batch_id or f"r2_{uuid.uuid4().hex[:24]}"
-        prefix = str(settings.cloudflare_r2_key_prefix or "word_inventory").strip().strip("/")
         batch = self.db.get(CloudUploadBatch, batch_id)
         if batch is not None:
             batch.status = "running"
             self.db.commit()
+        client = self._client()
+        prefix = str(settings.cloudflare_r2_key_prefix or "word_inventory").strip().strip("/")
         summary = {"batch_id": batch_id, "bucket": selected_bucket, "status": "running", "total": 0, "uploaded": 0, "skipped": 0, "failed": 0, "report_url": f"/api/v1/word-sources/cloud-uploads/{batch_id}/report.csv"}
 
         for row in rows:

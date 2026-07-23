@@ -77,6 +77,7 @@ def cloudflare_upload_status(batch_id: str, db: Session = Depends(db_dependency)
         batch_id=batch.id,
         bucket=batch.bucket,
         status=batch.status,
+        row_count=batch.row_count,
         total=batch.total,
         uploaded=batch.uploaded,
         skipped=batch.skipped,
@@ -192,7 +193,7 @@ def export_word_source_rows(
             bucket = payload.cloudflare_bucket or settings.cloudflare_r2_default_bucket
             batch_id = f"r2_{__import__('uuid').uuid4().hex[:24]}"
             total = sum(1 for row in rows for key, value in row.items() if str(key).endswith("_path") and str(value or "").strip())
-            batch = CloudUploadBatch(id=batch_id, bucket=bucket, total=total, status="queued")
+            batch = CloudUploadBatch(id=batch_id, bucket=bucket, row_count=len(rows), total=total, status="queued")
             db.add(batch)
             db.commit()
             background_tasks.add_task(_run_cloudflare_upload, rows, batch_id=batch_id, bucket=bucket, quality=payload.compression_quality)
@@ -200,6 +201,7 @@ def export_word_source_rows(
                 "batch_id": batch_id,
                 "bucket": bucket,
                 "status": "queued",
+                "row_count": len(rows),
                 "total": total,
                 "uploaded": 0,
                 "skipped": 0,

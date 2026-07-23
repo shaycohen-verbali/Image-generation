@@ -352,6 +352,7 @@ class CloudflareUploadResponse(BaseModel):
     batch_id: str
     bucket: str
     status: str = "queued"
+    row_count: int = 0
     total: int
     uploaded: int
     skipped: int
