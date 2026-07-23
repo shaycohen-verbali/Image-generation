@@ -35,6 +35,7 @@ class CloudflareUploadService:
             raise RuntimeError("Cloudflare R2 is not configured. Add the R2 endpoint, access key ID, and secret access key to Render.")
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - dependency is installed in deployment
             raise RuntimeError("Cloudflare upload support is missing boto3") from exc
         return boto3.client(
@@ -43,6 +44,11 @@ class CloudflareUploadService:
             region_name="auto",
             aws_access_key_id=settings.cloudflare_r2_access_key_id,
             aws_secret_access_key=settings.cloudflare_r2_secret_access_key,
+            config=Config(
+                connect_timeout=10,
+                read_timeout=30,
+                retries={"max_attempts": 2, "mode": "standard"},
+            ),
         )
 
     @staticmethod
@@ -96,6 +102,25 @@ class CloudflareUploadService:
         prefix = str(settings.cloudflare_r2_key_prefix or "word_inventory").strip().strip("/")
         summary = {"batch_id": batch_id, "bucket": selected_bucket, "status": "running", "total": 0, "uploaded": 0, "skipped": 0, "failed": 0, "report_url": f"/api/v1/word-sources/cloud-uploads/{batch_id}/report.csv"}
 
+        def save_progress() -> None:
+            if batch is None:
+                return
+            batch.total = summary["total"]
+            batch.uploaded = summary["uploaded"]
+            batch.skipped = summary["skipped"]
+            batch.failed = summary["failed"]
+            self.db.commit()
+
+        # Publish the complete workload before network work starts, then
+        # persist each result so polling shows genuine forward progress.
+        summary["total"] = sum(
+            1
+            for row in rows
+            for field_name, source_path in row.items()
+            if str(field_name).endswith("_path") and str(source_path or "").strip()
+        )
+        save_progress()
+
         for row in rows:
             row_id = str(row.get("_word_source_row_id") or row.get("id") or "")
             sense_id = str(row.get("_word_source_sense_id") or row.get("sense_id") or row_id or "unknown")
@@ -104,45 +129,18 @@ class CloudflareUploadService:
             for field_name, source_path in row.items():
                 if not str(field_name).endswith("_path") or not str(source_path or "").strip():
                     continue
-                summary["total"] += 1
                 variant = self._variant(str(field_name))
                 filename = self._filename(str(source_path))
                 object_key = f"{prefix}/{sense_id}/{variant}/{filename}"
                 existing = self.db.scalar(select(CloudUpload).where(CloudUpload.bucket == selected_bucket, CloudUpload.object_key == object_key))
                 if existing and existing.status == "uploaded":
                     summary["skipped"] += 1
+                    save_progress()
                     continue
-                if existing is None:
-                    try:
-                        client.head_object(Bucket=selected_bucket, Key=object_key)
-                    except Exception as exc:
-                        code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
-                        # Some R2 tokens allow writes but deny HEAD/metadata
-                        # reads. The existence check is only an optimization;
-                        # still attempt the upload and let PutObject enforce
-                        # the token's actual write permission.
-                        if code not in {"403", "Forbidden", "404", "NoSuchKey", "NotFound"}:
-                            raise
-                    else:
-                        existing = CloudUpload(
-                            batch_id=batch_id,
-                            source_table=str(row.get("_word_source_table") or "word_inventory"),
-                            source_row_id=row_id,
-                            word=word,
-                            part_of_speech=pos,
-                            sense_id=sense_id,
-                            variant=variant,
-                            source_path=str(source_path),
-                            original_filename=filename,
-                            bucket=selected_bucket,
-                            object_key=object_key,
-                            status="skipped",
-                            compression_quality=compression_quality,
-                        )
-                        self.db.add(existing)
-                        self.db.commit()
-                        summary["skipped"] += 1
-                        continue
+                # Do not probe R2 with HeadObject. Cloudflare credentials can
+                # permit PutObject while denying HEAD, and that probe previously
+                # stalled entire batches before image one. The durable upload
+                # ledger provides duplicate detection.
                 ledger = existing or CloudUpload(
                     batch_id=batch_id,
                     source_table=str(row.get("_word_source_table") or "word_inventory"),
@@ -161,7 +159,7 @@ class CloudflareUploadService:
                 ledger.status = "uploading"
                 ledger.error_detail = ""
                 self.db.add(ledger)
-                self.db.commit()
+                save_progress()
                 try:
                     original = materialize_path(str(source_path), cache_namespace="cloudflare_uploads").read_bytes()
                     compressed = self._compress(original, compression_quality)
@@ -182,7 +180,7 @@ class CloudflareUploadService:
                     ledger.status = "failed"
                     ledger.error_detail = str(exc)[:2000]
                     summary["failed"] += 1
-                self.db.commit()
+                save_progress()
         if batch is not None:
             batch.total = summary["total"]
             batch.uploaded = summary["uploaded"]
