@@ -197,6 +197,21 @@ class CloudUpload(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class CloudUploadBatch(Base):
+    __tablename__ = "cloud_upload_batches"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    bucket: Mapped[str] = mapped_column(String(256), nullable=False)
+    total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    uploaded: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
+    error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class CsvJob(Base):
     __tablename__ = "csv_jobs"
 

@@ -351,6 +351,7 @@ class WordSourceExportRequest(BaseModel):
 class CloudflareUploadResponse(BaseModel):
     batch_id: str
     bucket: str
+    status: str = "queued"
     total: int
     uploaded: int
     skipped: int

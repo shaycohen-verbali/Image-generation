@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import CloudUpload
+from app.models import CloudUpload, CloudUploadBatch
 from app.services.storage import materialize_path
 
 
@@ -78,7 +78,7 @@ class CloudflareUploadService:
             image.save(output, format="JPEG", quality=max(1, min(100, int(quality))), optimize=True, progressive=True)
             return output.getvalue()
 
-    def upload_rows(self, rows: list[dict[str, Any]], *, bucket: str, quality: int | None = None) -> dict[str, Any]:
+    def upload_rows(self, rows: list[dict[str, Any]], *, bucket: str, quality: int | None = None, batch_id: str | None = None) -> dict[str, Any]:
         settings = get_settings()
         allowed = configured_buckets()
         selected_bucket = str(bucket or settings.cloudflare_r2_default_bucket or "").strip()
@@ -88,9 +88,13 @@ class CloudflareUploadService:
             raise ValueError("That Cloudflare R2 bucket is not configured")
         compression_quality = max(1, min(100, int(quality or settings.cloudflare_r2_compression_quality)))
         client = self._client()
-        batch_id = f"r2_{uuid.uuid4().hex[:24]}"
+        batch_id = batch_id or f"r2_{uuid.uuid4().hex[:24]}"
         prefix = str(settings.cloudflare_r2_key_prefix or "word_inventory").strip().strip("/")
-        summary = {"batch_id": batch_id, "bucket": selected_bucket, "total": 0, "uploaded": 0, "skipped": 0, "failed": 0, "report_url": f"/api/v1/word-sources/cloud-uploads/{batch_id}/report.csv"}
+        batch = self.db.get(CloudUploadBatch, batch_id)
+        if batch is not None:
+            batch.status = "running"
+            self.db.commit()
+        summary = {"batch_id": batch_id, "bucket": selected_bucket, "status": "running", "total": 0, "uploaded": 0, "skipped": 0, "failed": 0, "report_url": f"/api/v1/word-sources/cloud-uploads/{batch_id}/report.csv"}
 
         for row in rows:
             row_id = str(row.get("_word_source_row_id") or row.get("id") or "")
@@ -175,4 +179,12 @@ class CloudflareUploadService:
                     ledger.error_detail = str(exc)[:2000]
                     summary["failed"] += 1
                 self.db.commit()
+        if batch is not None:
+            batch.total = summary["total"]
+            batch.uploaded = summary["uploaded"]
+            batch.skipped = summary["skipped"]
+            batch.failed = summary["failed"]
+            batch.status = "completed" if not summary["failed"] else "completed_with_errors"
+            self.db.commit()
+        summary["status"] = batch.status if batch is not None else "completed"
         return summary

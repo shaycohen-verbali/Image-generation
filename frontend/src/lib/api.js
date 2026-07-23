@@ -115,6 +115,10 @@ export async function getCloudflareConfig() {
   return fetchJson(`${API_BASE}/word-sources/cloudflare/config`, {}, 1)
 }
 
+export async function getCloudflareUploadStatus(batchId) {
+  return fetchJson(`${API_BASE}/word-sources/cloud-uploads/${encodeURIComponent(batchId)}`, {}, 1)
+}
+
 export async function downloadWordSourceReport(tableName, params = {}) {
   const query = new URLSearchParams()
   if (params.selection_mode) query.set('selection_mode', params.selection_mode)

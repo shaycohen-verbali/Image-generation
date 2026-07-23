@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from io import StringIO
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,8 @@ from app.schemas import (
     WordSourceOut,
     WordSourceRowsOut,
 )
-from app.models import CloudUpload
+from app.db.session import SessionLocal
+from app.models import CloudUpload, CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService, configured_buckets
 from app.services.csv_dag_service import CsvDagService
 from app.services.word_sources import WordSourceService
@@ -65,6 +66,35 @@ def cloudflare_upload_report(batch_id: str, db: Session = Depends(db_dependency)
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="cloudflare_uploads_{batch_id}.csv"'},
     )
+
+
+@router.get("/cloud-uploads/{batch_id}", response_model=CloudflareUploadResponse)
+def cloudflare_upload_status(batch_id: str, db: Session = Depends(db_dependency)) -> CloudflareUploadResponse:
+    batch = db.get(CloudUploadBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Cloudflare upload batch not found")
+    return CloudflareUploadResponse(
+        batch_id=batch.id,
+        bucket=batch.bucket,
+        status=batch.status,
+        total=batch.total,
+        uploaded=batch.uploaded,
+        skipped=batch.skipped,
+        failed=batch.failed,
+        report_url=f"/api/v1/word-sources/cloud-uploads/{batch.id}/report.csv",
+    )
+
+
+def _run_cloudflare_upload(rows: list[dict], *, batch_id: str, bucket: str, quality: int) -> None:
+    with SessionLocal() as session:
+        try:
+            CloudflareUploadService(session).upload_rows(rows, bucket=bucket, quality=quality, batch_id=batch_id)
+        except Exception as exc:  # keep background failures visible in the batch record
+            batch = session.get(CloudUploadBatch, batch_id)
+            if batch is not None:
+                batch.status = "failed"
+                batch.error_detail = str(exc)[:2000]
+                session.commit()
 
 
 @router.get("/{table_name}/rows", response_model=WordSourceRowsOut)
@@ -135,6 +165,7 @@ def import_word_source_rows(
 def export_word_source_rows(
     table_name: str,
     payload: WordSourceExportRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(db_dependency),
 ) -> CsvJobExportResponse | CloudflareUploadResponse:
     source_service = WordSourceService()
@@ -155,11 +186,25 @@ def export_word_source_rows(
 
     if payload.destination == "cloudflare":
         try:
-            result = CloudflareUploadService(db).upload_rows(
-                rows,
-                bucket=payload.cloudflare_bucket or "",
-                quality=payload.compression_quality,
-            )
+            from app.core.config import get_settings
+            settings = get_settings()
+            bucket = payload.cloudflare_bucket or settings.cloudflare_r2_default_bucket
+            batch_id = f"r2_{__import__('uuid').uuid4().hex[:24]}"
+            total = sum(1 for row in rows for key, value in row.items() if str(key).endswith("_path") and str(value or "").strip())
+            batch = CloudUploadBatch(id=batch_id, bucket=bucket, total=total, status="queued")
+            db.add(batch)
+            db.commit()
+            background_tasks.add_task(_run_cloudflare_upload, rows, batch_id=batch_id, bucket=bucket, quality=payload.compression_quality)
+            result = {
+                "batch_id": batch_id,
+                "bucket": bucket,
+                "status": "queued",
+                "total": total,
+                "uploaded": 0,
+                "skipped": 0,
+                "failed": 0,
+                "report_url": f"/api/v1/word-sources/cloud-uploads/{batch_id}/report.csv",
+            }
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { buildApiUrl, createExport, downloadWordSourceReport, exportCsvJob, exportWordSourceRows, getCloudflareConfig, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
+import { buildApiUrl, createExport, downloadWordSourceReport, exportCsvJob, exportWordSourceRows, getCloudflareConfig, getCloudflareUploadStatus, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
 
 const LEGACY_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -310,7 +310,16 @@ export default function ExportsPage() {
         })
         if (inventoryDestination === 'cloudflare') {
           setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
-          setMessage(`Cloudflare upload finished: ${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed`)
+          setMessage(`Cloudflare upload queued: ${result.total} images will be processed in the background`)
+          for (let attempt = 0; attempt < 120; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 3000))
+            const status = await getCloudflareUploadStatus(result.batch_id)
+            setPreparedExport((current) => current ? { ...current, ...status } : current)
+            if (status.status === 'completed' || status.status === 'completed_with_errors' || status.status === 'failed') {
+              setMessage(`Cloudflare upload ${status.status}: ${status.uploaded} uploaded, ${status.skipped} skipped, ${status.failed} failed`)
+              break
+            }
+          }
           return
         }
         setPreparedExport({
