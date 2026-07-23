@@ -117,7 +117,11 @@ class CloudflareUploadService:
                         client.head_object(Bucket=selected_bucket, Key=object_key)
                     except Exception as exc:
                         code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
-                        if code not in {"404", "NoSuchKey", "NotFound"}:
+                        # Some R2 tokens allow writes but deny HEAD/metadata
+                        # reads. The existence check is only an optimization;
+                        # still attempt the upload and let PutObject enforce
+                        # the token's actual write permission.
+                        if code not in {"403", "Forbidden", "404", "NoSuchKey", "NotFound"}:
                             raise
                     else:
                         existing = CloudUpload(
