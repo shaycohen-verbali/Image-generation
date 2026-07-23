@@ -316,7 +316,7 @@ export default function ExportsPage() {
             const status = await getCloudflareUploadStatus(result.batch_id)
             setPreparedExport((current) => current ? { ...current, ...status } : current)
             if (status.status === 'completed' || status.status === 'completed_with_errors' || status.status === 'failed') {
-              setMessage(`Cloudflare upload ${status.status}: ${status.uploaded} uploaded, ${status.skipped} skipped, ${status.failed} failed`)
+              setMessage(`Cloudflare upload ${status.status}: ${status.uploaded} uploaded, ${status.skipped} skipped, ${status.failed} failed${status.error_detail ? ` — ${status.error_detail}` : ''}`)
               break
             }
           }
@@ -618,6 +618,7 @@ export default function ExportsPage() {
                 <p className="config-help-text"><strong>Upload batch:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>
                 <p className="config-help-text"><strong>Bucket:</strong> {preparedExport.bucket}</p>
                 <p className="config-help-text"><strong>Uploaded:</strong> {preparedExport.uploaded} · <strong>Skipped:</strong> {preparedExport.skipped} · <strong>Failed:</strong> {preparedExport.failed}</p>
+                {preparedExport.error_detail ? <p className="config-help-text"><strong>Error:</strong> {preparedExport.error_detail}</p> : null}
                 <button type="button" onClick={() => triggerDownload(preparedExport.report_url)}>Download upload history CSV</button>
               </>
             ) : preparedExport.kind === 'csv_job' || preparedExport.kind === 'inventory' ? (

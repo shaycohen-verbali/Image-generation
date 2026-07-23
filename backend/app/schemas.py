@@ -356,6 +356,7 @@ class CloudflareUploadResponse(BaseModel):
     uploaded: int
     skipped: int
     failed: int
+    error_detail: str = ""
     report_url: str
 
 

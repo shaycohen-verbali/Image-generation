@@ -81,6 +81,7 @@ def cloudflare_upload_status(batch_id: str, db: Session = Depends(db_dependency)
         uploaded=batch.uploaded,
         skipped=batch.skipped,
         failed=batch.failed,
+        error_detail=batch.error_detail,
         report_url=f"/api/v1/word-sources/cloud-uploads/{batch.id}/report.csv",
     )
 
