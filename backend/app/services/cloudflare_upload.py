@@ -160,6 +160,7 @@ class CloudflareUploadService:
                 ledger.error_detail = ""
                 self.db.add(ledger)
                 save_progress()
+                authentication_error = False
                 try:
                     original = materialize_path(str(source_path), cache_namespace="cloudflare_uploads").read_bytes()
                     compressed = self._compress(original, compression_quality)
@@ -178,9 +179,21 @@ class CloudflareUploadService:
                     summary["uploaded"] += 1
                 except Exception as exc:  # keep the batch moving when one source path is bad
                     ledger.status = "failed"
-                    ledger.error_detail = str(exc)[:2000]
+                    error_detail = str(exc)[:2000]
+                    ledger.error_detail = error_detail
                     summary["failed"] += 1
+                    if batch is not None and not batch.error_detail:
+                        batch.error_detail = error_detail
+                    error_code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+                    authentication_error = error_code in {
+                        "AccessDenied",
+                        "InvalidAccessKeyId",
+                        "InvalidToken",
+                        "SignatureDoesNotMatch",
+                    }
                 save_progress()
+                if authentication_error:
+                    raise RuntimeError(ledger.error_detail)
         if batch is not None:
             batch.total = summary["total"]
             batch.uploaded = summary["uploaded"]
