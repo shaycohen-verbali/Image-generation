@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { buildApiUrl, createExport, exportCsvJob, exportWordSourceRows, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
+import { buildApiUrl, createExport, downloadWordSourceReport, exportCsvJob, exportWordSourceRows, getCloudflareConfig, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
 
 const LEGACY_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -173,6 +173,10 @@ export default function ExportsPage() {
   const [inventoryRows, setInventoryRows] = useState([])
   const [selectedInventoryRowId, setSelectedInventoryRowId] = useState('')
   const [inventoryLoading, setInventoryLoading] = useState(false)
+  const [inventoryDestination, setInventoryDestination] = useState('zip')
+  const [cloudflareBuckets, setCloudflareBuckets] = useState([])
+  const [cloudflareBucket, setCloudflareBucket] = useState('matalkimages')
+  const [cloudflareQuality, setCloudflareQuality] = useState(79)
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -216,6 +220,11 @@ export default function ExportsPage() {
 
   useEffect(() => {
     refreshData()
+    getCloudflareConfig().then((config) => {
+      setCloudflareBuckets(config.buckets || [])
+      setCloudflareBucket(config.default_bucket || config.buckets?.[0] || 'matalkimages')
+      setCloudflareQuality(config.compression_quality || 79)
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -246,7 +255,7 @@ export default function ExportsPage() {
   }
 
   const create = async () => {
-    setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : sourceMode === 'word_inventory' ? 'Fetching selected Supabase data and images, then building the ZIP...' : 'Preparing legacy export package...')
+    setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Fetching selected Supabase data, compressing images, and uploading to Cloudflare...' : 'Fetching selected Supabase data and images, then building the ZIP...') : 'Preparing legacy export package...')
     try {
       if (sourceMode === 'csv_job') {
         if (!selectedCsvJobId) {
@@ -295,7 +304,15 @@ export default function ExportsPage() {
           range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined,
           range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined,
           export_fields: csvExportFieldsFromSelection(csvExportOptions),
+          destination: inventoryDestination,
+          cloudflare_bucket: inventoryDestination === 'cloudflare' ? cloudflareBucket : undefined,
+          compression_quality: Number(cloudflareQuality),
         })
+        if (inventoryDestination === 'cloudflare') {
+          setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
+          setMessage(`Cloudflare upload finished: ${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed`)
+          return
+        }
         setPreparedExport({
           kind: 'inventory',
           id: result.job_id,
@@ -467,15 +484,37 @@ export default function ExportsPage() {
                 </div>
               ) : null}
               <div>
-                <p className="config-help-text">This fetches the selected rows and images from Supabase. Large ranges download every selected image before the ZIP is ready; ranges start at 100 words to avoid accidental long exports.</p>
-                <div className="form-grid">
-                  <label>Age<select value={selectedCsvExportAge} onChange={(e) => setSelectedCsvExportAge(e.target.value)}>{CSV_JOB_AGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label>Gender<select value={selectedCsvExportGender} onChange={(e) => setSelectedCsvExportGender(e.target.value)}>{CSV_JOB_GENDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label>Race<select value={selectedCsvExportRace} onChange={(e) => setSelectedCsvExportRace(e.target.value)}>{CSV_JOB_RACE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                </div>
+                <label>
+                  Destination
+                  <select value={inventoryDestination} onChange={(e) => setInventoryDestination(e.target.value)}>
+                    <option value="zip">Download ZIP package</option>
+                    <option value="cloudflare">Upload images to Cloudflare R2</option>
+                  </select>
+                </label>
+                {inventoryDestination === 'cloudflare' ? (
+                  <>
+                    <div className="form-grid">
+                      <label>Cloudflare bucket<select value={cloudflareBucket} onChange={(e) => setCloudflareBucket(e.target.value)}>{cloudflareBuckets.length ? cloudflareBuckets.map((bucket) => <option key={bucket} value={bucket}>{bucket}</option>) : <option value="matalkimages">matalkimages</option>}</select></label>
+                      <label>JPEG quality<input type="number" min="1" max="100" value={cloudflareQuality} onChange={(e) => setCloudflareQuality(Math.max(1, Math.min(100, Number(e.target.value) || 79)))} /></label>
+                    </div>
+                    <p className="config-help-text">Every non-empty image variant for the selected words is uploaded: all ages, genders, skin colors, regular images, and white-background images. Prompts and text files are not uploaded. Images are compressed on Render immediately before upload.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="config-help-text">This fetches the selected rows and images from Supabase. Large ranges download every selected image before the ZIP is ready; ranges start at 100 words to avoid accidental long exports.</p>
+                    <div className="form-grid">
+                      <label>Age<select value={selectedCsvExportAge} onChange={(e) => setSelectedCsvExportAge(e.target.value)}>{CSV_JOB_AGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                      <label>Gender<select value={selectedCsvExportGender} onChange={(e) => setSelectedCsvExportGender(e.target.value)}>{CSV_JOB_GENDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                      <label>Race<select value={selectedCsvExportRace} onChange={(e) => setSelectedCsvExportRace(e.target.value)}>{CSV_JOB_RACE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                    </div>
+                    <div className="inline-fields">
+                      <label><input type="checkbox" checked={includeCsvExportPrompt} onChange={(e) => setIncludeCsvExportPrompt(e.target.checked)} /> Include prompt</label>
+                      <label><input type="checkbox" checked={includeCsvExportWhiteBackground} onChange={(e) => setIncludeCsvExportWhiteBackground(e.target.checked)} /> Include white background images</label>
+                    </div>
+                  </>
+                )}
                 <div className="inline-fields">
-                  <label><input type="checkbox" checked={includeCsvExportPrompt} onChange={(e) => setIncludeCsvExportPrompt(e.target.checked)} /> Include prompt</label>
-                  <label><input type="checkbox" checked={includeCsvExportWhiteBackground} onChange={(e) => setIncludeCsvExportWhiteBackground(e.target.checked)} /> Include white background images</label>
+                  <button type="button" className="button-secondary" onClick={async () => triggerDownload(await downloadWordSourceReport('word_inventory', { selection_mode: inventorySelectionMode, row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined, range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined, range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined }))}>Download CSV report</button>
                 </div>
               </div>
             </>
@@ -553,7 +592,7 @@ export default function ExportsPage() {
 
         <div className="inline-fields">
           <button onClick={create}>
-            {sourceMode === 'csv_job' ? 'Download CSV Job Package' : sourceMode === 'word_inventory' ? 'Download word_inventory Package' : 'Create And Download Export'}
+            {sourceMode === 'csv_job' ? 'Download CSV Job Package' : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images to Cloudflare' : 'Download word_inventory Package') : 'Create And Download Export'}
           </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
         </div>
@@ -565,7 +604,14 @@ export default function ExportsPage() {
 
         {preparedExport ? (
           <div className="form-grid">
-            {preparedExport.kind === 'csv_job' || preparedExport.kind === 'inventory' ? (
+            {preparedExport.kind === 'cloudflare' ? (
+              <>
+                <p className="config-help-text"><strong>Upload batch:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>
+                <p className="config-help-text"><strong>Bucket:</strong> {preparedExport.bucket}</p>
+                <p className="config-help-text"><strong>Uploaded:</strong> {preparedExport.uploaded} · <strong>Skipped:</strong> {preparedExport.skipped} · <strong>Failed:</strong> {preparedExport.failed}</p>
+                <button type="button" onClick={() => triggerDownload(preparedExport.report_url)}>Download upload history CSV</button>
+              </>
+            ) : preparedExport.kind === 'csv_job' || preparedExport.kind === 'inventory' ? (
               <>
                 <p className="config-help-text"><strong>{preparedExport.kind === 'inventory' ? 'Export job number' : 'CSV job number'}:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.id}</span></p>
                 <p className="config-help-text"><strong>Batch number:</strong> <span style={{ wordBreak: 'break-all' }}>{preparedExport.batch_id}</span></p>

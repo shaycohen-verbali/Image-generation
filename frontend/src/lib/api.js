@@ -111,6 +111,19 @@ export async function exportWordSourceRows(tableName, payload) {
   return parseResponse(response)
 }
 
+export async function getCloudflareConfig() {
+  return fetchJson(`${API_BASE}/word-sources/cloudflare/config`, {}, 1)
+}
+
+export async function downloadWordSourceReport(tableName, params = {}) {
+  const query = new URLSearchParams()
+  if (params.selection_mode) query.set('selection_mode', params.selection_mode)
+  if (params.row_id) query.set('row_id', params.row_id)
+  if (params.range_start) query.set('range_start', String(params.range_start))
+  if (params.range_end) query.set('range_end', String(params.range_end))
+  return `${API_BASE}/word-sources/${encodeURIComponent(tableName)}/report.csv?${query.toString()}`
+}
+
 export async function listCsvJobs() {
   return fetchJson(`${API_BASE}/csv-jobs`, {}, 2)
 }

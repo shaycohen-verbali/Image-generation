@@ -343,6 +343,19 @@ class WordSourceExportRequest(BaseModel):
     range_start: int | None = Field(default=None, ge=1)
     range_end: int | None = Field(default=None, ge=1, le=100_000)
     export_fields: list[str] | None = None
+    destination: Literal["zip", "cloudflare"] = "zip"
+    cloudflare_bucket: str | None = None
+    compression_quality: int = Field(default=79, ge=1, le=100)
+
+
+class CloudflareUploadResponse(BaseModel):
+    batch_id: str
+    bucket: str
+    total: int
+    uploaded: int
+    skipped: int
+    failed: int
+    report_url: str
 
 
 class CsvJobOut(BaseModel):

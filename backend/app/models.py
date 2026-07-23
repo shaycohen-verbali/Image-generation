@@ -168,6 +168,35 @@ class Export(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class CloudUpload(Base):
+    __tablename__ = "cloud_uploads"
+    __table_args__ = (
+        UniqueConstraint("bucket", "object_key", name="uq_cloud_upload_bucket_object"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"upl_{uuid.uuid4().hex[:24]}")
+    batch_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    source_table: Mapped[str] = mapped_column(String(128), default="word_inventory", nullable=False, index=True)
+    source_row_id: Mapped[str] = mapped_column(String(256), default="", nullable=False, index=True)
+    word: Mapped[str] = mapped_column(String(256), default="", nullable=False, index=True)
+    part_of_speech: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    sense_id: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    variant: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    source_path: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    bucket: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    object_key: Mapped[str] = mapped_column(String(2048), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    original_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compressed_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    compression_quality: Mapped[int] = mapped_column(Integer, default=79, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    compressed_sha256: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class CsvJob(Base):
     __tablename__ = "csv_jobs"
 

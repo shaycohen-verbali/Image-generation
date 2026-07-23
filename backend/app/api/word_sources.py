@@ -1,17 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import csv
+from io import StringIO
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import db_dependency
 from app.schemas import (
     CsvJobImportResponse,
     CsvJobExportResponse,
+    CloudflareUploadResponse,
     WordSourceExportRequest,
     WordSourceImportRequest,
     WordSourceOut,
     WordSourceRowsOut,
 )
+from app.models import CloudUpload
+from app.services.cloudflare_upload import CloudflareUploadService, configured_buckets
 from app.services.csv_dag_service import CsvDagService
 from app.services.word_sources import WordSourceService
 
@@ -21,6 +28,43 @@ router = APIRouter(prefix="/api/v1/word-sources", tags=["word-sources"])
 @router.get("", response_model=list[WordSourceOut])
 def list_word_sources() -> list[WordSourceOut]:
     return [WordSourceOut(**source) for source in WordSourceService().list_sources()]
+
+
+@router.get("/cloudflare/config")
+def cloudflare_config() -> dict[str, object]:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    return {
+        "configured": bool(settings.cloudflare_r2_endpoint and settings.cloudflare_r2_access_key_id and settings.cloudflare_r2_secret_access_key),
+        "buckets": configured_buckets(),
+        "default_bucket": settings.cloudflare_r2_default_bucket,
+        "compression_quality": settings.cloudflare_r2_compression_quality,
+    }
+
+
+@router.get("/cloud-uploads/{batch_id}/report.csv")
+def cloudflare_upload_report(batch_id: str, db: Session = Depends(db_dependency)) -> Response:
+    rows = db.scalars(select(CloudUpload).where(CloudUpload.batch_id == batch_id).order_by(CloudUpload.created_at, CloudUpload.id)).all()
+    fields = [
+        "id", "batch_id", "source_table", "source_row_id", "word", "part_of_speech", "sense_id",
+        "variant", "source_path", "original_filename", "bucket", "object_key", "status",
+        "original_bytes", "compressed_bytes", "compression_quality", "source_sha256", "compressed_sha256",
+        "error_detail", "created_at", "updated_at",
+    ]
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        values = {field: getattr(row, field) for field in fields}
+        values["created_at"] = values["created_at"].isoformat() if values["created_at"] else ""
+        values["updated_at"] = values["updated_at"].isoformat() if values["updated_at"] else ""
+        writer.writerow(values)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="cloudflare_uploads_{batch_id}.csv"'},
+    )
 
 
 @router.get("/{table_name}/rows", response_model=WordSourceRowsOut)
@@ -87,12 +131,12 @@ def import_word_source_rows(
     return CsvJobImportResponse(**result)
 
 
-@router.post("/{table_name}/export", response_model=CsvJobExportResponse)
+@router.post("/{table_name}/export", response_model=CsvJobExportResponse | CloudflareUploadResponse)
 def export_word_source_rows(
     table_name: str,
     payload: WordSourceExportRequest,
     db: Session = Depends(db_dependency),
-) -> CsvJobExportResponse:
+) -> CsvJobExportResponse | CloudflareUploadResponse:
     source_service = WordSourceService()
     try:
         rows = source_service.get_export_rows(
@@ -109,6 +153,19 @@ def export_word_source_rows(
     if not rows:
         raise HTTPException(status_code=404, detail="No word_inventory rows matched this selection")
 
+    if payload.destination == "cloudflare":
+        try:
+            result = CloudflareUploadService(db).upload_rows(
+                rows,
+                bucket=payload.cloudflare_bucket or "",
+                quality=payload.compression_quality,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return CloudflareUploadResponse(**result)
+
     # An export-only job gives the existing exporter its usual manifest and
     # download lifecycle without creating runnable DAG tasks. Passing the selected
     # inventory rows directly preserves the source table unchanged.
@@ -123,3 +180,54 @@ def export_word_source_rows(
         **result,
         download_url=f"/api/v1/csv-jobs/{export_job['job_id']}/export/download",
     )
+
+
+@router.get("/{table_name}/report.csv")
+def word_source_report(
+    table_name: str,
+    selection_mode: str = Query(default="all", pattern="^(last_job|single|range|all)$"),
+    row_id: str = Query(default="", max_length=128),
+    range_start: int | None = Query(default=None, ge=1),
+    range_end: int | None = Query(default=None, ge=1, le=100_000),
+) -> Response:
+    try:
+        rows = WordSourceService().get_export_rows(
+            table_name,
+            selection_mode=selection_mode,
+            row_id=row_id,
+            range_start=range_start,
+            range_end=range_end,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not rows:
+        raise HTTPException(status_code=404, detail="No word-source rows matched this selection")
+    fields: list[str] = []
+    for row in rows:
+        for key in row:
+            if key.startswith("_") or key in fields:
+                continue
+            fields.append(key)
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: _csv_value(row.get(key)) for key in fields})
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{table_name}_{selection_mode}_report.csv"'},
+    )
+
+
+def _csv_value(value: object) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, (dict, list, tuple)):
+        import json
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
