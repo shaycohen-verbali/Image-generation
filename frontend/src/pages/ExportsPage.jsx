@@ -73,6 +73,13 @@ const CSV_JOB_EXPORT_ALL_AGES = CSV_JOB_AGE_OPTIONS.filter((item) => item.value 
 const CSV_JOB_EXPORT_ALL_GENDERS = CSV_JOB_GENDER_OPTIONS.filter((item) => item.value !== 'all').map((item) => item.value)
 const CSV_JOB_EXPORT_ALL_RACES = CSV_JOB_RACE_OPTIONS.filter((item) => item.value !== 'all').map((item) => item.value)
 
+const MATALK_TABLE_DOWNLOAD_LABELS = {
+  aac_dictionary: 'Download aac_dictionary.csv',
+  aac_image_meta: 'Download aac_image_meta.csv',
+  aac_images: 'Download aac_images.csv',
+  manifest: 'Download MaTalk manifest',
+}
+
 function formatLocalDateTime(value) {
   if (!value) return '-'
   const raw = String(value).trim()
@@ -177,6 +184,7 @@ export default function ExportsPage() {
   const [cloudflareBuckets, setCloudflareBuckets] = useState([])
   const [cloudflareBucket, setCloudflareBucket] = useState('matalkimages')
   const [cloudflareQuality, setCloudflareQuality] = useState(79)
+  const [convertToMatalkTablesFormat, setConvertToMatalkTablesFormat] = useState(false)
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -271,6 +279,7 @@ export default function ExportsPage() {
         }
         const result = await exportCsvJob(selectedCsvJobId, {
           export_fields: csvExportFieldsFromSelection(csvExportOptions),
+          convert_to_matalk_tables_format: convertToMatalkTablesFormat,
         })
         const nextPrepared = {
           kind: 'csv_job',
@@ -278,7 +287,10 @@ export default function ExportsPage() {
           batch_id: result.batch_id,
           file_name: result.file_name,
           package_download_url: result.download_url,
-          export_summary: csvExportSummary(csvExportOptions),
+          export_summary: `${csvExportSummary(csvExportOptions)}${convertToMatalkTablesFormat ? ' | MaTalk AI tables' : ''}`,
+          matalk_download_urls: result.matalk_download_urls || {},
+          matalk_row_counts: result.matalk_row_counts || {},
+          matalk_warnings: result.matalk_warnings || [],
         }
         setPreparedExport(nextPrepared)
         setMessage(`Prepared CSV job package for ${result.job_id}`)
@@ -307,6 +319,7 @@ export default function ExportsPage() {
           destination: inventoryDestination,
           cloudflare_bucket: inventoryDestination === 'cloudflare' ? cloudflareBucket : undefined,
           compression_quality: Number(cloudflareQuality),
+          convert_to_matalk_tables_format: convertToMatalkTablesFormat,
         })
         if (inventoryDestination === 'cloudflare') {
           setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
@@ -328,7 +341,10 @@ export default function ExportsPage() {
           batch_id: result.batch_id,
           file_name: result.file_name,
           package_download_url: result.download_url,
-          export_summary: `${inventorySelectionMode.replaceAll('_', ' ')} | ${csvExportSummary(csvExportOptions)}`,
+          export_summary: `${inventorySelectionMode.replaceAll('_', ' ')} | ${csvExportSummary(csvExportOptions)}${convertToMatalkTablesFormat ? ' | MaTalk AI tables' : ''}`,
+          matalk_download_urls: result.matalk_download_urls || {},
+          matalk_row_counts: result.matalk_row_counts || {},
+          matalk_warnings: result.matalk_warnings || [],
         })
         setMessage('Prepared word_inventory package')
         triggerDownload(result.download_url)
@@ -375,12 +391,35 @@ export default function ExportsPage() {
         <div className="form-grid">
           <label>
             Source
-            <select value={sourceMode} onChange={(e) => setSourceMode(e.target.value)}>
+            <select value={sourceMode} onChange={(e) => {
+              const nextSource = e.target.value
+              setSourceMode(nextSource)
+              if (nextSource === 'legacy_run') setConvertToMatalkTablesFormat(false)
+            }}>
               <option value="csv_job">CSV DAG job package</option>
               <option value="word_inventory">word_inventory</option>
               <option value="legacy_run">Legacy run bundle</option>
             </select>
           </label>
+
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <input
+                type="checkbox"
+                checked={convertToMatalkTablesFormat}
+                disabled={sourceMode === 'legacy_run' || (sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare')}
+                onChange={(e) => setConvertToMatalkTablesFormat(e.target.checked)}
+              />
+              <span>Convert to MaTalk AI tables format in Neon</span>
+            </label>
+            {sourceMode === 'legacy_run' ? (
+              <p className="config-help-text">This option needs the word inventory fields and is not available for legacy run bundles.</p>
+            ) : sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare' ? (
+              <p className="config-help-text">Choose the ZIP destination to create the MaTalk table CSV files.</p>
+            ) : (
+              <p className="config-help-text">Adds <code>aac_dictionary.csv</code>, <code>aac_image_meta.csv</code>, and <code>aac_images.csv</code> to the package. It does not write to Neon automatically.</p>
+            )}
+          </div>
 
           {sourceMode === 'csv_job' ? (
             <>
@@ -495,7 +534,11 @@ export default function ExportsPage() {
               <div>
                 <label>
                   Destination
-                  <select value={inventoryDestination} onChange={(e) => setInventoryDestination(e.target.value)}>
+                  <select value={inventoryDestination} onChange={(e) => {
+                      const nextDestination = e.target.value
+                      setInventoryDestination(nextDestination)
+                      if (nextDestination === 'cloudflare') setConvertToMatalkTablesFormat(false)
+                    }}>
                     <option value="zip">Download ZIP package</option>
                     <option value="cloudflare">Upload images to Cloudflare R2</option>
                   </select>
@@ -523,7 +566,24 @@ export default function ExportsPage() {
                   </>
                 )}
                 <div className="inline-fields">
-                  <button type="button" className="button-secondary" onClick={async () => triggerDownload(await downloadWordSourceReport('word_inventory', { selection_mode: inventorySelectionMode, row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined, range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined, range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined }))}>Download CSV report</button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={async () => {
+                      if (convertToMatalkTablesFormat) {
+                        await create()
+                        return
+                      }
+                      triggerDownload(await downloadWordSourceReport('word_inventory', {
+                        selection_mode: inventorySelectionMode,
+                        row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined,
+                        range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined,
+                        range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined,
+                      }))
+                    }}
+                  >
+                    {convertToMatalkTablesFormat ? 'Download MaTalk table CSV package' : 'Download CSV report'}
+                  </button>
                 </div>
               </div>
             </>
@@ -601,7 +661,7 @@ export default function ExportsPage() {
 
         <div className="inline-fields">
           <button onClick={create}>
-            {sourceMode === 'csv_job' ? 'Download CSV Job Package' : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images to Cloudflare' : 'Download word_inventory Package') : 'Create And Download Export'}
+            {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images to Cloudflare' : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
           </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
         </div>
@@ -635,6 +695,24 @@ export default function ExportsPage() {
                     Download Package Again
                   </button>
                 </div>
+                {Object.keys(preparedExport.matalk_download_urls || {}).length ? (
+                  <>
+                    <p className="config-help-text">
+                      MaTalk tables prepared in import order: dictionary → image metadata → images.
+                      {Object.entries(preparedExport.matalk_row_counts || {}).length ? ` Rows: ${Object.entries(preparedExport.matalk_row_counts).map(([table, count]) => `${table} ${count}`).join(', ')}.` : ''}
+                    </p>
+                    <div className="inline-fields">
+                      {Object.entries(preparedExport.matalk_download_urls).map(([key, url]) => (
+                        <button key={key} type="button" className="button-secondary" onClick={() => triggerDownload(url)}>
+                          {MATALK_TABLE_DOWNLOAD_LABELS[key] || `Download ${key}`}
+                        </button>
+                      ))}
+                    </div>
+                    {preparedExport.matalk_warnings?.length ? (
+                      <p className="config-help-text"><strong>MaTalk warnings:</strong> {preparedExport.matalk_warnings.join(' ')}</p>
+                    ) : null}
+                  </>
+                ) : null}
               </>
             ) : (
               <>

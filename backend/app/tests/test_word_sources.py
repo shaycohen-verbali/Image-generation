@@ -177,6 +177,24 @@ def test_export_rows_support_last_job_range_and_exact_word_pos(monkeypatch) -> N
     assert [row["word"] for row in ranged] == ["apple"]
 
 
+def test_matalk_export_can_include_inactive_dictionary_rows(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    inventory_metadata.create_all(bind=engine)
+    _seed_inventory_row(engine, "inv_inactive", word="quiet", sense_id="sense-inactive")
+    with engine.begin() as conn:
+        conn.execute(word_inventory.update().where(word_inventory.c.id == "inv_inactive").values(is_active=False))
+
+    import app.services.word_sources as word_sources_module
+
+    monkeypatch.setattr(word_sources_module, "inventory_engine", engine)
+    source = WordSourceService()
+
+    assert source.get_export_rows("word_inventory", selection_mode="all") == []
+    matalk_rows = source.get_export_rows("word_inventory", selection_mode="all", include_inactive=True)
+    assert len(matalk_rows) == 1
+    assert matalk_rows[0]["is_active"] is False
+
+
 def test_word_source_export_job_is_completed_without_runnable_items(db_session) -> None:
     result = CsvDagService(db_session).create_word_source_export_job(table_name="word_inventory")
     job = CsvDagService(db_session).repo.get_csv_job(result["job_id"])

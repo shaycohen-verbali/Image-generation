@@ -346,6 +346,7 @@ class WordSourceExportRequest(BaseModel):
     destination: Literal["zip", "cloudflare"] = "zip"
     cloudflare_bucket: str | None = None
     compression_quality: int = Field(default=79, ge=1, le=100)
+    convert_to_matalk_tables_format: bool = False
 
 
 class CloudflareUploadResponse(BaseModel):
@@ -541,6 +542,7 @@ class CsvJobInventorySyncResponse(BaseModel):
 
 class CsvJobExportRequest(BaseModel):
     export_fields: list[str] | None = None
+    convert_to_matalk_tables_format: bool = False
 
 
 class CsvJobExportResponse(BaseModel):
@@ -549,6 +551,9 @@ class CsvJobExportResponse(BaseModel):
     file_name: str
     zip_path: str
     download_url: str
+    matalk_download_urls: dict[str, str] = Field(default_factory=dict)
+    matalk_row_counts: dict[str, int] = Field(default_factory=dict)
+    matalk_warnings: list[str] = Field(default_factory=list)
 
 
 class RuntimeConfigOut(BaseModel):

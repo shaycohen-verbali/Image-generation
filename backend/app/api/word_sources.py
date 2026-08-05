@@ -26,6 +26,22 @@ from app.services.word_sources import WordSourceService
 router = APIRouter(prefix="/api/v1/word-sources", tags=["word-sources"])
 
 
+def _matalk_response_fields(job_id: str, result: dict) -> dict[str, object]:
+    matalk = result.get("matalk") or {}
+    if not matalk.get("enabled"):
+        return {}
+    return {
+        "matalk_download_urls": {
+            "aac_dictionary": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/aac_dictionary",
+            "aac_image_meta": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/aac_image_meta",
+            "aac_images": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/aac_images",
+            "manifest": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/manifest",
+        },
+        "matalk_row_counts": matalk.get("row_counts") or {},
+        "matalk_warnings": matalk.get("warnings") or [],
+    }
+
+
 @router.get("", response_model=list[WordSourceOut])
 def list_word_sources() -> list[WordSourceOut]:
     return [WordSourceOut(**source) for source in WordSourceService().list_sources()]
@@ -165,6 +181,7 @@ def export_word_source_rows(
             row_id=payload.row_id or "",
             range_start=payload.range_start,
             range_end=payload.range_end,
+            include_inactive=payload.convert_to_matalk_tables_format,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -172,6 +189,12 @@ def export_word_source_rows(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if not rows:
         raise HTTPException(status_code=404, detail="No word_inventory rows matched this selection")
+
+    if payload.convert_to_matalk_tables_format and payload.destination != "zip":
+        raise HTTPException(
+            status_code=400,
+            detail="MaTalk table conversion is available when downloading the ZIP package, not during Cloudflare upload.",
+        )
 
     if payload.destination == "cloudflare":
         try:
@@ -217,10 +240,12 @@ def export_word_source_rows(
         export_job["job_id"],
         export_fields=payload.export_fields,
         inventory_rows_override=rows,
+        convert_to_matalk_tables_format=payload.convert_to_matalk_tables_format,
     )
     return CsvJobExportResponse(
         **result,
         download_url=f"/api/v1/csv-jobs/{export_job['job_id']}/export/download",
+        **_matalk_response_fields(export_job["job_id"], result),
     )
 
 
