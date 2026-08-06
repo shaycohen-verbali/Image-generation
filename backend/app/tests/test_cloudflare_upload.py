@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+from csv import DictReader
+from io import StringIO
 
 from sqlalchemy import select
 
+from app.api.word_sources import cloudflare_upload_report
 from app.core.config import get_settings
 from app.models import CloudUpload, CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService
@@ -95,3 +98,14 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
     ).all()
     assert len(ledgers) == 2
     assert {ledger.status for ledger in ledgers} == {"uploaded"}
+    assert {ledger.destination_url for ledger in ledgers} == {
+        "https://r2.example.test/matalkimages/first.jpg",
+        "https://r2.example.test/matalkimages/second.jpg",
+    }
+
+    report = cloudflare_upload_report("r2_test_parallel", db_session)
+    report_rows = list(DictReader(StringIO(report.body.decode("utf-8"))))
+    assert {row["destination_url"] for row in report_rows} == {
+        "https://r2.example.test/matalkimages/first.jpg",
+        "https://r2.example.test/matalkimages/second.jpg",
+    }

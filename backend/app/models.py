@@ -186,6 +186,7 @@ class CloudUpload(Base):
     original_filename: Mapped[str] = mapped_column(String(512), default="", nullable=False)
     bucket: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
     object_key: Mapped[str] = mapped_column(String(2048), nullable=False)
+    destination_url: Mapped[str] = mapped_column(String(4096), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
     original_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compressed_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)

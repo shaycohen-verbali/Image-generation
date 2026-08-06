@@ -105,7 +105,7 @@ def cloudflare_upload_report(batch_id: str, db: Session = Depends(db_dependency)
     rows = db.scalars(select(CloudUpload).where(CloudUpload.batch_id == batch_id).order_by(CloudUpload.created_at, CloudUpload.id)).all()
     fields = [
         "id", "batch_id", "source_table", "source_row_id", "word", "part_of_speech", "sense_id",
-        "variant", "source_path", "original_filename", "bucket", "object_key", "status",
+        "variant", "source_path", "original_filename", "bucket", "object_key", "destination_url", "status",
         "original_bytes", "compressed_bytes", "compression_quality", "source_sha256", "compressed_sha256",
         "error_detail", "created_at", "updated_at",
     ]

@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import local
 from time import monotonic
 from typing import Any
+from urllib.parse import quote
 
 from PIL import Image
 from sqlalchemy import select
@@ -22,6 +23,14 @@ from app.services.storage import materialize_path
 
 _PATH_FIELD_RE = re.compile(r"^(?P<age>[^_]+)_(?P<gender>[^_]+)_(?P<skin>[^_]+)_(?P<background>regular|white_bg)_path$")
 logger = logging.getLogger(__name__)
+
+
+def r2_destination_url(endpoint: str, bucket: str, object_key: str) -> str:
+    """Return the exact path-style URL used for the R2 PutObject request."""
+    base_url = str(endpoint or "").rstrip("/")
+    bucket_path = quote(str(bucket or ""), safe="")
+    key_path = quote(str(object_key or ""), safe="/")
+    return f"{base_url}/{bucket_path}/{key_path}"
 
 
 def configured_buckets() -> list[str]:
@@ -137,6 +146,7 @@ class CloudflareUploadService:
                 # Keep the R2 bucket flat. The object key is the filename only,
                 # so uploads land directly under the selected bucket root.
                 object_key = filename
+                destination_url = r2_destination_url(settings.cloudflare_r2_endpoint, selected_bucket, object_key)
                 upload_items.append(
                     {
                         "row_id": row_id,
@@ -148,6 +158,7 @@ class CloudflareUploadService:
                         "source_path": str(source_path),
                         "filename": filename,
                         "object_key": object_key,
+                        "destination_url": destination_url,
                     }
                 )
 
@@ -174,6 +185,8 @@ class CloudflareUploadService:
         for item in upload_items:
             object_key = item["object_key"]
             existing = existing_by_key.get(object_key)
+            if existing is not None:
+                existing.destination_url = item["destination_url"]
             if existing and existing.status == "uploaded":
                 summary["skipped"] += 1
                 continue
@@ -194,9 +207,11 @@ class CloudflareUploadService:
                 original_filename=item["filename"],
                 bucket=selected_bucket,
                 object_key=object_key,
+                destination_url=item["destination_url"],
                 compression_quality=compression_quality,
             )
             ledger.batch_id = batch_id
+            ledger.destination_url = item["destination_url"]
             ledger.status = "uploading"
             ledger.error_detail = ""
             self.db.add(ledger)

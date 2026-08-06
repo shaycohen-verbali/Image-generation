@@ -461,9 +461,13 @@ def _ensure_csv_job_item_columns() -> None:
 
 
 def _ensure_cloud_upload_columns() -> None:
-    """Add fields introduced after the initial Cloudflare batch table."""
+    """Add fields introduced after the initial Cloudflare upload tables."""
     with engine.begin() as conn:
         if str(engine.url).startswith("sqlite"):
+            upload_rows = conn.execute(text("PRAGMA table_info(cloud_uploads)")).fetchall()
+            upload_existing = {row[1] for row in upload_rows}
+            if "destination_url" not in upload_existing:
+                conn.execute(text("ALTER TABLE cloud_uploads ADD COLUMN destination_url TEXT NOT NULL DEFAULT ''"))
             rows = conn.execute(text("PRAGMA table_info(cloud_upload_batches)")).fetchall()
             existing = {row[1] for row in rows}
             if "row_count" not in existing:
@@ -475,6 +479,9 @@ def _ensure_cloud_upload_columns() -> None:
             if "matalk_enabled" not in existing:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN matalk_enabled BOOLEAN NOT NULL DEFAULT 0"))
         else:
+            upload_existing = _postgres_existing_columns(conn, "cloud_uploads")
+            if "destination_url" not in upload_existing:
+                conn.execute(text("ALTER TABLE cloud_uploads ADD COLUMN destination_url TEXT NOT NULL DEFAULT ''"))
             existing = _postgres_existing_columns(conn, "cloud_upload_batches")
             if "row_count" not in existing:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0"))
