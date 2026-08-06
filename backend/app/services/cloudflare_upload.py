@@ -3,8 +3,11 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
+from threading import local
+from time import monotonic
 from typing import Any
 
 from PIL import Image
@@ -47,6 +50,7 @@ class CloudflareUploadService:
             config=Config(
                 connect_timeout=10,
                 read_timeout=30,
+                max_pool_connections=max(2, min(32, int(settings.cloudflare_r2_upload_workers or 8))),
                 retries={"max_attempts": 2, "mode": "standard"},
             ),
         )
@@ -98,29 +102,27 @@ class CloudflareUploadService:
         if batch is not None:
             batch.status = "running"
             self.db.commit()
-        client = self._client()
         prefix = str(settings.cloudflare_r2_key_prefix or "word_inventory").strip().strip("/")
         summary = {"batch_id": batch_id, "bucket": selected_bucket, "status": "running", "total": 0, "uploaded": 0, "skipped": 0, "failed": 0, "report_url": f"/api/v1/word-sources/cloud-uploads/{batch_id}/report.csv"}
+        completed_count = 0
+        last_progress_commit = monotonic()
 
-        def save_progress() -> None:
+        def save_progress(*, force: bool = False) -> None:
+            nonlocal last_progress_commit
             if batch is None:
+                return
+            if not force and completed_count % 8 and monotonic() - last_progress_commit < 1.0:
                 return
             batch.total = summary["total"]
             batch.uploaded = summary["uploaded"]
             batch.skipped = summary["skipped"]
             batch.failed = summary["failed"]
             self.db.commit()
+            last_progress_commit = monotonic()
 
         # Publish the complete workload before network work starts, then
         # persist each result so polling shows genuine forward progress.
-        summary["total"] = sum(
-            1
-            for row in rows
-            for field_name, source_path in row.items()
-            if str(field_name).endswith("_path") and str(source_path or "").strip()
-        )
-        save_progress()
-
+        upload_items: list[dict[str, str]] = []
         for row in rows:
             row_id = str(row.get("_word_source_row_id") or row.get("id") or "")
             sense_id = str(row.get("_word_source_sense_id") or row.get("sense_id") or row_id or "unknown")
@@ -132,68 +134,147 @@ class CloudflareUploadService:
                 variant = self._variant(str(field_name))
                 filename = self._filename(str(source_path))
                 object_key = f"{prefix}/{sense_id}/{variant}/{filename}"
-                existing = self.db.scalar(select(CloudUpload).where(CloudUpload.bucket == selected_bucket, CloudUpload.object_key == object_key))
-                if existing and existing.status == "uploaded":
-                    summary["skipped"] += 1
-                    save_progress()
-                    continue
-                # Do not probe R2 with HeadObject. Cloudflare credentials can
-                # permit PutObject while denying HEAD, and that probe previously
-                # stalled entire batches before image one. The durable upload
-                # ledger provides duplicate detection.
-                ledger = existing or CloudUpload(
-                    batch_id=batch_id,
-                    source_table=str(row.get("_word_source_table") or "word_inventory"),
-                    source_row_id=row_id,
-                    word=word,
-                    part_of_speech=pos,
-                    sense_id=sense_id,
-                    variant=variant,
-                    source_path=str(source_path),
-                    original_filename=filename,
-                    bucket=selected_bucket,
-                    object_key=object_key,
-                    compression_quality=compression_quality,
+                upload_items.append(
+                    {
+                        "row_id": row_id,
+                        "source_table": str(row.get("_word_source_table") or "word_inventory"),
+                        "word": word,
+                        "pos": pos,
+                        "sense_id": sense_id,
+                        "variant": variant,
+                        "source_path": str(source_path),
+                        "filename": filename,
+                        "object_key": object_key,
+                    }
                 )
-                ledger.batch_id = batch_id
-                ledger.status = "uploading"
-                ledger.error_detail = ""
-                self.db.add(ledger)
-                save_progress()
-                authentication_error = False
-                try:
-                    original = materialize_path(str(source_path), cache_namespace="cloudflare_uploads").read_bytes()
-                    compressed = self._compress(original, compression_quality)
-                    client.put_object(
-                        Bucket=selected_bucket,
-                        Key=object_key,
-                        Body=compressed,
-                        ContentType="image/jpeg",
-                        Metadata={"word": word[:512], "part-of-speech": pos[:256], "variant": variant[:512]},
-                    )
-                    ledger.status = "uploaded"
-                    ledger.original_bytes = len(original)
-                    ledger.compressed_bytes = len(compressed)
-                    ledger.source_sha256 = hashlib.sha256(original).hexdigest()
-                    ledger.compressed_sha256 = hashlib.sha256(compressed).hexdigest()
-                    summary["uploaded"] += 1
-                except Exception as exc:  # keep the batch moving when one source path is bad
-                    ledger.status = "failed"
-                    error_detail = str(exc)[:2000]
-                    ledger.error_detail = error_detail
-                    summary["failed"] += 1
-                    if batch is not None and not batch.error_detail:
-                        batch.error_detail = error_detail
-                    error_code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
-                    authentication_error = error_code in {
+
+        summary["total"] = len(upload_items)
+        save_progress(force=True)
+
+        # Do not probe R2 with HeadObject. Cloudflare credentials can permit
+        # PutObject while denying HEAD, and that probe previously stalled entire
+        # batches before image one. Load the durable ledger once instead of
+        # issuing one database query and commit per image.
+        object_keys = list(dict.fromkeys(item["object_key"] for item in upload_items))
+        existing_by_key: dict[str, CloudUpload] = {}
+        for offset in range(0, len(object_keys), 500):
+            existing_rows = self.db.scalars(
+                select(CloudUpload).where(
+                    CloudUpload.bucket == selected_bucket,
+                    CloudUpload.object_key.in_(object_keys[offset:offset + 500]),
+                )
+            ).all()
+            existing_by_key.update({row.object_key: row for row in existing_rows})
+
+        pending_uploads: list[tuple[dict[str, str], CloudUpload]] = []
+        scheduled_object_keys: set[str] = set()
+        for item in upload_items:
+            object_key = item["object_key"]
+            existing = existing_by_key.get(object_key)
+            if existing and existing.status == "uploaded":
+                summary["skipped"] += 1
+                continue
+            if object_key in scheduled_object_keys:
+                summary["skipped"] += 1
+                continue
+            # One object key is uploaded once even if the same source path was
+            # selected through more than one duplicate inventory row.
+            ledger = existing or CloudUpload(
+                batch_id=batch_id,
+                source_table=item["source_table"],
+                source_row_id=item["row_id"],
+                word=item["word"],
+                part_of_speech=item["pos"],
+                sense_id=item["sense_id"],
+                variant=item["variant"],
+                source_path=item["source_path"],
+                original_filename=item["filename"],
+                bucket=selected_bucket,
+                object_key=object_key,
+                compression_quality=compression_quality,
+            )
+            ledger.batch_id = batch_id
+            ledger.status = "uploading"
+            ledger.error_detail = ""
+            self.db.add(ledger)
+            pending_uploads.append((item, ledger))
+            scheduled_object_keys.add(object_key)
+
+        save_progress(force=True)
+
+        # Compression and object uploads are independent per image. Keep the
+        # concurrency bounded so one export is much faster without overwhelming
+        # Render, Supabase downloads, or the R2 connection pool.
+        self._client()  # Validate credentials before starting worker threads.
+        worker_state = local()
+
+        def upload_one(item: dict[str, str]) -> dict[str, Any]:
+            try:
+                client = getattr(worker_state, "client", None)
+                if client is None:
+                    client = self._client()
+                    worker_state.client = client
+                original = materialize_path(item["source_path"], cache_namespace="cloudflare_uploads").read_bytes()
+                compressed = self._compress(original, compression_quality)
+                client.put_object(
+                    Bucket=selected_bucket,
+                    Key=item["object_key"],
+                    Body=compressed,
+                    ContentType="image/jpeg",
+                    Metadata={"word": item["word"][:512], "part-of-speech": item["pos"][:256], "variant": item["variant"][:512]},
+                )
+                return {
+                    "status": "uploaded",
+                    "original_bytes": len(original),
+                    "compressed_bytes": len(compressed),
+                    "source_sha256": hashlib.sha256(original).hexdigest(),
+                    "compressed_sha256": hashlib.sha256(compressed).hexdigest(),
+                }
+            except Exception as exc:  # keep the batch moving when one source path is bad
+                error_code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+                return {
+                    "status": "failed",
+                    "error_detail": str(exc)[:2000],
+                    "authentication_error": error_code in {
                         "AccessDenied",
                         "InvalidAccessKeyId",
                         "InvalidToken",
                         "SignatureDoesNotMatch",
-                    }
-                save_progress()
-                if authentication_error:
-                    raise RuntimeError(ledger.error_detail)
+                    },
+                }
+
+        authentication_error_detail = ""
+        upload_worker_count = max(1, min(32, int(settings.cloudflare_r2_upload_workers or 8)))
+        if pending_uploads:
+            with ThreadPoolExecutor(max_workers=min(upload_worker_count, len(pending_uploads))) as executor:
+                pending_futures = {
+                    executor.submit(upload_one, item): (item, ledger)
+                    for item, ledger in pending_uploads
+                }
+                for future in as_completed(pending_futures):
+                    item, ledger = pending_futures[future]
+                    result = future.result()
+                    completed_count += 1
+                    if result["status"] == "uploaded":
+                        ledger.status = "uploaded"
+                        ledger.original_bytes = result["original_bytes"]
+                        ledger.compressed_bytes = result["compressed_bytes"]
+                        ledger.source_sha256 = result["source_sha256"]
+                        ledger.compressed_sha256 = result["compressed_sha256"]
+                        summary["uploaded"] += 1
+                    else:
+                        ledger.status = "failed"
+                        ledger.error_detail = result["error_detail"]
+                        summary["failed"] += 1
+                        if batch is not None and not batch.error_detail:
+                            batch.error_detail = result["error_detail"]
+                        if result.get("authentication_error") and not authentication_error_detail:
+                            authentication_error_detail = result["error_detail"]
+                    save_progress()
+
+        save_progress(force=True)
+        if authentication_error_detail:
+            raise RuntimeError(authentication_error_detail)
         if batch is not None:
             batch.total = summary["total"]
             batch.uploaded = summary["uploaded"]

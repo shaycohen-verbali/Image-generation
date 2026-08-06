@@ -263,6 +263,9 @@ export default function ExportsPage() {
   }
 
   const create = async () => {
+    // Clear the previous result as soon as a new export is requested so the
+    // status card never shows stale download links while the new export runs.
+    setPreparedExport(null)
     setMessage(sourceMode === 'csv_job' ? 'Preparing CSV DAG package...' : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Fetching selected Supabase data, compressing images, and uploading to Cloudflare...' : 'Fetching selected Supabase data and images, then building the ZIP...') : 'Preparing legacy export package...')
     try {
       if (sourceMode === 'csv_job') {
@@ -325,7 +328,7 @@ export default function ExportsPage() {
           setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
           setMessage(`Cloudflare upload started: ${result.row_count} selected rows contain ${result.total} images; processing is running on Render`)
           for (let attempt = 0; attempt < 120; attempt += 1) {
-            await new Promise((resolve) => window.setTimeout(resolve, 3000))
+            await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 500 : 1000))
             const status = await getCloudflareUploadStatus(result.batch_id)
             setPreparedExport((current) => current ? { ...current, ...status } : current)
             if (status.status === 'completed' || status.status === 'completed_with_errors' || status.status === 'failed') {
@@ -548,7 +551,7 @@ export default function ExportsPage() {
                       <label>Cloudflare bucket<select value={cloudflareBucket} onChange={(e) => setCloudflareBucket(e.target.value)}>{cloudflareBuckets.length ? cloudflareBuckets.map((bucket) => <option key={bucket} value={bucket}>{bucket}</option>) : <option value="matalkimages">matalkimages</option>}</select></label>
                       <label>JPEG quality<input type="number" min="1" max="100" value={cloudflareQuality} onChange={(e) => setCloudflareQuality(Math.max(1, Math.min(100, Number(e.target.value) || 79)))} /></label>
                     </div>
-                    <p className="config-help-text">Every non-empty image variant for the selected words is uploaded: all ages, genders, skin colors, regular images, and white-background images. Prompts and text files are not uploaded. Images are compressed on Render immediately before upload. If MaTalk is checked, its CSVs are prepared after the upload so <code>image_url</code> points to the final public R2 object.</p>
+                    <p className="config-help-text">Every non-empty image variant for the selected words is uploaded: all ages, genders, skin colors, regular images, and white-background images. Prompts and text files are not uploaded. Images are compressed and uploaded in parallel on Render. If MaTalk is checked, its CSVs are prepared after the upload so <code>image_url</code> points to the final public R2 object.</p>
                   </>
                 ) : (
                   <>
@@ -569,16 +572,23 @@ export default function ExportsPage() {
                     type="button"
                     className="button-secondary"
                     onClick={async () => {
+                      setPreparedExport(null)
+                      setMessage('Preparing word_inventory CSV report...')
                       if (convertToMatalkTablesFormat) {
                         await create()
                         return
                       }
-                      triggerDownload(await downloadWordSourceReport('word_inventory', {
-                        selection_mode: inventorySelectionMode,
-                        row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined,
-                        range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined,
-                        range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined,
-                      }))
+                      try {
+                        triggerDownload(await downloadWordSourceReport('word_inventory', {
+                          selection_mode: inventorySelectionMode,
+                          row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined,
+                          range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined,
+                          range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined,
+                        }))
+                        setMessage('CSV report download started')
+                      } catch (error) {
+                        setMessage(`Error: ${error.message}`)
+                      }
                     }}
                   >
                     {convertToMatalkTablesFormat ? 'Download MaTalk table CSV package' : 'Download CSV report'}

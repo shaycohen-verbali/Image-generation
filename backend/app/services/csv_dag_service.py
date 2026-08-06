@@ -2367,8 +2367,15 @@ Debugging and backwards-compatible files are under `_metadata/`.
 
         with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(manifest_path, arcname="_metadata/manifest.json")
+            image_arc_names = {arcname for _, arcname in image_zip_members}
             for source_path, arcname in zip_members:
-                archive.write(source_path, arcname=arcname)
+                # JPEGs are already compressed. Storing them avoids spending
+                # CPU trying to deflate image bytes without changing contents.
+                archive.write(
+                    source_path,
+                    arcname=arcname,
+                    compress_type=zipfile.ZIP_STORED if arcname in image_arc_names else None,
+                )
 
         stored_zip = persist_export_artifact(job.id, zip_filename, zip_path.read_bytes(), content_type="application/zip")
         persist_export_artifact(job.id, "README.md", readme_path.read_bytes(), content_type="text/markdown")
