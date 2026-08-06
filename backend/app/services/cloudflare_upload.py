@@ -104,7 +104,6 @@ class CloudflareUploadService:
         if batch is not None:
             batch.status = "running"
             self.db.commit()
-        prefix = str(settings.cloudflare_r2_key_prefix or "word_inventory").strip().strip("/")
         summary = {"batch_id": batch_id, "bucket": selected_bucket, "status": "running", "total": 0, "uploaded": 0, "skipped": 0, "failed": 0, "report_url": f"/api/v1/word-sources/cloud-uploads/{batch_id}/report.csv"}
         completed_count = 0
         last_progress_commit = monotonic()
@@ -135,7 +134,9 @@ class CloudflareUploadService:
                     continue
                 variant = self._variant(str(field_name))
                 filename = self._filename(str(source_path))
-                object_key = f"{prefix}/{sense_id}/{variant}/{filename}"
+                # Keep the R2 bucket flat. The object key is the filename only,
+                # so uploads land directly under the selected bucket root.
+                object_key = filename
                 upload_items.append(
                     {
                         "row_id": row_id,

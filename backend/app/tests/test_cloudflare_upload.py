@@ -87,8 +87,8 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
         if record.name == "app.services.cloudflare_upload"
     )
     assert sorted(fake_client.keys) == [
-        "word_inventory/sense-first/kid/male/white/regular/first.jpg",
-        "word_inventory/sense-second/kid/male/white/regular/second.jpg",
+        "first.jpg",
+        "second.jpg",
     ]
     ledgers = db_session.scalars(
         select(CloudUpload).where(CloudUpload.batch_id == "r2_test_parallel")

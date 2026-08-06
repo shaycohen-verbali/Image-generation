@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     cloudflare_r2_secret_access_key: str = Field(default="", alias="CLOUDFLARE_R2_SECRET_ACCESS_KEY")
     cloudflare_r2_buckets: str = Field(default="matalkimages", alias="CLOUDFLARE_R2_BUCKETS")
     cloudflare_r2_default_bucket: str = Field(default="matalkimages", alias="CLOUDFLARE_R2_DEFAULT_BUCKET")
-    cloudflare_r2_key_prefix: str = Field(default="word_inventory", alias="CLOUDFLARE_R2_KEY_PREFIX")
     cloudflare_r2_compression_quality: int = Field(default=79, alias="CLOUDFLARE_R2_COMPRESSION_QUALITY")
     cloudflare_r2_upload_workers: int = Field(default=8, alias="CLOUDFLARE_R2_UPLOAD_WORKERS")
     cloudflare_r2_public_base_url: str = Field(default="", alias="CLOUDFLARE_R2_PUBLIC_BASE_URL")
