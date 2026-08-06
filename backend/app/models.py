@@ -205,6 +205,7 @@ class CloudUploadBatch(Base):
     source_rows_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     compression_quality: Mapped[int] = mapped_column(Integer, default=79, nullable=False)
+    matalk_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     uploaded: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

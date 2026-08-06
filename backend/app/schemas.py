@@ -360,6 +360,9 @@ class CloudflareUploadResponse(BaseModel):
     failed: int
     error_detail: str = ""
     report_url: str
+    matalk_download_urls: dict[str, str] = Field(default_factory=dict)
+    matalk_row_counts: dict[str, int] = Field(default_factory=dict)
+    matalk_warnings: list[str] = Field(default_factory=list)
 
 
 class CsvJobOut(BaseModel):

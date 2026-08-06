@@ -472,6 +472,8 @@ def _ensure_cloud_upload_columns() -> None:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN source_rows_json TEXT NOT NULL DEFAULT '[]'"))
             if "compression_quality" not in existing:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN compression_quality INTEGER NOT NULL DEFAULT 79"))
+            if "matalk_enabled" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN matalk_enabled BOOLEAN NOT NULL DEFAULT 0"))
         else:
             existing = _postgres_existing_columns(conn, "cloud_upload_batches")
             if "row_count" not in existing:
@@ -480,5 +482,7 @@ def _ensure_cloud_upload_columns() -> None:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN source_rows_json TEXT NOT NULL DEFAULT '[]'"))
             if "compression_quality" not in existing:
                 conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN compression_quality INTEGER NOT NULL DEFAULT 79"))
+            if "matalk_enabled" not in existing:
+                conn.execute(text("ALTER TABLE cloud_upload_batches ADD COLUMN matalk_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
 if __name__ == "__main__":
     init_db()

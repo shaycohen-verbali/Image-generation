@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import quote
 
 from sqlalchemy import select
@@ -71,6 +71,7 @@ class MatalkTables:
     dictionary_rows: tuple[dict[str, Any], ...]
     image_meta_rows: tuple[dict[str, Any], ...]
     image_rows: tuple[dict[str, Any], ...]
+    image_location: str
     warnings: tuple[str, ...]
     source_row_count: int
     skipped_source_row_count: int
@@ -163,6 +164,12 @@ def _source_sense_id(row: dict[str, Any], canonical_sense_id: str) -> str:
     return _first_value(row, "source_sense_id", "_word_source_sense_id", "sense_id") or canonical_sense_id
 
 
+def image_reference_key(row: dict[str, Any], field_name: str, source_path: str) -> tuple[str, str, str]:
+    """Build the stable key shared by the ZIP exporter and MaTalk adapter."""
+    row_key = _first_value(row, "row_index", "_word_source_row_id", "id", "sense_id", "_word_source_sense_id")
+    return row_key, str(field_name), _text(source_path)
+
+
 def _source_path_fields(rows: Iterable[dict[str, Any]], selected_fields: list[str] | None) -> list[str]:
     if selected_fields is None:
         names = {str(key) for row in rows for key in row if str(key).endswith("_path")}
@@ -186,12 +193,12 @@ def _explicit_image_url(row: dict[str, Any], field_name: str, source_path_count:
     return ""
 
 
-def _cloudflare_urls(db: Session | None, source_paths: set[str]) -> dict[str, str]:
+def _cloudflare_urls(db: Session | None, source_paths: set[str]) -> dict[tuple[str, str], str]:
     if db is None or not source_paths:
         return {}
     try:
         records = db.execute(
-            select(CloudUpload.source_path, CloudUpload.object_key)
+            select(CloudUpload.source_path, CloudUpload.object_key, CloudUpload.variant)
             .where(
                 CloudUpload.status == "uploaded",
                 CloudUpload.source_path.in_(sorted(source_paths)),
@@ -204,13 +211,22 @@ def _cloudflare_urls(db: Session | None, source_paths: set[str]) -> dict[str, st
     base_url = _text(getattr(get_settings(), "cloudflare_r2_public_base_url", "")).rstrip("/")
     if not base_url:
         return {}
-    resolved: dict[str, str] = {}
-    for source_path, object_key in records:
+    resolved: dict[tuple[str, str], str] = {}
+    for source_path, object_key, variant in records:
         source = _text(source_path)
         key = _text(object_key)
-        if source and key and source not in resolved:
-            resolved[source] = f"{base_url}/{quote(key, safe='/')}"
+        upload_variant = _text(variant)
+        if source and key and upload_variant and (source, upload_variant) not in resolved:
+            resolved[(source, upload_variant)] = f"{base_url}/{quote(key, safe='/')}"
     return resolved
+
+
+def _cloudflare_variant(field_name: str) -> str:
+    match = _PATH_FIELD_RE.match(str(field_name))
+    if match is None:
+        return ""
+    background = "white_background" if match.group("background") == "white_bg" else "regular"
+    return f"{match.group('age')}/{match.group('gender')}/{match.group('skin')}/{background}"
 
 
 def build_matalk_tables(
@@ -218,17 +234,26 @@ def build_matalk_tables(
     *,
     selected_fields: list[str] | None = None,
     db: Session | None = None,
+    image_location: str = "remote",
+    image_references: Mapping[tuple[str, str, str], str] | None = None,
 ) -> MatalkTables:
     """Translate the app's wide inventory rows into the three MaTalk tables.
 
-    The adapter intentionally does not upload images or write Neon. It only uses
-    a URL already present in the source row, an absolute HTTP URL in the path
-    column, or an uploaded Cloudflare ledger entry plus a configured public base
-    URL. Rows without a public URL are left out of ``aac_images`` and called out
-    in the manifest instead of emitting a local path that Neon cannot use.
+    ``image_location`` controls the meaning of ``aac_images.image_url``:
+
+    * ``zip`` uses the exact path of the image inside the generated ZIP.
+    * ``remote`` uses a source URL or the public URL generated from the uploaded
+      Cloudflare object key.
+
+    The adapter intentionally does not upload images or write Neon. It only
+    records the location produced by the surrounding export workflow.
     """
 
     source_rows = list(rows)
+    image_location = str(image_location or "remote").strip().lower()
+    if image_location not in {"zip", "remote"}:
+        raise ValueError("image_location must be either 'zip' or 'remote'")
+    image_references = image_references or {}
     path_fields = _source_path_fields(source_rows, selected_fields)
     source_paths = {
         _text(row.get(field_name))
@@ -326,11 +351,15 @@ def build_matalk_tables(
                     continue
                 no_person_backgrounds.add(match.group("background"))
 
-            image_url = _explicit_image_url(row, field_name, len(row_path_fields))
-            if not image_url and source_path.startswith(("http://", "https://")):
-                image_url = source_path
-            if not image_url:
-                image_url = cloudflare_urls.get(source_path, "")
+            image_url = ""
+            if image_location == "zip":
+                image_url = _text(image_references.get(image_reference_key(row, field_name, source_path)))
+            else:
+                image_url = _explicit_image_url(row, field_name, len(row_path_fields))
+                if not image_url and source_path.startswith(("http://", "https://")):
+                    image_url = source_path
+                if not image_url:
+                    image_url = cloudflare_urls.get((source_path, _cloudflare_variant(field_name)), "")
             if not image_url:
                 skipped_images += 1
                 missing_url_paths.add(source_path)
@@ -350,17 +379,25 @@ def build_matalk_tables(
             }
 
     if missing_url_paths:
-        warn_once(
-            f"Skipped {len(missing_url_paths)} image path(s) without a public URL; upload them to Cloudflare "
-            "or provide a URL before importing aac_images into Neon."
-        )
+        if image_location == "zip":
+            warn_once(
+                f"Skipped {len(missing_url_paths)} image path(s) without a ZIP-relative location; "
+                "the ZIP image index and MaTalk image table could not be linked."
+            )
+        else:
+            warn_once(
+                f"Skipped {len(missing_url_paths)} image path(s) without a public URL; upload them to Cloudflare "
+                "or provide a URL before importing aac_images into Neon."
+            )
     if source_rows and not image_by_key:
-        warn_once("No aac_images rows were exported because no selected image had a public URL.")
+        location_label = "a ZIP-relative location" if image_location == "zip" else "a public URL"
+        warn_once(f"No aac_images rows were exported because no selected image had {location_label}.")
 
     return MatalkTables(
         dictionary_rows=tuple(dictionary_by_source.values()),
         image_meta_rows=tuple(meta_by_canonical.values()),
         image_rows=tuple(image_by_key.values()),
+        image_location=image_location,
         warnings=tuple(warnings),
         source_row_count=len(source_rows),
         skipped_source_row_count=skipped_source_rows,
@@ -404,16 +441,23 @@ def write_matalk_artifacts(export_dir: Path, tables: MatalkTables) -> dict[str, 
         "warnings": list(tables.warnings),
         "array_columns_are_json_strings": ["source_fine_tune_categories", "synonyms"],
         "image_key": ["sense_id", "age", "gender", "skin", "background"],
-        "image_url_requirement": "aac_images.image_url must be a final public Cloudflare URL before Neon import.",
+        "image_reference_mode": "zip_relative_path" if tables.image_location == "zip" else "remote_url",
+        "image_url_requirement": (
+            "aac_images.image_url is relative to the ZIP root."
+            if tables.image_location == "zip"
+            else "aac_images.image_url must be a final public remote URL before Neon import."
+        ),
     }
     paths["manifest"].write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     paths["readme"].write_text(
         "# MaTalk AI tables export\n\n"
         "Import the files in this order: `aac_dictionary.csv`, `aac_image_meta.csv`, then `aac_images.csv`.\n\n"
         "The two array columns are JSON strings in the CSV and must be parsed into PostgreSQL `TEXT[]` values. "
-        "Only final public image URLs belong in `aac_images.csv`; local paths are omitted and listed in "
-        "`matalk_manifest.json`. The dictionary and metadata rows are repeat-safe when imported using the "
-        "documented upsert keys.\n",
+        + (
+            "In a ZIP export, `aac_images.image_url` is the exact image path relative to the ZIP root. "
+            "In a remote export, it is the final public URL including the remote object filename. "
+        )
+        + "The dictionary and metadata rows are repeat-safe when imported using the documented upsert keys.\n",
         encoding="utf-8",
     )
     return paths

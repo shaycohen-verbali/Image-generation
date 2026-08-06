@@ -407,7 +407,7 @@ export default function ExportsPage() {
               <input
                 type="checkbox"
                 checked={convertToMatalkTablesFormat}
-                disabled={sourceMode === 'legacy_run' || (sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare')}
+                disabled={sourceMode === 'legacy_run'}
                 onChange={(e) => setConvertToMatalkTablesFormat(e.target.checked)}
               />
               <span>Convert to MaTalk AI tables format in Neon</span>
@@ -415,7 +415,7 @@ export default function ExportsPage() {
             {sourceMode === 'legacy_run' ? (
               <p className="config-help-text">This option needs the word inventory fields and is not available for legacy run bundles.</p>
             ) : sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare' ? (
-              <p className="config-help-text">Choose the ZIP destination to create the MaTalk table CSV files.</p>
+              <p className="config-help-text">When checked, MaTalk CSVs are prepared after the images finish uploading. Their <code>image_url</code> values contain the public remote location and filename.</p>
             ) : (
               <p className="config-help-text">Adds <code>aac_dictionary.csv</code>, <code>aac_image_meta.csv</code>, and <code>aac_images.csv</code> to the package. It does not write to Neon automatically.</p>
             )}
@@ -537,7 +537,6 @@ export default function ExportsPage() {
                   <select value={inventoryDestination} onChange={(e) => {
                       const nextDestination = e.target.value
                       setInventoryDestination(nextDestination)
-                      if (nextDestination === 'cloudflare') setConvertToMatalkTablesFormat(false)
                     }}>
                     <option value="zip">Download ZIP package</option>
                     <option value="cloudflare">Upload images to Cloudflare R2</option>
@@ -549,7 +548,7 @@ export default function ExportsPage() {
                       <label>Cloudflare bucket<select value={cloudflareBucket} onChange={(e) => setCloudflareBucket(e.target.value)}>{cloudflareBuckets.length ? cloudflareBuckets.map((bucket) => <option key={bucket} value={bucket}>{bucket}</option>) : <option value="matalkimages">matalkimages</option>}</select></label>
                       <label>JPEG quality<input type="number" min="1" max="100" value={cloudflareQuality} onChange={(e) => setCloudflareQuality(Math.max(1, Math.min(100, Number(e.target.value) || 79)))} /></label>
                     </div>
-                    <p className="config-help-text">Every non-empty image variant for the selected words is uploaded: all ages, genders, skin colors, regular images, and white-background images. Prompts and text files are not uploaded. Images are compressed on Render immediately before upload.</p>
+                    <p className="config-help-text">Every non-empty image variant for the selected words is uploaded: all ages, genders, skin colors, regular images, and white-background images. Prompts and text files are not uploaded. Images are compressed on Render immediately before upload. If MaTalk is checked, its CSVs are prepared after the upload so <code>image_url</code> points to the final public R2 object.</p>
                   </>
                 ) : (
                   <>
@@ -661,7 +660,7 @@ export default function ExportsPage() {
 
         <div className="inline-fields">
           <button onClick={create}>
-            {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images to Cloudflare' : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
+            {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? (convertToMatalkTablesFormat ? 'Upload Images + MaTalk Tables' : 'Upload Images to Cloudflare') : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
           </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
         </div>
@@ -681,6 +680,24 @@ export default function ExportsPage() {
                 <p className="config-help-text"><strong>Uploaded:</strong> {preparedExport.uploaded} · <strong>Skipped:</strong> {preparedExport.skipped} · <strong>Failed:</strong> {preparedExport.failed}</p>
                 {preparedExport.error_detail ? <p className="config-help-text"><strong>Error:</strong> {preparedExport.error_detail}</p> : null}
                 <button type="button" onClick={() => triggerDownload(preparedExport.report_url)}>Download upload history CSV</button>
+                {Object.keys(preparedExport.matalk_download_urls || {}).length ? (
+                  <>
+                    <p className="config-help-text">
+                      MaTalk tables prepared for remote images; <code>aac_images.image_url</code> contains the public R2 location and filename.
+                      {Object.entries(preparedExport.matalk_row_counts || {}).length ? ` Rows: ${Object.entries(preparedExport.matalk_row_counts).map(([table, count]) => `${table} ${count}`).join(', ')}.` : ''}
+                    </p>
+                    <div className="inline-fields">
+                      {Object.entries(preparedExport.matalk_download_urls).map(([key, url]) => (
+                        <button key={key} type="button" className="button-secondary" onClick={() => triggerDownload(url)}>
+                          {MATALK_TABLE_DOWNLOAD_LABELS[key] || `Download ${key}`}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                {preparedExport.matalk_warnings?.length ? (
+                  <p className="config-help-text"><strong>MaTalk warnings:</strong> {preparedExport.matalk_warnings.join(' ')}</p>
+                ) : null}
               </>
             ) : preparedExport.kind === 'csv_job' || preparedExport.kind === 'inventory' ? (
               <>
