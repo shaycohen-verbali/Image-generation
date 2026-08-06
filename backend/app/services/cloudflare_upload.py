@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,6 +21,7 @@ from app.services.storage import materialize_path
 
 
 _PATH_FIELD_RE = re.compile(r"^(?P<age>[^_]+)_(?P<gender>[^_]+)_(?P<skin>[^_]+)_(?P<background>regular|white_bg)_path$")
+logger = logging.getLogger(__name__)
 
 
 def configured_buckets() -> list[str]:
@@ -216,12 +218,21 @@ class CloudflareUploadService:
                     worker_state.client = client
                 original = materialize_path(item["source_path"], cache_namespace="cloudflare_uploads").read_bytes()
                 compressed = self._compress(original, compression_quality)
-                client.put_object(
+                cloudflare_response = client.put_object(
                     Bucket=selected_bucket,
                     Key=item["object_key"],
                     Body=compressed,
                     ContentType="image/jpeg",
                     Metadata={"word": item["word"][:512], "part-of-speech": item["pos"][:256], "variant": item["variant"][:512]},
+                )
+                logger.info(
+                    "Cloudflare R2 put_object succeeded",
+                    extra={
+                        "cloudflare_batch_id": batch_id,
+                        "cloudflare_bucket": selected_bucket,
+                        "cloudflare_key": item["object_key"],
+                        "cloudflare_response": cloudflare_response,
+                    },
                 )
                 return {
                     "status": "uploaded",
@@ -232,6 +243,15 @@ class CloudflareUploadService:
                 }
             except Exception as exc:  # keep the batch moving when one source path is bad
                 error_code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+                logger.exception(
+                    "Cloudflare R2 image upload failed",
+                    extra={
+                        "cloudflare_batch_id": batch_id,
+                        "cloudflare_bucket": selected_bucket,
+                        "cloudflare_key": item["object_key"],
+                        "cloudflare_error": str(exc)[:2000],
+                    },
+                )
                 return {
                     "status": "failed",
                     "error_detail": str(exc)[:2000],

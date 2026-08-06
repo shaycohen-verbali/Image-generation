@@ -17,12 +17,14 @@ class JsonFormatter(logging.Formatter):
             "run_id", "stage_name", "latency_ms", "provider", "status", "cost_estimate",
             "queued_tasks", "running_tasks", "failed_tasks", "stale_tasks",
             "oldest_running_age_seconds", "worker_heartbeat_age_seconds", "query_ms",
+            "cloudflare_batch_id", "cloudflare_bucket", "cloudflare_key",
+            "cloudflare_response", "cloudflare_error",
         ):
             if hasattr(record, field):
                 payload[field] = getattr(record, field)
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
-        return json.dumps(payload, ensure_ascii=True)
+        return json.dumps(payload, ensure_ascii=True, default=str)
 
 
 def configure_logging(level: str = "INFO") -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from sqlalchemy import select
 
@@ -9,7 +10,9 @@ from app.models import CloudUpload, CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService
 
 
-def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, monkeypatch) -> None:
+def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, monkeypatch, caplog) -> None:
+    # Capture the R2 response log emitted by each successful PutObject call.
+    caplog.set_level(logging.INFO)
     settings = get_settings()
     settings.cloudflare_r2_endpoint = "https://r2.example.test"
     settings.cloudflare_r2_access_key_id = "test-access"
@@ -50,8 +53,15 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
         def __init__(self) -> None:
             self.keys: list[str] = []
 
-        def put_object(self, **kwargs) -> None:
+        def put_object(self, **kwargs) -> dict[str, object]:
             self.keys.append(kwargs["Key"])
+            return {
+                "ETag": '"test-etag"',
+                "ResponseMetadata": {
+                    "HTTPStatusCode": 200,
+                    "RequestId": "request-123",
+                },
+            }
 
     fake_client = FakeClient()
     monkeypatch.setattr(CloudflareUploadService, "_client", staticmethod(lambda: fake_client))
@@ -70,6 +80,12 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
     assert result["status"] == "completed"
     assert result["uploaded"] == 2
     assert result["failed"] == 0
+    assert "Cloudflare R2 put_object succeeded" in caplog.text
+    assert all(
+        record.cloudflare_response["ResponseMetadata"]["RequestId"] == "request-123"
+        for record in caplog.records
+        if record.name == "app.services.cloudflare_upload"
+    )
     assert sorted(fake_client.keys) == [
         "word_inventory/sense-first/kid/male/white/regular/first.jpg",
         "word_inventory/sense-second/kid/male/white/regular/second.jpg",
