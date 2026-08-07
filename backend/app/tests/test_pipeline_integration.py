@@ -1063,12 +1063,12 @@ def test_variant_female_branch_uses_female_seed_assets(db_session):
 
     assert result.status == "completed_pass"
     assert any(
-        submission["source_path"].endswith("female_kid_white_attempt_1.jpg")
+        submission["source_path"].endswith("soccer__verb__reg__f__kid__w__no-sense-id.jpg")
         and not submission["white_background"]
         for submission in mock_google.variant_submissions
     )
     assert any(
-        submission["source_path"].endswith("female_kid_white_attempt_1.jpg")
+        submission["source_path"].endswith("soccer__verb__reg__f__kid__w__no-sense-id.jpg")
         and submission["white_background"]
         for submission in mock_google.variant_submissions
     )

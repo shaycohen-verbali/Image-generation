@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Prompt, Run, StageResult
 from app.services.google_image_client import GoogleImageClient
+from app.services.image_filenames import final_image_filename
 from app.services.model_catalog import is_google_image_generation_model, normalize_stage3_generation_model
 from app.services.openai_client import AssistantRunFailedError, OpenAIClient
-from app.services.person_profiles import profile_edit_instruction, profile_key, profile_prompt_fragment, variant_branch_plan
+from app.services.person_profiles import entry_default_profile, profile_edit_instruction, profile_key, profile_prompt_fragment, variant_branch_plan
 from app.services.prompt_templates import (
     apply_render_decision_to_prompt,
     build_post_quality_accessibility_critique_prompt,
@@ -579,19 +580,29 @@ class PipelineRunner:
         raise error
 
     @staticmethod
-    def _variant_suffix(profile: dict[str, str]) -> str:
-        return sanitize_filename(
-            f"{profile.get('gender', 'person')}_{profile.get('age', 'age')}_{profile.get('skin_color', 'skin')}"
+    def _final_image_filename(
+        entry: Entry,
+        *,
+        background: str,
+        profile: dict[str, str] | None = None,
+    ) -> str:
+        selected_profile = profile or entry_default_profile(entry)
+        return final_image_filename(
+            entry.word,
+            entry.part_of_sentence,
+            background=background,
+            gender=selected_profile.get("gender", "male"),
+            age=selected_profile.get("age", "kid"),
+            skin_color=selected_profile.get("skin_color", "white"),
+            sense_id=entry.sense_id,
         )
 
     def _variant_pool_size(self, variant_count: int, worker_limit: int) -> int:
         return max(1, min(variant_count, worker_limit))
 
     def _variant_filename(self, stage_name: str, entry: Entry, profile: dict[str, str], winner_attempt: int) -> str:
-        profile_suffix = self._variant_suffix(profile)
-        if stage_name == "stage4_variant_generate":
-            return f"stage4_variant_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
-        return f"stage5_variant_white_bg_{self._entry_slug(entry)}_{profile_suffix}_attempt_{winner_attempt}.jpg"
+        background = "regular" if stage_name == "stage4_variant_generate" else "white_bg"
+        return self._final_image_filename(entry, background=background, profile=profile)
 
     def _variant_stage_item(
         self,
@@ -1687,7 +1698,7 @@ class PipelineRunner:
             )
             raise
 
-        filename = f"stage3_upgraded_{self._entry_slug(entry)}_attempt_{attempt}.jpg"
+        filename = self._final_image_filename(entry, background="regular")
         saved_asset = self._save_asset(
             run_id=run.id,
             stage_name="stage3_upgraded",
@@ -2765,7 +2776,9 @@ class PipelineRunner:
         profile_description: str,
         white_background: bool,
     ) -> dict[str, Any]:
-        profile_suffix = self._variant_suffix(profile)
+        profile_suffix = sanitize_filename(
+            f"{profile.get('gender', 'person')}_{profile.get('age', 'age')}_{profile.get('skin_color', 'skin')}"
+        )
         if prediction_result.get("status") != "succeeded":
             stage_label = "white background variant" if white_background else "variant generation"
             self._raise_with_context(
@@ -2887,7 +2900,7 @@ class PipelineRunner:
             )
 
         image_bytes = self._download_generated_image(output_url)
-        filename = f"stage4_white_bg_{self._entry_slug(entry)}_attempt_{winner_attempt}.jpg"
+        filename = self._final_image_filename(entry, background="white_bg")
         self._save_asset(
             run_id=run.id,
             stage_name="stage4_white_bg",
@@ -3148,7 +3161,7 @@ class PipelineRunner:
             run_id=run.id,
             stage_name="stage3_post_quality_accessibility_generate",
             attempt=winner_attempt,
-            filename=f"stage3_softened_{self._entry_slug(entry)}_attempt_{winner_attempt}.jpg",
+            filename=self._final_image_filename(entry, background="regular"),
             image_bytes=image_bytes,
             origin_url=output_url,
             model_name=str(prediction_result.get("model") or "gemini-3.1-flash-lite-image"),

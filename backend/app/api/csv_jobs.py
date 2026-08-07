@@ -29,9 +29,25 @@ from app.schemas import (
     ExecutionMode,
 )
 from app.services.csv_dag_service import CsvDagService
-from app.services.storage import materialize_path
+from app.services.storage import export_artifact_uri, materialize_path
 
 router = APIRouter(prefix="/api/v1/csv-jobs", tags=["csv-jobs"])
+
+
+def _matalk_response_fields(job_id: str, result: dict) -> dict[str, object]:
+    matalk = result.get("matalk") or {}
+    if not matalk.get("enabled"):
+        return {}
+    return {
+        "matalk_download_urls": {
+            "aac_dictionary": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/aac_dictionary",
+            "aac_image_meta": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/aac_image_meta",
+            "aac_images": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/aac_images",
+            "manifest": f"/api/v1/csv-jobs/{job_id}/export/download/matalk/manifest",
+        },
+        "matalk_row_counts": matalk.get("row_counts") or {},
+        "matalk_warnings": matalk.get("warnings") or [],
+    }
 
 _OVERVIEW_CACHE_SECONDS = 5.0
 _overview_cache: dict[str, tuple[float, dict]] = {}
@@ -258,12 +274,17 @@ def export_csv_job(
 ) -> CsvJobExportResponse:
     service = CsvDagService(db)
     try:
-        result = service.export_job(job_id, export_fields=(payload.export_fields if payload is not None else None))
+        result = service.export_job(
+            job_id,
+            export_fields=(payload.export_fields if payload is not None else None),
+            convert_to_matalk_tables_format=bool(payload and payload.convert_to_matalk_tables_format),
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return CsvJobExportResponse(
         **result,
         download_url=f"/api/v1/csv-jobs/{job_id}/export/download",
+        **_matalk_response_fields(job_id, result),
     )
 
 
@@ -295,3 +316,43 @@ def download_csv_job_export(job_id: str, db: Session = Depends(db_dependency)) -
     if not local.exists():
         raise HTTPException(status_code=404, detail="Export artifact not found")
     return FileResponse(local, media_type="application/zip", filename=service.export_zip_name(repo_job.batch_id))
+
+
+@router.get("/{job_id}/export/download/matalk/{table_name}")
+def download_csv_job_matalk_artifact(
+    job_id: str,
+    table_name: str,
+    db: Session = Depends(db_dependency),
+) -> FileResponse:
+    service = CsvDagService(db)
+    repo_job = service.repo.get_csv_job(job_id)
+    if repo_job is None:
+        raise HTTPException(status_code=404, detail="CSV job not found")
+    artifact = {
+        "aac_dictionary": ("dictionary", "aac_dictionary.csv", "text/csv"),
+        "aac_image_meta": ("image_meta", "aac_image_meta.csv", "text/csv"),
+        "aac_images": ("images", "aac_images.csv", "text/csv"),
+        "manifest": ("manifest", "matalk_manifest.json", "application/json"),
+    }.get(str(table_name or "").strip().lower())
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="MaTalk artifact not found")
+
+    artifact_key, filename, media_type = artifact
+    local_path = service.export_local_matalk_artifact_path(repo_job, artifact_key)
+    if local_path is None:
+        raise HTTPException(status_code=404, detail="MaTalk artifact not found")
+    if not local_path.exists():
+        remote_path = materialize_path(
+            export_artifact_uri(repo_job.id, filename),
+            cache_namespace="csv_job_matalk_exports",
+        )
+        if remote_path.exists():
+            local_path = remote_path
+        else:
+            try:
+                service.export_job(job_id, convert_to_matalk_tables_format=True)
+            except RuntimeError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if not local_path.exists():
+        raise HTTPException(status_code=404, detail="MaTalk artifact file not found")
+    return FileResponse(local_path, media_type=media_type, filename=filename)

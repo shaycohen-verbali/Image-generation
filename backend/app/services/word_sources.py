@@ -170,6 +170,7 @@ class WordSourceService:
         range_start: int | None = None,
         range_end: int | None = None,
         parts_of_speech: list[str] | None = None,
+        include_inactive: bool = False,
     ):
         mode = str(selection_mode or "all").strip().lower()
         if mode not in {"single", "range", "all"}:
@@ -177,7 +178,10 @@ class WordSourceService:
         position = func.row_number().over(
             order_by=(func.lower(table.c.word), table.c.part_of_speech, table.c.sense_id, table.c.id)
         ).label("position")
-        ordered = select(*table.c, position).where(table.c.is_active.is_(True)).subquery()
+        ordered_query = select(*table.c, position)
+        if not include_inactive:
+            ordered_query = ordered_query.where(table.c.is_active.is_(True))
+        ordered = ordered_query.subquery()
         query = select(ordered)
         if mode == "single":
             selected_id = str(row_id or "").strip()
@@ -277,6 +281,7 @@ class WordSourceService:
         row_id: str = "",
         range_start: int | None = None,
         range_end: int | None = None,
+        include_inactive: bool = False,
     ) -> list[dict[str, Any]]:
         """Return inventory rows in the shape consumed by the package exporter."""
         normalized, table = self.approved_table(table_name)
@@ -288,16 +293,29 @@ class WordSourceService:
             with inventory_engine.connect() as conn:
                 latest_job_id = conn.execute(
                     select(table.c.source_csv_job_id)
-                    .where(table.c.is_active.is_(True), func.length(func.trim(table.c.source_csv_job_id)) > 0)
+                    .where(
+                        *(
+                            [table.c.is_active.is_(True)]
+                            if not include_inactive
+                            else []
+                        ),
+                        func.length(func.trim(table.c.source_csv_job_id)) > 0,
+                    )
                     .order_by(desc(table.c.updated_at), desc(table.c.created_at))
                     .limit(1)
                 ).scalar_one_or_none()
                 if not latest_job_id:
                     return []
-                selected = select(*table.c).where(
-                    table.c.is_active.is_(True), table.c.source_csv_job_id == latest_job_id
-                ).subquery()
-                found = conn.execute(select(selected).order_by(func.lower(selected.c.word), selected.c.part_of_speech, selected.c.id)).mappings()
+                selected_query = select(*table.c).where(table.c.source_csv_job_id == latest_job_id)
+                if not include_inactive:
+                    selected_query = selected_query.where(table.c.is_active.is_(True))
+                selected = selected_query.subquery()
+                lookup = aac_word_lookup.alias("word_lookup_export")
+                found = conn.execute(
+                    select(selected, lookup.c.synonyms.label("source_synonyms"))
+                    .select_from(selected.outerjoin(lookup, lookup.c.source_sense_id == selected.c.sense_id))
+                    .order_by(func.lower(selected.c.word), selected.c.part_of_speech, selected.c.id)
+                ).mappings()
                 return [self._export_row(dict(row), position=index + 1, table_name=normalized) for index, row in enumerate(found)]
 
         selected = self._selection_query(
@@ -306,9 +324,15 @@ class WordSourceService:
             row_id=row_id,
             range_start=range_start,
             range_end=range_end,
+            include_inactive=include_inactive,
         ).subquery()
         with inventory_engine.connect() as conn:
-            found = conn.execute(select(selected).order_by(selected.c.position)).mappings()
+            lookup = aac_word_lookup.alias("word_lookup_export")
+            found = conn.execute(
+                select(selected, lookup.c.synonyms.label("source_synonyms"))
+                .select_from(selected.outerjoin(lookup, lookup.c.source_sense_id == selected.c.sense_id))
+                .order_by(selected.c.position)
+            ).mappings()
             return [self._export_row(dict(row), position=int(row.get("position") or 0), table_name=normalized) for row in found]
 
     @staticmethod
@@ -316,6 +340,7 @@ class WordSourceService:
         part_of_speech = str(row.get("part_of_speech") or row.get("part_of_sentence") or "")
         return {
             **row,
+            "synonyms": row.get("source_synonyms", row.get("synonyms", "")),
             "row_index": position,
             "part_of_sentence": part_of_speech,
             "category": str(row.get("category") or row.get("sense_wordnet") or row.get("sense_oxford") or ""),

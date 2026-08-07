@@ -19,6 +19,13 @@ from app.services.cost_estimator import summarize_run_costs
 from app.services.csv_service import parse_entries_csv, validate_entry_row
 from app.services.inventory_sync import InventorySyncService
 from app.services.inventory_sync import normalize_csv_job_export_fields
+from app.services.image_filenames import final_image_filename, versioned_upload_filename
+from app.services.matalk_export import (
+    MATALK_ARTIFACT_FILENAMES,
+    build_matalk_tables,
+    image_reference_key,
+    write_matalk_artifacts,
+)
 from app.services.person_profiles import DEFAULT_AGE, DEFAULT_GENDER, DEFAULT_SKIN_COLOR, profile_key
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
@@ -1602,6 +1609,13 @@ class CsvDagService:
         return export_dir / self.export_zip_name(job.batch_id)
 
     @staticmethod
+    def export_local_matalk_artifact_path(job: CsvJob, artifact: str) -> Path | None:
+        filename = MATALK_ARTIFACT_FILENAMES.get(str(artifact or "").strip())
+        if not filename:
+            return None
+        return exports_root() / sanitize_filename(job.id) / filename
+
+    @staticmethod
     def _selected_export_image_fields(selected_export_fields: list[str]) -> list[str]:
         return [field for field in selected_export_fields if field.endswith("_path")]
 
@@ -1642,23 +1656,24 @@ class CsvDagService:
     @staticmethod
     def _export_image_filename(
         *,
-        row_index: int,
         word: str,
         part_of_sentence: str,
         sense_id: str,
-        variant_abbrev: str,
-        source_path: str,
+        gender: str,
+        age: str,
+        skin_color: str,
+        background_type: str,
     ) -> str:
-        suffix = Path(str(source_path or "")).suffix.lower() or ".jpg"
-        return "__".join(
-            [
-                f"{int(row_index or 0):04d}",
-                sanitize_filename(word or "unknown-word"),
-                sanitize_filename(part_of_sentence or "unknown-pos"),
-                sanitize_filename(sense_id or "no-sense-id"),
-                sanitize_filename(variant_abbrev or "variant"),
-            ]
-        ) + suffix
+        canonical_filename = final_image_filename(
+            word,
+            part_of_sentence,
+            background=background_type,
+            gender=gender,
+            age=age,
+            skin_color=skin_color,
+            sense_id=sense_id,
+        )
+        return versioned_upload_filename(canonical_filename)
 
     @staticmethod
     def _export_image_relative_path(*, background_type: str, image_filename: str) -> str:
@@ -1696,9 +1711,9 @@ Images are grouped by background type:
 
 Examples:
 
-`images/regular/0001__fairly__adverb__sense-fairly-adverb-1__f_tn_w_reg.jpg`
+`images/regular/fairly__adverb__reg__f__teen__w__sense-fairly-adverb-1__v1.jpg`
 
-`images/white_background/0001__fairly__adverb__sense-fairly-adverb-1__f_tn_w_wbg.jpg`
+`images/white_background/fairly__adverb__wbg__f__teen__w__sense-fairly-adverb-1__v1.jpg`
 
 ## Filename format
 
@@ -2031,6 +2046,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
         export_fields: list[str] | None = None,
         *,
         inventory_rows_override: list[dict[str, Any]] | None = None,
+        convert_to_matalk_tables_format: bool = False,
     ) -> dict[str, Any]:
         inventory_service = InventorySyncService(self.db)
         export_warnings: list[str] = []
@@ -2119,6 +2135,8 @@ Debugging and backwards-compatible files are under `_metadata/`.
 
         inventory_rows = inventory_rows_override if inventory_rows_override is not None else inventory_service.build_export_rows(job_id)
         selected_export_fields = normalize_csv_job_export_fields(export_fields)
+        matalk_tables = None
+        matalk_paths: dict[str, Path] = {}
         legacy_inventory_fieldnames = list(selected_export_fields)
         with legacy_inventory_csv.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=legacy_inventory_fieldnames)
@@ -2151,6 +2169,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
         image_rows: list[dict[str, Any]] = []
         prompt_rows: list[dict[str, Any]] = []
         image_zip_members: list[tuple[Path, str]] = []
+        matalk_zip_references: dict[tuple[str, str, str], str] = {}
         seen_arcnames: set[str] = set()
         for row in inventory_rows:
             row_index = int(row.get("row_index") or 0)
@@ -2169,24 +2188,27 @@ Debugging and backwards-compatible files are under `_metadata/`.
                     continue
                 variant_abbrev = self._export_variant_abbrev(**profile)
                 image_filename = self._export_image_filename(
-                    row_index=row_index,
                     word=word,
                     part_of_sentence=part_of_sentence,
                     sense_id=sense_id,
-                    variant_abbrev=variant_abbrev,
-                    source_path=source_path,
+                    gender=profile["gender"],
+                    age=profile["age"],
+                    skin_color=profile["skin_color"],
+                    background_type=profile["background_type"],
                 )
                 image_relative_path = self._export_image_relative_path(
                     background_type=profile["background_type"],
                     image_filename=image_filename,
                 )
-                if image_relative_path in seen_arcnames:
-                    continue
                 materialized = materialized_by_path.get(source_path)
                 if materialized is None:
                     continue
                 if not materialized.exists():
                     export_warnings.append(f"Skipped {field_name} for row {row_index}: file not found")
+                    continue
+                if convert_to_matalk_tables_format:
+                    matalk_zip_references[image_reference_key(row, field_name, source_path)] = image_relative_path
+                if image_relative_path in seen_arcnames:
                     continue
 
                 asset = assets_by_path.get(source_path)
@@ -2242,6 +2264,16 @@ Debugging and backwards-compatible files are under `_metadata/`.
             for row in prompt_rows:
                 writer.writerow({field: row.get(field, "") for field in EXPORT_PROMPTS_CSV_FIELDS})
 
+        if convert_to_matalk_tables_format:
+            matalk_tables = build_matalk_tables(
+                inventory_rows,
+                selected_fields=selected_export_fields,
+                db=self.db,
+                image_location="zip",
+                image_references=matalk_zip_references,
+            )
+            matalk_paths = write_matalk_artifacts(export_dir, matalk_tables)
+
         readme_path.write_text(self._export_readme_text(job.batch_id), encoding="utf-8")
 
         manifest_payload = {
@@ -2284,6 +2316,34 @@ Debugging and backwards-compatible files are under `_metadata/`.
                 for item in rows
             ],
         }
+        if matalk_tables is not None:
+            manifest_payload["matalk_tables"] = {
+                "format": "MATALK_v2",
+                "table_order": ["aac_dictionary", "aac_image_meta", "aac_images"],
+                "row_counts": matalk_tables.row_counts,
+                "warnings": list(matalk_tables.warnings),
+                "image_reference_mode": "zip_relative_path",
+                "files": {
+                    "aac_dictionary": f"matalk/{MATALK_ARTIFACT_FILENAMES['dictionary']}",
+                    "aac_image_meta": f"matalk/{MATALK_ARTIFACT_FILENAMES['image_meta']}",
+                    "aac_images": f"matalk/{MATALK_ARTIFACT_FILENAMES['images']}",
+                    "manifest": f"matalk/{MATALK_ARTIFACT_FILENAMES['manifest']}",
+                },
+            }
+        manifest_payload["csv_files"] = [
+            "images.csv",
+            "prompts.csv",
+            "_metadata/job_summary.csv",
+            "_metadata/word_inventory_legacy.csv",
+        ] + (
+            [
+                f"matalk/{MATALK_ARTIFACT_FILENAMES['dictionary']}",
+                f"matalk/{MATALK_ARTIFACT_FILENAMES['image_meta']}",
+                f"matalk/{MATALK_ARTIFACT_FILENAMES['images']}",
+            ]
+            if matalk_tables is not None
+            else []
+        )
         zip_members: list[tuple[Path, str]] = [
             (readme_path, "README.md"),
             (images_csv, "images.csv"),
@@ -2292,6 +2352,16 @@ Debugging and backwards-compatible files are under `_metadata/`.
             (legacy_inventory_csv, "_metadata/word_inventory_legacy.csv"),
             *image_zip_members,
         ]
+        if matalk_tables is not None:
+            zip_members.extend(
+                [
+                    (matalk_paths["dictionary"], f"matalk/{MATALK_ARTIFACT_FILENAMES['dictionary']}"),
+                    (matalk_paths["image_meta"], f"matalk/{MATALK_ARTIFACT_FILENAMES['image_meta']}"),
+                    (matalk_paths["images"], f"matalk/{MATALK_ARTIFACT_FILENAMES['images']}"),
+                    (matalk_paths["manifest"], f"matalk/{MATALK_ARTIFACT_FILENAMES['manifest']}"),
+                    (matalk_paths["readme"], f"matalk/{MATALK_ARTIFACT_FILENAMES['readme']}"),
+                ]
+            )
 
         manifest_path.write_text(
             json.dumps(manifest_payload, ensure_ascii=False, indent=2, default=_json_default),
@@ -2300,8 +2370,15 @@ Debugging and backwards-compatible files are under `_metadata/`.
 
         with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(manifest_path, arcname="_metadata/manifest.json")
+            image_arc_names = {arcname for _, arcname in image_zip_members}
             for source_path, arcname in zip_members:
-                archive.write(source_path, arcname=arcname)
+                # JPEGs are already compressed. Storing them avoids spending
+                # CPU trying to deflate image bytes without changing contents.
+                archive.write(
+                    source_path,
+                    arcname=arcname,
+                    compress_type=zipfile.ZIP_STORED if arcname in image_arc_names else None,
+                )
 
         stored_zip = persist_export_artifact(job.id, zip_filename, zip_path.read_bytes(), content_type="application/zip")
         persist_export_artifact(job.id, "README.md", readme_path.read_bytes(), content_type="text/markdown")
@@ -2311,10 +2388,46 @@ Debugging and backwards-compatible files are under `_metadata/`.
         persist_export_artifact(job.id, "word_inventory.csv", legacy_inventory_csv.read_bytes(), content_type="text/csv")
         persist_export_artifact(job.id, "word_inventory_legacy.csv", legacy_inventory_csv.read_bytes(), content_type="text/csv")
         persist_export_artifact(job.id, "manifest.json", manifest_path.read_bytes(), content_type="application/json")
+        if matalk_tables is not None:
+            persist_export_artifact(
+                job.id,
+                MATALK_ARTIFACT_FILENAMES["dictionary"],
+                matalk_paths["dictionary"].read_bytes(),
+                content_type="text/csv",
+            )
+            persist_export_artifact(
+                job.id,
+                MATALK_ARTIFACT_FILENAMES["image_meta"],
+                matalk_paths["image_meta"].read_bytes(),
+                content_type="text/csv",
+            )
+            persist_export_artifact(
+                job.id,
+                MATALK_ARTIFACT_FILENAMES["images"],
+                matalk_paths["images"].read_bytes(),
+                content_type="text/csv",
+            )
+            persist_export_artifact(
+                job.id,
+                MATALK_ARTIFACT_FILENAMES["manifest"],
+                matalk_paths["manifest"].read_bytes(),
+                content_type="application/json",
+            )
+            persist_export_artifact(
+                job.id,
+                MATALK_ARTIFACT_FILENAMES["readme"],
+                matalk_paths["readme"].read_bytes(),
+                content_type="text/markdown",
+            )
         return {
             "job_id": job.id,
             "batch_id": job.batch_id,
             "zip_path": stored_zip.persisted_path,
             "local_zip_path": zip_path.as_posix(),
             "file_name": zip_filename,
+            "matalk": {
+                "enabled": matalk_tables is not None,
+                "row_counts": matalk_tables.row_counts if matalk_tables is not None else {},
+                "warnings": list(matalk_tables.warnings) if matalk_tables is not None else [],
+            },
         }
