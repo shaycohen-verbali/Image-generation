@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import zipfile
 from io import StringIO
 from pathlib import Path
 
@@ -38,6 +39,12 @@ MATALK_REMOTE_ARTIFACTS = {
     "manifest": ("manifest", MATALK_ARTIFACT_FILENAMES["manifest"], "application/json"),
 }
 MATALK_READY_UPLOAD_STATUSES = {"completed", "completed_with_errors"}
+CLOUDFLARE_UPLOAD_REPORT_FIELDS = (
+    "id", "batch_id", "source_table", "source_row_id", "word", "part_of_speech", "sense_id",
+    "variant", "source_path", "original_filename", "bucket", "object_key", "destination_url", "status",
+    "original_bytes", "compressed_bytes", "compression_quality", "source_sha256", "compressed_sha256",
+    "error_detail", "created_at", "updated_at",
+)
 
 
 def _matalk_response_fields(job_id: str, result: dict) -> dict[str, object]:
@@ -90,6 +97,32 @@ def _prepare_cloudflare_matalk_artifacts(
     try:
         tables = build_matalk_tables(rows, db=db, image_location="remote")
         paths = write_matalk_artifacts(export_dir, tables)
+        package_path = export_dir.parent / f"{sanitize_filename(batch.id)}_csv_package.zip"
+        package_manifest = {
+            "package_type": "cloudflare_csv",
+            "batch_id": batch.id,
+            "bucket": batch.bucket,
+            "image_reference_mode": "remote_url",
+            "files": {
+                "aac_dictionary": "matalk/aac_dictionary.csv",
+                "aac_image_meta": "matalk/aac_image_meta.csv",
+                "aac_images": "matalk/aac_images.csv",
+                "matalk_manifest": "matalk/matalk_manifest.json",
+                "matalk_readme": "matalk/matalk_README.md",
+                "cloudflare_upload_report": "_metadata/cloudflare_uploads.csv",
+            },
+            "row_counts": tables.row_counts,
+            "warnings": list(tables.warnings),
+        }
+        with zipfile.ZipFile(package_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(paths["dictionary"], arcname="matalk/aac_dictionary.csv")
+            archive.write(paths["image_meta"], arcname="matalk/aac_image_meta.csv")
+            archive.write(paths["images"], arcname="matalk/aac_images.csv")
+            archive.write(paths["manifest"], arcname="matalk/matalk_manifest.json")
+            archive.write(paths["readme"], arcname="matalk/matalk_README.md")
+            archive.writestr("_metadata/manifest.json", json.dumps(package_manifest, ensure_ascii=False, indent=2))
+            archive.writestr("_metadata/cloudflare_uploads.csv", _cloudflare_upload_report_csv(batch.id, db))
+        paths["package"] = package_path
     except Exception as exc:  # noqa: BLE001 - status polling should expose a usable warning
         return {}, {}, [f"MaTalk tables could not be prepared: {exc}"], {}
 
@@ -100,25 +133,25 @@ def _prepare_cloudflare_matalk_artifacts(
     return download_urls, tables.row_counts, list(tables.warnings), paths
 
 
-@router.get("/cloud-uploads/{batch_id}/report.csv")
-def cloudflare_upload_report(batch_id: str, db: Session = Depends(db_dependency)) -> Response:
-    rows = db.scalars(select(CloudUpload).where(CloudUpload.batch_id == batch_id).order_by(CloudUpload.created_at, CloudUpload.id)).all()
-    fields = [
-        "id", "batch_id", "source_table", "source_row_id", "word", "part_of_speech", "sense_id",
-        "variant", "source_path", "original_filename", "bucket", "object_key", "destination_url", "status",
-        "original_bytes", "compressed_bytes", "compression_quality", "source_sha256", "compressed_sha256",
-        "error_detail", "created_at", "updated_at",
-    ]
+def _cloudflare_upload_report_csv(batch_id: str, db: Session) -> str:
+    rows = db.scalars(
+        select(CloudUpload).where(CloudUpload.batch_id == batch_id).order_by(CloudUpload.created_at, CloudUpload.id)
+    ).all()
     output = StringIO()
-    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer = csv.DictWriter(output, fieldnames=list(CLOUDFLARE_UPLOAD_REPORT_FIELDS), extrasaction="ignore")
     writer.writeheader()
     for row in rows:
-        values = {field: getattr(row, field) for field in fields}
+        values = {field: getattr(row, field) for field in CLOUDFLARE_UPLOAD_REPORT_FIELDS}
         values["created_at"] = values["created_at"].isoformat() if values["created_at"] else ""
         values["updated_at"] = values["updated_at"].isoformat() if values["updated_at"] else ""
         writer.writerow(values)
+    return output.getvalue()
+
+
+@router.get("/cloud-uploads/{batch_id}/report.csv")
+def cloudflare_upload_report(batch_id: str, db: Session = Depends(db_dependency)) -> Response:
     return Response(
-        content=output.getvalue(),
+        content=_cloudflare_upload_report_csv(batch_id, db),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="cloudflare_uploads_{batch_id}.csv"'},
     )
@@ -129,7 +162,8 @@ def cloudflare_upload_status(batch_id: str, db: Session = Depends(db_dependency)
     batch = db.get(CloudUploadBatch, batch_id)
     if batch is None:
         raise HTTPException(status_code=404, detail="Cloudflare upload batch not found")
-    matalk_download_urls, matalk_row_counts, matalk_warnings, _ = _prepare_cloudflare_matalk_artifacts(batch, db)
+    matalk_download_urls, matalk_row_counts, matalk_warnings, paths = _prepare_cloudflare_matalk_artifacts(batch, db)
+    package_path = paths.get("package")
     return CloudflareUploadResponse(
         batch_id=batch.id,
         bucket=batch.bucket,
@@ -144,6 +178,11 @@ def cloudflare_upload_status(batch_id: str, db: Session = Depends(db_dependency)
         matalk_download_urls=matalk_download_urls,
         matalk_row_counts=matalk_row_counts,
         matalk_warnings=matalk_warnings,
+        csv_package_download_url=(
+            f"/api/v1/word-sources/cloud-uploads/{batch.id}/csv-package.zip"
+            if package_path is not None and package_path.exists()
+            else ""
+        ),
     )
 
 
@@ -168,6 +207,27 @@ def cloudflare_matalk_artifact(
     if local_path is None or not local_path.exists():
         raise HTTPException(status_code=404, detail="MaTalk artifact file not found")
     return FileResponse(local_path, media_type=media_type, filename=filename)
+
+
+@router.get("/cloud-uploads/{batch_id}/csv-package.zip")
+def cloudflare_csv_package(
+    batch_id: str,
+    db: Session = Depends(db_dependency),
+) -> FileResponse:
+    batch = db.get(CloudUploadBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Cloudflare upload batch not found")
+    _, _, warnings, paths = _prepare_cloudflare_matalk_artifacts(batch, db)
+    if warnings and "package" not in paths:
+        raise HTTPException(status_code=409, detail=" ".join(warnings))
+    local_path = paths.get("package")
+    if local_path is None or not local_path.exists():
+        raise HTTPException(status_code=404, detail="Cloudflare CSV package not found")
+    return FileResponse(
+        local_path,
+        media_type="application/zip",
+        filename=f"{sanitize_filename(batch.id)}_csv_package.zip",
+    )
 
 
 @router.get("/{table_name}/rows", response_model=WordSourceRowsOut)
@@ -241,6 +301,7 @@ def export_word_source_rows(
     db: Session = Depends(db_dependency),
 ) -> CsvJobExportResponse | CloudflareUploadResponse:
     source_service = WordSourceService()
+    prepare_matalk_tables = payload.convert_to_matalk_tables_format or payload.destination == "cloudflare"
     try:
         rows = source_service.get_export_rows(
             table_name,
@@ -248,7 +309,7 @@ def export_word_source_rows(
             row_id=payload.row_id or "",
             range_start=payload.range_start,
             range_end=payload.range_end,
-            include_inactive=payload.convert_to_matalk_tables_format,
+            include_inactive=prepare_matalk_tables,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -270,7 +331,7 @@ def export_word_source_rows(
                 source_rows_json=json.dumps(rows, default=str),
                 row_count=len(rows),
                 compression_quality=payload.compression_quality,
-                matalk_enabled=payload.convert_to_matalk_tables_format,
+                matalk_enabled=prepare_matalk_tables,
                 total=total,
                 status="queued",
             )

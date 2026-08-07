@@ -170,8 +170,19 @@ def test_cloudflare_batch_prepares_remote_matalk_artifacts_after_upload(db_sessi
     assert row_counts["aac_images"] == 1
     assert warnings == []
     assert paths["images"].exists()
+    assert paths["package"].exists()
     images = list(csv.DictReader(paths["images"].open(encoding="utf-8")))
     assert images[0]["image_url"] == "https://images.example.test/word_inventory/sense/kid/male/white/regular/eat.jpg"
+    with zipfile.ZipFile(paths["package"]) as archive:
+        assert {
+            "matalk/aac_dictionary.csv",
+            "matalk/aac_image_meta.csv",
+            "matalk/aac_images.csv",
+            "matalk/matalk_manifest.json",
+            "matalk/matalk_README.md",
+            "_metadata/manifest.json",
+            "_metadata/cloudflare_uploads.csv",
+        } <= set(archive.namelist())
 
 
 def test_matalk_files_are_added_to_the_package_in_import_order(db_session, tmp_path) -> None:

@@ -363,6 +363,7 @@ class CloudflareUploadResponse(BaseModel):
     matalk_download_urls: dict[str, str] = Field(default_factory=dict)
     matalk_row_counts: dict[str, int] = Field(default_factory=dict)
     matalk_warnings: list[str] = Field(default_factory=list)
+    csv_package_download_url: str = ""
 
 
 class CsvJobOut(BaseModel):

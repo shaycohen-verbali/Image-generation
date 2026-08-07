@@ -185,6 +185,7 @@ export default function ExportsPage() {
   const [cloudflareBucket, setCloudflareBucket] = useState('matalkimages')
   const [cloudflareQuality, setCloudflareQuality] = useState(79)
   const [convertToMatalkTablesFormat, setConvertToMatalkTablesFormat] = useState(false)
+  const cloudflareInventoryExport = sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare'
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -322,7 +323,7 @@ export default function ExportsPage() {
           destination: inventoryDestination,
           cloudflare_bucket: inventoryDestination === 'cloudflare' ? cloudflareBucket : undefined,
           compression_quality: Number(cloudflareQuality),
-          convert_to_matalk_tables_format: convertToMatalkTablesFormat,
+          convert_to_matalk_tables_format: cloudflareInventoryExport || convertToMatalkTablesFormat,
         })
         if (inventoryDestination === 'cloudflare') {
           setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
@@ -409,8 +410,8 @@ export default function ExportsPage() {
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <input
                 type="checkbox"
-                checked={convertToMatalkTablesFormat}
-                disabled={sourceMode === 'legacy_run'}
+                checked={cloudflareInventoryExport || convertToMatalkTablesFormat}
+                disabled={sourceMode === 'legacy_run' || cloudflareInventoryExport}
                 onChange={(e) => setConvertToMatalkTablesFormat(e.target.checked)}
               />
               <span>Convert to MaTalk AI tables format in Neon</span>
@@ -418,7 +419,7 @@ export default function ExportsPage() {
             {sourceMode === 'legacy_run' ? (
               <p className="config-help-text">This option needs the word inventory fields and is not available for legacy run bundles.</p>
             ) : sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare' ? (
-              <p className="config-help-text">When checked, MaTalk CSVs are prepared after the images finish uploading. Their <code>image_url</code> values contain the public remote location and filename.</p>
+              <p className="config-help-text">Cloudflare exports prepare the MaTalk CSV package automatically after the images finish uploading. Its <code>image_url</code> values contain the public remote location and filename.</p>
             ) : (
               <p className="config-help-text">Adds <code>aac_dictionary.csv</code>, <code>aac_image_meta.csv</code>, and <code>aac_images.csv</code> to the package. It does not write to Neon automatically.</p>
             )}
@@ -670,7 +671,7 @@ export default function ExportsPage() {
 
         <div className="inline-fields">
           <button onClick={create}>
-            {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? (convertToMatalkTablesFormat ? 'Upload Images + MaTalk Tables' : 'Upload Images to Cloudflare') : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
+            {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images + CSV Package' : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
           </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
         </div>
@@ -690,6 +691,9 @@ export default function ExportsPage() {
                 <p className="config-help-text"><strong>Uploaded:</strong> {preparedExport.uploaded} · <strong>Skipped:</strong> {preparedExport.skipped} · <strong>Failed:</strong> {preparedExport.failed}</p>
                 {preparedExport.error_detail ? <p className="config-help-text"><strong>Error:</strong> {preparedExport.error_detail}</p> : null}
                 <button type="button" onClick={() => triggerDownload(preparedExport.report_url)}>Download upload history CSV</button>
+                {preparedExport.csv_package_download_url ? (
+                  <button type="button" onClick={() => triggerDownload(preparedExport.csv_package_download_url)}>Download CSV Package</button>
+                ) : null}
                 {Object.keys(preparedExport.matalk_download_urls || {}).length ? (
                   <>
                     <p className="config-help-text">
