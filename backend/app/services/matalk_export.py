@@ -16,7 +16,7 @@ from app.models import CloudUpload
 
 
 MATALK_DICTIONARY_FIELDS = (
-    "source_sense_id",
+    "sense_id",
     "source_word",
     "normalized_word",
     "lemmatized_word",
@@ -32,7 +32,7 @@ MATALK_DICTIONARY_FIELDS = (
 )
 
 MATALK_IMAGE_META_FIELDS = (
-    "sense_id",
+    "canonical_sense_id",
     "word",
     "part_of_speech",
     "category",
@@ -42,7 +42,7 @@ MATALK_IMAGE_META_FIELDS = (
 )
 
 MATALK_IMAGES_FIELDS = (
-    "sense_id",
+    "canonical_sense_id",
     "age",
     "gender",
     "skin",
@@ -302,7 +302,7 @@ def build_matalk_tables(
         dictionary_by_source.setdefault(
             source_sense_id,
             {
-                "source_sense_id": source_sense_id,
+                "sense_id": source_sense_id,
                 "source_word": source_word,
                 "normalized_word": normalized_word,
                 "lemmatized_word": lemmatized_word,
@@ -321,7 +321,7 @@ def build_matalk_tables(
         meta_by_canonical.setdefault(
             canonical_sense_id,
             {
-                "sense_id": canonical_sense_id,
+                "canonical_sense_id": canonical_sense_id,
                 "word": _first_value(row, "canonical_word", "word"),
                 "part_of_speech": part_of_speech,
                 "category": _first_value(row, "main_category", "source_main_category", "category"),
@@ -370,7 +370,7 @@ def build_matalk_tables(
                 warn_once("Duplicate image tuple(s) were collapsed to the unique MaTalk key.")
                 continue
             image_by_key[image_key] = {
-                "sense_id": canonical_sense_id,
+                "canonical_sense_id": canonical_sense_id,
                 "age": age,
                 "gender": gender,
                 "skin": skin,
@@ -440,7 +440,7 @@ def write_matalk_artifacts(export_dir: Path, tables: MatalkTables) -> dict[str, 
         "skipped_image_count": tables.skipped_image_count,
         "warnings": list(tables.warnings),
         "array_columns_are_json_strings": ["source_fine_tune_categories", "synonyms"],
-        "image_key": ["sense_id", "age", "gender", "skin", "background"],
+        "image_key": ["canonical_sense_id", "age", "gender", "skin", "background"],
         "image_reference_mode": "zip_relative_path" if tables.image_location == "zip" else "remote_url",
         "image_url_requirement": (
             "aac_images.image_url is relative to the ZIP root."

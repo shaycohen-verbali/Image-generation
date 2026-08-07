@@ -41,17 +41,22 @@ def test_build_matalk_tables_matches_the_pdf_contract() -> None:
     tables = build_matalk_tables([_person_row()])
 
     assert list(tables.dictionary_rows[0]) == list(MATALK_DICTIONARY_FIELDS)
+    assert tables.dictionary_rows[0]["sense_id"] == "000224222cc36d86"
+    assert "source_sense_id" not in tables.dictionary_rows[0]
     assert tables.dictionary_rows[0]["normalized_word"] == "eat"
     assert tables.dictionary_rows[0]["source_fine_tune_categories"] == '["food","daily life"]'
     assert tables.dictionary_rows[0]["synonyms"] == '["consume","dine"]'
     assert tables.dictionary_rows[0]["lookup_status"] == "active"
 
     assert list(tables.image_meta_rows[0]) == list(MATALK_IMAGE_META_FIELDS)
-    assert tables.image_meta_rows[0]["sense_id"] == "000224222cc36d86"
+    assert tables.image_meta_rows[0]["canonical_sense_id"] == "000224222cc36d86"
+    assert "sense_id" not in tables.image_meta_rows[0]
     assert tables.image_meta_rows[0]["has_person"] == "true"
     assert tables.image_meta_rows[0]["is_active"] == "true"
 
     assert list(tables.image_rows[0]) == list(MATALK_IMAGES_FIELDS)
+    assert tables.image_rows[0]["canonical_sense_id"] == "000224222cc36d86"
+    assert "sense_id" not in tables.image_rows[0]
     assert {
         (row["age"], row["gender"], row["skin"], row["background"])
         for row in tables.image_rows
@@ -197,8 +202,12 @@ def test_matalk_files_are_added_to_the_package_in_import_order(db_session, tmp_p
 
     assert names.index("matalk/aac_dictionary.csv") < names.index("matalk/aac_image_meta.csv")
     assert names.index("matalk/aac_image_meta.csv") < names.index("matalk/aac_images.csv")
-    assert dictionary[0]["source_sense_id"] == "000224222cc36d86"
-    assert meta[0]["sense_id"] == "000224222cc36d86"
+    assert dictionary[0]["sense_id"] == "000224222cc36d86"
+    assert "source_sense_id" not in dictionary[0]
+    assert meta[0]["canonical_sense_id"] == "000224222cc36d86"
+    assert "sense_id" not in meta[0]
+    assert {row["canonical_sense_id"] for row in images} == {"000224222cc36d86"}
+    assert "sense_id" not in images[0]
     assert len(images) == 2
     assert {row["image_url"] for row in images} == {
         "images/regular/0000__Eat__unknown-pos__000224222cc36d86__m_kd_w_reg.jpg",
@@ -211,6 +220,7 @@ def test_matalk_files_are_added_to_the_package_in_import_order(db_session, tmp_p
     assert manifest["row_counts"]["aac_images"] == 2
     assert manifest["warnings"] == []
     assert manifest["image_reference_mode"] == "zip_relative_path"
+    assert manifest["image_key"] == ["canonical_sense_id", "age", "gender", "skin", "background"]
     expected_csv_files = {
         "images.csv",
         "prompts.csv",
