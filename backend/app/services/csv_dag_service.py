@@ -19,6 +19,7 @@ from app.services.cost_estimator import summarize_run_costs
 from app.services.csv_service import parse_entries_csv, validate_entry_row
 from app.services.inventory_sync import InventorySyncService
 from app.services.inventory_sync import normalize_csv_job_export_fields
+from app.services.image_filenames import final_image_filename, versioned_upload_filename
 from app.services.matalk_export import (
     MATALK_ARTIFACT_FILENAMES,
     build_matalk_tables,
@@ -1655,23 +1656,24 @@ class CsvDagService:
     @staticmethod
     def _export_image_filename(
         *,
-        row_index: int,
         word: str,
         part_of_sentence: str,
         sense_id: str,
-        variant_abbrev: str,
-        source_path: str,
+        gender: str,
+        age: str,
+        skin_color: str,
+        background_type: str,
     ) -> str:
-        suffix = Path(str(source_path or "")).suffix.lower() or ".jpg"
-        return "__".join(
-            [
-                f"{int(row_index or 0):04d}",
-                sanitize_filename(word or "unknown-word"),
-                sanitize_filename(part_of_sentence or "unknown-pos"),
-                sanitize_filename(sense_id or "no-sense-id"),
-                sanitize_filename(variant_abbrev or "variant"),
-            ]
-        ) + suffix
+        canonical_filename = final_image_filename(
+            word,
+            part_of_sentence,
+            background=background_type,
+            gender=gender,
+            age=age,
+            skin_color=skin_color,
+            sense_id=sense_id,
+        )
+        return versioned_upload_filename(canonical_filename)
 
     @staticmethod
     def _export_image_relative_path(*, background_type: str, image_filename: str) -> str:
@@ -1709,9 +1711,9 @@ Images are grouped by background type:
 
 Examples:
 
-`images/regular/0001__fairly__adverb__sense-fairly-adverb-1__f_tn_w_reg.jpg`
+`images/regular/fairly__adverb__reg__f__teen__w__sense-fairly-adverb-1__v1.jpg`
 
-`images/white_background/0001__fairly__adverb__sense-fairly-adverb-1__f_tn_w_wbg.jpg`
+`images/white_background/fairly__adverb__wbg__f__teen__w__sense-fairly-adverb-1__v1.jpg`
 
 ## Filename format
 
@@ -2186,12 +2188,13 @@ Debugging and backwards-compatible files are under `_metadata/`.
                     continue
                 variant_abbrev = self._export_variant_abbrev(**profile)
                 image_filename = self._export_image_filename(
-                    row_index=row_index,
                     word=word,
                     part_of_sentence=part_of_sentence,
                     sense_id=sense_id,
-                    variant_abbrev=variant_abbrev,
-                    source_path=source_path,
+                    gender=profile["gender"],
+                    age=profile["age"],
+                    skin_color=profile["skin_color"],
+                    background_type=profile["background_type"],
                 )
                 image_relative_path = self._export_image_relative_path(
                     background_type=profile["background_type"],

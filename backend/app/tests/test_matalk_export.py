@@ -210,11 +210,11 @@ def test_matalk_files_are_added_to_the_package_in_import_order(db_session, tmp_p
     assert "sense_id" not in images[0]
     assert len(images) == 2
     assert {row["image_url"] for row in images} == {
-        "images/regular/0000__Eat__unknown-pos__000224222cc36d86__m_kd_w_reg.jpg",
-        "images/white_background/0000__Eat__unknown-pos__000224222cc36d86__m_kd_w_wbg.jpg",
+        "images/regular/eat__unknown-pos__reg__m__kid__w__000224222cc36d86__v1.jpg",
+        "images/white_background/eat__unknown-pos__wbg__m__kid__w__000224222cc36d86__v1.jpg",
     }
-    assert "images/regular/0000__Eat__unknown-pos__000224222cc36d86__m_kd_w_reg.jpg" in names
-    assert "images/white_background/0000__Eat__unknown-pos__000224222cc36d86__m_kd_w_wbg.jpg" in names
+    assert "images/regular/eat__unknown-pos__reg__m__kid__w__000224222cc36d86__v1.jpg" in names
+    assert "images/white_background/eat__unknown-pos__wbg__m__kid__w__000224222cc36d86__v1.jpg" in names
     assert manifest["row_counts"]["aac_dictionary"] == 1
     assert manifest["row_counts"]["aac_image_meta"] == 1
     assert manifest["row_counts"]["aac_images"] == 2
