@@ -11,6 +11,26 @@ from app.api.word_sources import cloudflare_upload_report
 from app.core.config import get_settings
 from app.models import CloudUpload, CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService
+from app.services.image_filenames import final_image_filename, final_image_filename_for_field, versioned_upload_filename
+
+
+def test_final_image_filenames_use_canonical_tokens_and_single_upload_version() -> None:
+    assert final_image_filename(
+        "Happy Hands",
+        "Noun",
+        background="white_bg",
+        gender="female",
+        age="teenager",
+        skin_color="brown",
+        sense_id="sense-42",
+    ) == "happy_hands__noun__wbg__f__teen__br__sense-42.jpg"
+    assert final_image_filename_for_field(
+        "Happy Hands",
+        "Noun",
+        "toddler_male_black_regular_path",
+        "sense-42",
+    ) == "happy_hands__noun__reg__m__todd__bl__sense-42.jpg"
+    assert versioned_upload_filename("/tmp/old_name__v9.jpeg") == "old_name__v1.jpg"
 
 
 def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, monkeypatch, caplog) -> None:
@@ -90,8 +110,8 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
         if record.name == "app.services.cloudflare_upload"
     )
     assert sorted(fake_client.keys) == [
-        "first.jpg",
-        "second.jpg",
+        "first__noun__reg__m__kid__w__sense-first__v1.jpg",
+        "second__noun__reg__m__kid__w__sense-second__v1.jpg",
     ]
     ledgers = db_session.scalars(
         select(CloudUpload).where(CloudUpload.batch_id == "r2_test_parallel")
@@ -99,13 +119,13 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
     assert len(ledgers) == 2
     assert {ledger.status for ledger in ledgers} == {"uploaded"}
     assert {ledger.destination_url for ledger in ledgers} == {
-        "https://r2.example.test/matalkimages/first.jpg",
-        "https://r2.example.test/matalkimages/second.jpg",
+        "https://r2.example.test/matalkimages/first__noun__reg__m__kid__w__sense-first__v1.jpg",
+        "https://r2.example.test/matalkimages/second__noun__reg__m__kid__w__sense-second__v1.jpg",
     }
 
     report = cloudflare_upload_report("r2_test_parallel", db_session)
     report_rows = list(DictReader(StringIO(report.body.decode("utf-8"))))
     assert {row["destination_url"] for row in report_rows} == {
-        "https://r2.example.test/matalkimages/first.jpg",
-        "https://r2.example.test/matalkimages/second.jpg",
+        "https://r2.example.test/matalkimages/first__noun__reg__m__kid__w__sense-first__v1.jpg",
+        "https://r2.example.test/matalkimages/second__noun__reg__m__kid__w__sense-second__v1.jpg",
     }

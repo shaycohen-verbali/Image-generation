@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
-from pathlib import Path
 from threading import local
 from time import monotonic
 from typing import Any
@@ -18,10 +16,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import CloudUpload, CloudUploadBatch
+from app.services.image_filenames import (
+    final_image_filename_for_field,
+    inventory_variant,
+    versioned_upload_filename,
+)
 from app.services.storage import materialize_path
 
 
-_PATH_FIELD_RE = re.compile(r"^(?P<age>[^_]+)_(?P<gender>[^_]+)_(?P<skin>[^_]+)_(?P<background>regular|white_bg)_path$")
 logger = logging.getLogger(__name__)
 
 
@@ -68,21 +70,11 @@ class CloudflareUploadService:
 
     @staticmethod
     def _filename(path: str) -> str:
-        value = str(path or "").split("/")[-1] or "image.jpg"
-        # Inventory image names are already safe and meaningful. Restrict only
-        # path separators so the original basename remains intact in R2.
-        value = value.replace("\\", "_").replace("/", "_")
-        if Path(value).suffix.lower() not in {".jpg", ".jpeg"}:
-            value = f"{Path(value).stem}.jpg"
-        return value
+        return versioned_upload_filename(path)
 
     @staticmethod
     def _variant(field_name: str) -> str:
-        match = _PATH_FIELD_RE.match(field_name)
-        if not match:
-            return field_name.removesuffix("_path")
-        background = "white_background" if match.group("background") == "white_bg" else "regular"
-        return f"{match.group('age')}/{match.group('gender')}/{match.group('skin')}/{background}"
+        return inventory_variant(field_name)
 
     @staticmethod
     def _compress(payload: bytes, quality: int) -> bytes:
@@ -142,7 +134,8 @@ class CloudflareUploadService:
                 if not str(field_name).endswith("_path") or not str(source_path or "").strip():
                     continue
                 variant = self._variant(str(field_name))
-                filename = self._filename(str(source_path))
+                canonical_filename = final_image_filename_for_field(word, pos, str(field_name), sense_id)
+                filename = versioned_upload_filename(str(source_path), canonical_filename=canonical_filename)
                 # Keep the R2 bucket flat. The object key is the filename only,
                 # so uploads land directly under the selected bucket root.
                 object_key = filename
