@@ -53,6 +53,18 @@ def _json_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _json_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
 def _nested(data: dict[str, Any], *path: str) -> Any:
     current: Any = data
     for key in path:
@@ -466,32 +478,43 @@ def estimate_stage_costs(stage_name: str, request_json: dict[str, Any], response
     return []
 
 
-def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
-    stage_costs: list[dict[str, Any]] = []
-    total = 0.0
-    counted_variant_units: Counter[tuple[str, int]] = Counter()
+def _compact_stage_costs(stage: Any) -> list[dict[str, Any]] | None:
+    """Return persisted cost entries, or None for a legacy row without them."""
+    if isinstance(stage, dict):
+        if "cost_summary_json" not in stage:
+            return None
+        raw = stage.get("cost_summary_json")
+    elif hasattr(stage, "cost_summary_json"):
+        raw = getattr(stage, "cost_summary_json")
+    else:
+        return None
+    if raw is None:
+        return None
+    return [dict(entry) for entry in _json_list(raw) if isinstance(entry, dict)]
 
+
+def persisted_stage_cost_entries(stages: list[Any]) -> tuple[list[dict[str, Any]], bool]:
+    """Read compact cost entries and report whether every stage has them."""
+    entries: list[dict[str, Any]] = []
+    complete = True
     for stage in stages:
-        if isinstance(stage, dict):
-            stage_name = stage.get("stage_name", "")
-            attempt = int(stage.get("attempt") or 0)
-            request_json = _json_dict(stage.get("request_json"))
-            response_json = _json_dict(stage.get("response_json"))
-        else:
-            stage_name = getattr(stage, "stage_name", "")
-            attempt = int(getattr(stage, "attempt", 0) or 0)
-            request_json = _json_dict(getattr(stage, "request_json", "{}"))
-            response_json = _json_dict(getattr(stage, "response_json", "{}"))
+        compact_entries = _compact_stage_costs(stage)
+        if compact_entries is None:
+            complete = False
+            continue
+        entries.extend(compact_entries)
+    return entries, complete
 
-        entries = estimate_stage_costs(stage_name, request_json, response_json, attempt)
-        stage_costs.extend(entries)
-        total += sum(float(entry["estimated_cost_usd"]) for entry in entries)
+
+def summarize_run_cost_entries(stage_costs: list[dict[str, Any]], assets: list[Any]) -> dict[str, Any]:
+    """Summarize already-computed stage costs without reading large payload columns."""
+    normalized_stage_costs = [dict(entry) for entry in stage_costs if isinstance(entry, dict)]
+    total = sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in normalized_stage_costs)
+    counted_variant_units: Counter[tuple[str, int]] = Counter()
+    for entry in normalized_stage_costs:
+        stage_name = str(entry.get("stage_name") or "")
         if stage_name in {"stage4_variant_generate", "stage5_variant_white_bg"}:
-            variants = response_json.get("variants")
-            variant_count = int(response_json.get("variant_count") or 0)
-            if variant_count <= 0:
-                variant_count = len(variants) if isinstance(variants, list) else 0
-            counted_variant_units[(stage_name, attempt)] += variant_count
+            counted_variant_units[(stage_name, int(entry.get("attempt") or 0))] += int(entry.get("unit_count") or 0)
 
     asset_list = list(assets or [])
     variant_assets_by_stage_attempt: dict[tuple[str, int], list[Any]] = {}
@@ -522,7 +545,7 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         unit_price = REPLICATE_IMAGE_RATES_USD.get(model_name, 0.0)
         estimated_cost_usd = unit_price * missing_count
         label = "Character Variant Final Images" if stage_name == "stage4_variant_generate" else "Character Variant White Background"
-        stage_costs.append(
+        normalized_stage_costs.append(
             {
                 "stage_name": stage_name,
                 "stage_label": label,
@@ -537,9 +560,9 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         total += estimated_cost_usd
 
     provider_breakdown = {
-        "google": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in stage_costs if str(entry.get("provider") or "") == "google"), 6),
-        "replicate": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in stage_costs if str(entry.get("provider") or "") == "replicate"), 6),
-        "openai": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in stage_costs if str(entry.get("provider") or "") == "openai"), 6),
+        "google": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in normalized_stage_costs if str(entry.get("provider") or "") == "google"), 6),
+        "replicate": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in normalized_stage_costs if str(entry.get("provider") or "") == "replicate"), 6),
+        "openai": round(sum(float(entry.get("estimated_cost_usd") or 0.0) for entry in normalized_stage_costs if str(entry.get("provider") or "") == "openai"), 6),
     }
     image_count = len(asset_list)
     avg = total / image_count if image_count > 0 else None
@@ -547,7 +570,31 @@ def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
         "estimated_total_cost_usd": round(total, 6),
         "estimated_cost_per_image_usd": round(avg, 6) if avg is not None else None,
         "image_count": image_count,
-        "stage_costs": stage_costs,
+        "stage_costs": normalized_stage_costs,
         "provider_breakdown": provider_breakdown,
         "estimate_note": "Estimated from official OpenAI and Gemini API standard pricing checked on 2026-07-22. Replicate-wrapped image steps are mapped to the closest published provider pricing, not invoice totals.",
     }
+
+
+def summarize_run_costs(stages: list[Any], assets: list[Any]) -> dict[str, Any]:
+    stage_costs: list[dict[str, Any]] = []
+
+    for stage in stages:
+        compact_entries = _compact_stage_costs(stage)
+        if compact_entries is not None:
+            stage_costs.extend(compact_entries)
+            continue
+
+        if isinstance(stage, dict):
+            stage_name = stage.get("stage_name", "")
+            attempt = int(stage.get("attempt") or 0)
+            request_json = _json_dict(stage.get("request_json"))
+            response_json = _json_dict(stage.get("response_json"))
+        else:
+            stage_name = getattr(stage, "stage_name", "")
+            attempt = int(getattr(stage, "attempt", 0) or 0)
+            request_json = _json_dict(getattr(stage, "request_json", "{}"))
+            response_json = _json_dict(getattr(stage, "response_json", "{}"))
+        stage_costs.extend(estimate_stage_costs(stage_name, request_json, response_json, attempt))
+
+    return summarize_run_cost_entries(stage_costs, assets)

@@ -167,6 +167,7 @@ class StageResultOut(BaseModel):
     status: str
     request_json: dict[str, Any]
     response_json: dict[str, Any]
+    payload_loaded: bool = False
     error_detail: str
     created_at: datetime
 

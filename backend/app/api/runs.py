@@ -21,7 +21,7 @@ from app.schemas import (
     StopRunResponse,
     StageResultOut,
 )
-from app.services.cost_estimator import summarize_run_costs
+from app.services.cost_estimator import persisted_stage_cost_entries, summarize_run_cost_entries, summarize_run_costs
 from app.services.repository import Repository
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
@@ -321,14 +321,22 @@ def get_run(run_id: str, include_debug: bool = Query(default=False), db: Session
         run, stages, prompts, assets, scores = repo.run_details(run_id)
         events = repo.list_run_events(run_id)
     else:
-        run, stages, assets, scores = repo.run_snapshot(run_id)
+        run, stages, assets, scores = repo.run_snapshot(run_id, include_stage_payloads=False)
         prompts = []
         events = []
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
     entry = repo.get_entry(run.entry_id)
-    cost_summary = summarize_run_costs(stages, assets)
+    if include_debug:
+        cost_summary = summarize_run_costs(stages, assets)
+    else:
+        persisted_entries, cost_data_complete = persisted_stage_cost_entries(stages)
+        cost_summary = (
+            summarize_run_cost_entries(persisted_entries, assets)
+            if stages and cost_data_complete
+            else {}
+        )
     if entry and entry.batch:
         cost_summary["batch_job"] = repo.batch_job_summary(entry.batch)
     run_payload = _run_out(run, entry, cost_summary=cost_summary)
@@ -344,8 +352,9 @@ def get_run(run_id: str, include_debug: bool = Query(default=False), db: Session
                 stage_name=stage.stage_name,
                 attempt=stage.attempt,
                 status=stage.status,
-                request_json=_sanitize_payload(_json_dict(stage.request_json)),
-                response_json=_sanitize_payload(_json_dict(stage.response_json)),
+                request_json=_sanitize_payload(_json_dict(stage.request_json)) if include_debug else {},
+                response_json=_sanitize_payload(_json_dict(stage.response_json)) if include_debug else {},
+                payload_loaded=include_debug,
                 error_detail=_truncate_text(stage.error_detail),
                 created_at=stage.created_at,
             )

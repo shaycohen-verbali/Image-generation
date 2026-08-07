@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import CsvJobAggregate, CsvTaskAttempt, CsvTaskNode
-from app.services.cost_estimator import summarize_run_costs
+from app.services.cost_estimator import persisted_stage_cost_entries, summarize_run_cost_entries, summarize_run_costs
 from app.services.repository import Repository
 
 PRICING_VERSION = "provider-pricing-2026-07-22-v2"
@@ -40,15 +40,23 @@ class JobSummaryService:
         return Repository.json_field_dict(row.details_json)
 
     def live_details(self, job_id: str) -> dict[str, Any] | None:
-        """Return the cost accumulated so far without persisting a mutable summary."""
+        """Return compact cost data without loading the large stage payload columns."""
         items = self.repo.list_csv_job_items(job_id)
         run_ids = list(dict.fromkeys(
             str(item.shadow_run_id) for item in items if str(item.shadow_run_id or "").strip()
         ))
-        snapshots = self.repo.get_run_cost_inputs_by_ids(run_ids)
+        snapshots = self.repo.get_run_cost_inputs_by_ids(run_ids, include_stage_payloads=False)
         cost_entries: list[dict[str, Any]] = []
         for snapshot in snapshots.values():
-            cost_entries.extend(summarize_run_costs(snapshot.get("stages", []), snapshot.get("assets", []))["stage_costs"])
+            persisted_entries, cost_data_complete = persisted_stage_cost_entries(snapshot.get("stages", []))
+            if not snapshot.get("cost_data_complete") or not cost_data_complete:
+                continue
+            cost_entries.extend(
+                summarize_run_cost_entries(
+                    persisted_entries,
+                    snapshot.get("assets", []),
+                )["stage_costs"]
+            )
 
         cost_by_stage: dict[str, float] = defaultdict(float)
         cost_by_provider: dict[str, float] = defaultdict(float)

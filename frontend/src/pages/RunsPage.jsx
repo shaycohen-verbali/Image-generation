@@ -530,6 +530,23 @@ function dedupeCostRows(items) {
   return Array.from(map.values())
 }
 
+function mergeStageRows(previousItems, nextItems) {
+  const map = new Map()
+  ;[...(Array.isArray(previousItems) ? previousItems : []), ...(Array.isArray(nextItems) ? nextItems : [])].forEach((item) => {
+    if (!item || !item.id) return
+    const previous = map.get(item.id)
+    const payloadLoaded = Boolean(item.payload_loaded || previous?.payload_loaded)
+    map.set(item.id, {
+      ...(previous || {}),
+      ...item,
+      request_json: payloadLoaded && !item.payload_loaded ? (previous?.request_json || {}) : (item.request_json || {}),
+      response_json: payloadLoaded && !item.payload_loaded ? (previous?.response_json || {}) : (item.response_json || {}),
+      payload_loaded: payloadLoaded,
+    })
+  })
+  return Array.from(map.values())
+}
+
 function mergeRunDetail(previous, next) {
   if (!next) return previous
   if (!previous) return next
@@ -538,7 +555,7 @@ function mergeRunDetail(previous, next) {
     ...previous,
     ...next,
     run: { ...previous.run, ...next.run },
-    stages: dedupeById([...(previous.stages || []), ...(next.stages || [])]),
+    stages: mergeStageRows(previous.stages, next.stages),
     prompts: dedupeById([...(previous.prompts || []), ...(next.prompts || [])]),
     assets: dedupeById([...(previous.assets || []), ...(next.assets || [])]),
     scores: dedupeById([...(previous.scores || []), ...(next.scores || [])]),

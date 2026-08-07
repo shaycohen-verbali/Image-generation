@@ -178,16 +178,21 @@ class WordSourceService:
         position = func.row_number().over(
             order_by=(func.lower(table.c.word), table.c.part_of_speech, table.c.sense_id, table.c.id)
         ).label("position")
-        ordered_query = select(*table.c, position)
+        # Rank only the identifiers needed for the window sort. The inventory
+        # contains many wide prompt/path columns, and sorting all of them was
+        # generating large temporary files on the live database.
+        ordered_query = select(table.c.id.label("_selection_id"), position)
         if not include_inactive:
             ordered_query = ordered_query.where(table.c.is_active.is_(True))
-        ordered = ordered_query.subquery()
-        query = select(ordered)
+        ordered = ordered_query.subquery("ordered_word_inventory_ids")
+        query = select(*table.c, ordered.c.position).select_from(
+            table.join(ordered, ordered.c._selection_id == table.c.id)
+        )
         if mode == "single":
             selected_id = str(row_id or "").strip()
             if not selected_id:
                 raise ValueError("Choose one exact word row")
-            query = query.where(ordered.c.id == selected_id)
+            query = query.where(table.c.id == selected_id)
         elif mode == "range":
             start = int(range_start or 0)
             end = int(range_end or 0)
@@ -196,7 +201,7 @@ class WordSourceService:
             query = query.where(ordered.c.position.between(start, end))
         normalized_pos = sorted({str(value or "").strip().lower() for value in (parts_of_speech or []) if str(value or "").strip()})
         if normalized_pos:
-            query = query.where(func.lower(ordered.c.part_of_speech).in_(normalized_pos))
+            query = query.where(func.lower(table.c.part_of_speech).in_(normalized_pos))
         return query
 
     def get_rows(

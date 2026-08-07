@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import Select, desc, func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models import (
     Asset,
@@ -25,6 +25,7 @@ from app.models import (
     Score,
     StageResult,
 )
+from app.services.cost_estimator import estimate_stage_costs
 from app.services.model_catalog import (
     normalize_image_aspect_ratio,
     normalize_image_format,
@@ -360,6 +361,7 @@ class Repository:
         stages = list(
             self.db.execute(
                 select(StageResult)
+                .options(defer(StageResult.request_json), defer(StageResult.response_json))
                 .where(StageResult.run_id.in_(normalized))
                 .order_by(StageResult.run_id.asc(), StageResult.created_at.asc())
             ).scalars()
@@ -378,23 +380,49 @@ class Repository:
                 .order_by(Score.run_id.asc(), Score.created_at.asc())
             ).scalars()
         )
-        grouped: dict[str, dict[str, Any]] = {run_id: {"stages": [], "assets": [], "scores": []} for run_id in normalized}
+        grouped: dict[str, dict[str, Any]] = {
+            run_id: {"stages": [], "assets": [], "scores": [], "cost_data_complete": True}
+            for run_id in normalized
+        }
         for stage in stages:
-            grouped.setdefault(stage.run_id, {"stages": [], "assets": [], "scores": []})["stages"].append(stage)
+            snapshot = grouped.setdefault(
+                stage.run_id,
+                {"stages": [], "assets": [], "scores": [], "cost_data_complete": True},
+            )
+            snapshot["stages"].append(stage)
+            if stage.cost_summary_json is None:
+                snapshot["cost_data_complete"] = False
         for asset in assets:
-            grouped.setdefault(asset.run_id, {"stages": [], "assets": [], "scores": []})["assets"].append(asset)
+            grouped.setdefault(
+                asset.run_id,
+                {"stages": [], "assets": [], "scores": [], "cost_data_complete": True},
+            )["assets"].append(asset)
         for score in scores:
-            grouped.setdefault(score.run_id, {"stages": [], "assets": [], "scores": []})["scores"].append(score)
+            grouped.setdefault(
+                score.run_id,
+                {"stages": [], "assets": [], "scores": [], "cost_data_complete": True},
+            )["scores"].append(score)
         return grouped
 
-    def get_run_cost_inputs_by_ids(self, run_ids: list[str]) -> dict[str, dict[str, Any]]:
+    def get_run_cost_inputs_by_ids(
+        self,
+        run_ids: list[str],
+        *,
+        include_stage_payloads: bool = True,
+    ) -> dict[str, dict[str, Any]]:
         """Load only the recorded stage and asset rows used by terminal cost summaries."""
         normalized = list(dict.fromkeys(str(value or "").strip() for value in run_ids if str(value or "").strip()))
         if not normalized:
             return {}
+        stage_query = select(StageResult)
+        if not include_stage_payloads:
+            stage_query = stage_query.options(
+                defer(StageResult.request_json),
+                defer(StageResult.response_json),
+            )
         stages = list(
             self.db.execute(
-                select(StageResult)
+                stage_query
                 .where(StageResult.run_id.in_(normalized))
                 .order_by(StageResult.run_id.asc(), StageResult.created_at.asc())
             ).scalars()
@@ -406,11 +434,23 @@ class Repository:
                 .order_by(Asset.run_id.asc(), Asset.created_at.asc())
             ).scalars()
         )
-        grouped: dict[str, dict[str, Any]] = {run_id: {"stages": [], "assets": []} for run_id in normalized}
+        grouped: dict[str, dict[str, Any]] = {
+            run_id: {"stages": [], "assets": [], "cost_data_complete": True}
+            for run_id in normalized
+        }
         for stage in stages:
-            grouped.setdefault(stage.run_id, {"stages": [], "assets": []})["stages"].append(stage)
+            snapshot = grouped.setdefault(
+                stage.run_id,
+                {"stages": [], "assets": [], "cost_data_complete": True},
+            )
+            snapshot["stages"].append(stage)
+            if stage.cost_summary_json is None:
+                snapshot["cost_data_complete"] = False
         for asset in assets:
-            grouped.setdefault(asset.run_id, {"stages": [], "assets": []})["assets"].append(asset)
+            grouped.setdefault(
+                asset.run_id,
+                {"stages": [], "assets": [], "cost_data_complete": True},
+            )["assets"].append(asset)
         return grouped
 
     def list_runs(
@@ -685,6 +725,11 @@ class Repository:
         response_json: dict[str, Any],
         error_detail: str = "",
     ) -> StageResult:
+        try:
+            cost_summary_json = _dumps(estimate_stage_costs(stage_name, request_json, response_json, attempt))
+        except Exception:
+            # Cost accounting must never prevent a stage result from being recorded.
+            cost_summary_json = "[]"
         existing = self.db.execute(
             select(StageResult)
             .where(StageResult.run_id == run_id)
@@ -695,6 +740,7 @@ class Repository:
             existing.status = status
             existing.request_json = _dumps(request_json)
             existing.response_json = _dumps(response_json)
+            existing.cost_summary_json = cost_summary_json
             existing.error_detail = error_detail
             self.db.add(existing)
             self.db.commit()
@@ -709,6 +755,7 @@ class Repository:
             idempotency_key=idempotency_key,
             request_json=_dumps(request_json),
             response_json=_dumps(response_json),
+            cost_summary_json=cost_summary_json,
             error_detail=error_detail,
         )
         self.db.add(record)
@@ -951,13 +998,24 @@ class Repository:
         )
         return run, stages, prompts, assets, scores
 
-    def run_snapshot(self, run_id: str) -> tuple[Run | None, list[StageResult], list[Asset], list[Score]]:
+    def run_snapshot(
+        self,
+        run_id: str,
+        *,
+        include_stage_payloads: bool = True,
+    ) -> tuple[Run | None, list[StageResult], list[Asset], list[Score]]:
         run = self.get_run(run_id)
         if run is None:
             return None, [], [], []
+        stage_query = select(StageResult)
+        if not include_stage_payloads:
+            stage_query = stage_query.options(
+                defer(StageResult.request_json),
+                defer(StageResult.response_json),
+            )
         stages = list(
             self.db.execute(
-                select(StageResult)
+                stage_query
                 .where(StageResult.run_id == run_id)
                 .order_by(StageResult.created_at.asc())
             ).scalars()

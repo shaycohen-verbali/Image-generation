@@ -81,6 +81,9 @@ class StageResult(Base):
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     request_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     response_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    # Compact cost entries let polling endpoints avoid loading the large JSON payloads above.
+    # NULL identifies rows written before this column was introduced.
+    cost_summary_json: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")
     error_detail: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
 

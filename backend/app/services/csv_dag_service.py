@@ -15,7 +15,7 @@ from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry, Run
 from app.core.config import get_settings
 from app.inventory_models import inventory_slot_column_name
 from app.schemas import ExecutionMode
-from app.services.cost_estimator import summarize_run_costs
+from app.services.cost_estimator import persisted_stage_cost_entries, summarize_run_cost_entries
 from app.services.csv_service import parse_entries_csv, validate_entry_row
 from app.services.inventory_sync import InventorySyncService
 from app.services.inventory_sync import normalize_csv_job_export_fields
@@ -66,6 +66,8 @@ EXPORT_IMAGES_CSV_FIELDS = [
     "missing_slots_json",
     "failure_reasons_json",
 ]
+
+
 EXPORT_PROMPTS_CSV_FIELDS = [
     "row_index",
     "word",
@@ -1760,13 +1762,20 @@ Debugging and backwards-compatible files are under `_metadata/`.
         runs_by_id = self.repo.get_runs_by_ids(
             [item.shadow_run_id for item in overview["items"] if str(item.shadow_run_id or "").strip()]
         )
-        # Cost is recorded stage-by-stage, so a live job can show the spend already
-        # incurred rather than waiting for every shadow run to become terminal.
+        # Cost is recorded stage-by-stage in a compact column. The snapshot query
+        # deliberately defers the large request/response payloads.
         run_snapshots = self.repo.get_run_snapshots_by_ids(list(runs_by_id))
-        cost_summary_by_run_id = {
-            run_id: summarize_run_costs(snapshot.get("stages", []), snapshot.get("assets", []))
-            for run_id, snapshot in run_snapshots.items()
-        }
+        cost_summary_by_run_id = {}
+        for run_id, snapshot in run_snapshots.items():
+            persisted_entries, cost_data_complete = persisted_stage_cost_entries(snapshot.get("stages", []))
+            cost_summary = summarize_run_cost_entries(
+                persisted_entries,
+                snapshot.get("assets", []),
+            )
+            cost_summary["cost_data_complete"] = bool(
+                snapshot.get("cost_data_complete") and cost_data_complete and snapshot.get("stages")
+            )
+            cost_summary_by_run_id[run_id] = cost_summary
         available_profiles_by_entry = inventory_service.available_profiles_for_entries(list(entries_by_id.values()))
         items_payload: list[dict[str, Any]] = []
         word_counts = {"pending": 0, "running": 0, "completed": 0, "failure": 0, "previously_done": 0, "not_applicable": 0}
@@ -1783,7 +1792,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
             cost_summary = cost_summary_by_run_id.get(shadow_run.id, {}) if shadow_run else {}
             estimated_item_cost = (
                 float(cost_summary.get("estimated_total_cost_usd") or 0.0)
-                if shadow_run and shadow_run.id in run_snapshots
+                if shadow_run and cost_summary.get("cost_data_complete")
                 else None
             )
             if estimated_item_cost is not None:
@@ -1882,7 +1891,11 @@ Debugging and backwards-compatible files are under `_metadata/`.
             "tasks": tasks_payload,
             "word_counts": word_counts,
             "requested_profile_history": self._requested_profile_history(job),
-            "estimated_total_cost_usd": round(total_estimated_cost_usd, 6) if run_snapshots else None,
+            "estimated_total_cost_usd": (
+                round(total_estimated_cost_usd, 6)
+                if any(summary.get("cost_data_complete") for summary in cost_summary_by_run_id.values())
+                else None
+            ),
             "provider_breakdown": {
                 key: round(value, 6) for key, value in provider_breakdown.items()
             },

@@ -237,6 +237,11 @@ def _ensure_hot_indexes() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_jobs_status_created_at ON csv_jobs (status, created_at DESC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_job_status_created_at ON csv_task_nodes (csv_job_id, status, created_at ASC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_item_status ON csv_task_nodes (csv_job_item_id, status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_job_items_base_regular_asset_id ON csv_job_items (base_regular_asset_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_job_items_base_white_bg_asset_id ON csv_job_items (base_white_bg_asset_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_source_asset_id ON csv_task_nodes (source_asset_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_regular_asset_id ON csv_task_nodes (regular_asset_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_white_bg_asset_id ON csv_task_nodes (white_bg_asset_id)"))
         # CSV job overviews read these tables by run and then display them in
         # creation order. Composite indexes avoid sorting/scanning the full
         # history while a batch is actively producing rows.
