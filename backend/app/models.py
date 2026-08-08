@@ -373,3 +373,33 @@ class RuntimeConfig(Base):
     openai_model_vision: Mapped[str] = mapped_column(String(128), default="gemini-3-flash-preview", nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class WorkerHeartbeat(Base):
+    """Liveness for the worker process, which runs beside the API on Render.
+
+    The API answering a request says nothing about the worker: they are separate
+    processes inside one service, started by `python -m app.worker &`, and
+    nothing restarts the worker if it dies. Without this row a dead worker looks
+    exactly like an idle one.
+    """
+
+    __tablename__ = "worker_heartbeats"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False, index=True)
+
+
+class NotificationLog(Base):
+    """One row per delivered notification, so a restart cannot re-alert."""
+
+    __tablename__ = "notification_log"
+    __table_args__ = (
+        UniqueConstraint("kind", "subject_id", name="uq_notification_log_subject"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"ntf_{uuid.uuid4().hex[:24]}")
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)

@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import logging
+import os
+import socket
 import time
 
 from sqlalchemy import select
@@ -18,6 +20,8 @@ from app.services.task_health_monitor import TaskHealthMonitor
 from app.services.job_summary_service import JobSummaryService
 from app.models import CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService
+from app.services.slack_alerts import SlackAlertService
+from app.core.runtime import PROCESS_STARTED_AT
 
 # Recover stale database tasks that were orphaned by a worker crash or restart.
 # Tasks still owned by a live future must never be failed here: Python cannot
@@ -31,6 +35,9 @@ WORKER_EXECUTOR_MAX = 64
 WORKER_CLAIM_BURST_MAX = 2
 WORKER_CLAIM_SETTLE_SECONDS = 0.5
 WORKER_ERROR_BACKOFF_MAX_SECONDS = 15.0
+# Often enough that a dead worker is obvious within a minute, rare enough that
+# an idle worker is not writing to the database constantly.
+WORKER_HEARTBEAT_SECONDS = 30.0
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +60,13 @@ def _process_single_csv_task(task_id: str) -> None:
                     "job summary skipped",
                     extra={"status": type(exc).__name__},
                 )
+        # The batch may have just finished on this task. The alert claims itself
+        # through the notification log, so calling it per task is safe.
+        try:
+            SlackAlertService(db).notify_job_finished(task.csv_job_id)
+        except Exception as exc:  # noqa: BLE001 - never fail a task over a DM
+            db.rollback()
+            logger.warning("slack alert skipped", extra={"status": type(exc).__name__})
 
 
 def _process_cloud_upload_batch(batch_id: str) -> None:
@@ -117,6 +131,8 @@ def run_worker() -> None:
     init_db()
 
     logger.info("worker started")
+    worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    next_heartbeat_at = 0.0
     active_runs: dict[Future, str] = {}
     active_csv_tasks: dict[Future, str] = {}
     active_cloud_uploads: dict[Future, str] = {}
@@ -140,8 +156,25 @@ def run_worker() -> None:
                         timeout_seconds=CSV_TASK_TIMEOUT_SECONDS,
                         exclude_task_ids=active_csv_tasks.values(),
                     )
+                    if time.monotonic() >= next_heartbeat_at:
+                        repo.record_worker_heartbeat(
+                            worker_id=worker_id, started_at=PROCESS_STARTED_AT
+                        )
+                        next_heartbeat_at = time.monotonic() + WORKER_HEARTBEAT_SECONDS
                     if settings.phase7_monitoring_enabled:
-                        task_health_monitor.maybe_emit(db)
+                        health = task_health_monitor.maybe_emit(db)
+                        if health and int(health.get("stale_tasks") or 0):
+                            try:
+                                SlackAlertService(db).notify_stalled(
+                                    stale_tasks=int(health["stale_tasks"]),
+                                    oldest_age_seconds=health.get("oldest_running_age_seconds"),
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                db.rollback()
+                                logger.warning(
+                                    "slack stall alert skipped",
+                                    extra={"status": type(exc).__name__},
+                                )
 
                 if timed_out_task_ids:
                     logger.warning(

@@ -9,14 +9,19 @@ Commands:
 | Command | Does |
 |---|---|
 | `status` | What is running right now, with progress and last image time |
+| `last` | The most recently finished job, ignoring anything still running |
 | `csv [id]` | Job detail; defaults to the running job |
-| `health` | App and DB health, running vs waiting job counts |
+| `health` | API and worker uptime, DB, running vs waiting job counts |
 | `active` | Jobs running or waiting to start |
-| `run <id>` | Legacy run status |
-| `export <id>` | Export status and download link |
+| `generate range 1-50` | Import from Supabase `word_inventory` and start it |
 | `start [id]` | Start an imported job; lists candidates if no id given |
 | `stop [id]` | Stop the running job |
 | `retry [id]` | Requeue failed rows |
+| `run <id>` / `export <id>` | Legacy run and export detail |
+
+`generate` accepts `range A-B`, `row <id>`, or `all`, plus optional
+`pos=noun,verb`, `gender=male,female`, `age=kid`, `skin=white`. Selections over
+50 words require `confirm` on the end, because a typo spends real credits.
 
 The job id is optional everywhere it appears. With one job running the bot uses
 it; with several it asks which; with none, read commands fall back to the most
@@ -97,6 +102,42 @@ secret from your shell and never prints it.
 
 In Slack, DM the bot or run `/verbali health`. Both paths go through the same
 dispatcher, so if one works the other should too.
+
+## Push alerts
+
+Set `SLACK_ALERT_USER_ID` to your member ID and the worker will DM you without
+being asked:
+
+- **Batch finished** - counts, cost, and a `retry` hint when rows failed.
+- **Batch may be stuck** - raised when tasks have been running without
+  finishing, so a wedged job does not sit unnoticed overnight.
+
+Each alert is claimed in the `notification_log` table before it is sent, so a
+worker restart cannot re-announce old jobs, and two worker instances racing on
+the same job still produce one message.
+
+If the worker runs as a **separate** Render service, `SLACK_BOT_TOKEN` and
+`SLACK_ALERT_USER_ID` must be set there too. Missing them fails silently, at
+exactly the moment you are relying on an alert.
+
+## Knowing whether the backend is alive
+
+`health` reports two independent processes:
+
+- **API uptime** - how long the web process has been up. Because Render replaces
+  the process on every deploy, crash, and restart, this doubles as "when did it
+  last restart".
+- **Worker heartbeat** - the worker writes to `worker_heartbeats` every 30s.
+  Four missed beats and `health` flags it as NOT RESPONDING.
+
+The worker check is the one that matters: the worker is a separate process
+started with `&` inside the same service, nothing restarts it if it dies, and
+Render's own health check only watches uvicorn. Before this, a dead worker and
+an idle worker looked identical.
+
+The obvious limit: if the whole service is down, Slack gets no answer at all.
+Silence is itself the signal. `health` cannot show Render deploy history - that
+would need a `RENDER_API_KEY` and a call to Render's API.
 
 ## Traps hit during the first setup
 

@@ -29,7 +29,7 @@ features:
     - command: /verbali
       url: https://image-gen-api-mibv.onrender.com/api/v1/slack/commands
       description: Status and control for image generation batches
-      usage_hint: status | health | active | stop | retry | start <id>
+      usage_hint: status | last | health | stop | retry | generate range 1-50
       should_escape: false
 
 oauth_config:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.runtime import PROCESS_STARTED_AT, format_duration, uptime_seconds
 from app.services.csv_dag_service import CsvDagService
 from app.services.http_client import get_http_session
 from app.services.repository import Repository
@@ -16,7 +18,13 @@ from app.services.repository import Repository
 SLACK_SIGNATURE_VERSION = "v0"
 SLACK_SIGNATURE_TOLERANCE_SECONDS = 60 * 5
 
-WRITE_COMMANDS = {"start", "stop", "cancel", "retry"}
+WRITE_COMMANDS = {"start", "stop", "cancel", "retry", "generate"}
+WORD_SOURCE_TABLE = "word_inventory"
+# The worker beats every 30s, so four missed beats is a real problem rather
+# than a slow loop.
+WORKER_HEARTBEAT_STALE_SECONDS = 120
+# Above this many words, `generate` asks for confirmation before spending.
+GENERATE_CONFIRM_THRESHOLD = 50
 # "imported" means created but never started, which is not the same as working.
 # Keeping the two apart stops `health` from reporting idle jobs as active.
 RUNNING_JOB_STATUSES = {"queued", "retry_queued", "running", "cancel_requested"}
@@ -153,6 +161,10 @@ class SlackService:
             return self._stop_job(args[0] if args else "")
         if command == "retry":
             return self._retry_job(args[0] if args else "")
+        if command in {"last", "latest"}:
+            return self._last_job_summary()
+        if command == "generate":
+            return self._generate(args)
         if command == "status":
             # Bare `status` answers "what is happening right now", which is the
             # common case: you know a batch is running, not its id.
@@ -268,14 +280,31 @@ class SlackService:
         return (
             "*Verbali Slack commands*\n"
             "`status` - what is running right now\n"
+            "`last` - the most recently finished job\n"
             "`csv [csv_job_id]` - job detail, defaults to the running job\n"
-            "`health` - app and DB health\n"
+            "`health` - API and worker uptime, DB, job counts\n"
             "`active` - jobs that are running or waiting to start\n"
-            "`run <run_id>` - legacy run status\n"
-            "`export <export_id|csv_job_id>` - export status\n"
+            "`generate range 1-50` - generate from the Supabase word inventory\n"
             "`start [csv_job_id]` - start an imported job\n"
             "`stop [csv_job_id]` - stop the running job\n"
-            "`retry [csv_job_id]` - requeue failed rows"
+            "`retry [csv_job_id]` - requeue failed rows\n"
+            "`run <run_id>` / `export <id>` - legacy run and export detail"
+        )
+
+    def _worker_line(self) -> str:
+        beat = self.repo.get_latest_worker_heartbeat()
+        if beat is None:
+            return "Worker: no heartbeat yet - either not deployed with heartbeats, or never started"
+        age_seconds = max(0, int((datetime.utcnow() - beat.last_seen_at).total_seconds()))
+        if age_seconds > WORKER_HEARTBEAT_STALE_SECONDS:
+            return (
+                f":rotating_light: Worker: NOT RESPONDING - last beat {_format_age(beat.last_seen_at)}."
+                " Nothing restarts it automatically; redeploy the Render service."
+            )
+        uptime = int((datetime.utcnow() - beat.started_at).total_seconds())
+        return (
+            f"Worker: ok - last beat {_format_age(beat.last_seen_at)},"
+            f" up {format_duration(uptime)} (restarted {_format_age(beat.started_at)})"
         )
 
     def _health_summary(self) -> str:
@@ -288,13 +317,116 @@ class SlackService:
         ]
         return (
             "*Verbali health*\n"
-            "API: ok\n"
+            f"API: ok - up {format_duration(uptime_seconds())}"
+            f" (restarted {_format_age(PROCESS_STARTED_AT)})\n"
             "DB: reachable\n"
+            f"{self._worker_line()}\n"
             f"Running CSV jobs: {len(running_jobs)}\n"
             f"Imported, not started: {len(pending_jobs)}\n"
             f"Active legacy runs: {len(active_runs)}\n"
             f"Legacy runs in DB: {run_count}"
         )
+
+    def _last_job_summary(self) -> str:
+        finished = self._jobs_by_status(TERMINAL_JOB_STATUSES)
+        if not finished:
+            return "No job has finished yet."
+        finished.sort(key=lambda job: job.get("finished_at") or datetime.min, reverse=True)
+        return self._csv_summary(str(finished[0]["id"]))
+
+    def _generate(self, args: list[str]) -> str:
+        if not args:
+            return (
+                "*Generate images from the Supabase word inventory*\n"
+                "`generate range 1-50` | `generate row <row_id>` | `generate all`\n"
+                "Options: `pos=noun,verb` `gender=male,female` `age=kid` `skin=white`"
+            )
+
+        confirmed = any(token.lower() == "confirm" for token in args)
+        options: dict[str, list[str]] = {}
+        positional: list[str] = []
+        for token in args:
+            if token.lower() == "confirm":
+                continue
+            if "=" in token:
+                key, _, value = token.partition("=")
+                options[key.strip().lower()] = [
+                    item.strip().lower() for item in value.split(",") if item.strip()
+                ]
+            else:
+                positional.append(token)
+
+        mode = positional[0].lower() if positional else ""
+        row_id, range_start, range_end = "", None, None
+        if mode == "range":
+            spec = positional[1] if len(positional) > 1 else ""
+            match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", spec)
+            if match is None:
+                return "Usage: `generate range 1-50`"
+            range_start, range_end = int(match.group(1)), int(match.group(2))
+            if range_end < range_start:
+                return "The range end cannot be smaller than the range start."
+            selection_mode = "range"
+        elif mode == "row":
+            row_id = positional[1] if len(positional) > 1 else ""
+            if not row_id:
+                return "Usage: `generate row <row_id>`"
+            selection_mode = "single"
+        elif mode == "all":
+            selection_mode = "all"
+        else:
+            return f"Unknown selection `{mode or '(none)'}`. Use `range`, `row`, or `all`."
+
+        from app.services.word_sources import WordSourceService
+
+        try:
+            rows = WordSourceService().get_rows(
+                WORD_SOURCE_TABLE,
+                selection_mode=selection_mode,
+                row_id=row_id,
+                range_start=range_start,
+                range_end=range_end,
+                parts_of_speech=options.get("pos", []),
+            )
+        except ValueError as exc:
+            return f"Bad selection: {exc}"
+        except RuntimeError as exc:
+            return f"Word source unavailable: {exc}"
+        if not rows:
+            return "No rows in `word_inventory` matched that selection."
+
+        if len(rows) > GENERATE_CONFIRM_THRESHOLD and not confirmed:
+            # A typo here can cost real money, so make the large case deliberate.
+            return (
+                f"That selection matches *{len(rows)} words* and will spend provider credits.\n"
+                "Send the same command again with `confirm` on the end to start it."
+            )
+
+        result = self.csv_service.import_word_source_rows(
+            table_name=WORD_SOURCE_TABLE,
+            rows=rows,
+            person_gender_options=options.get("gender", []),
+            person_age_options=options.get("age", []),
+            person_skin_color_options=options.get("skin", []),
+        )
+        job_id = str(result.get("job_id") or "")
+        try:
+            started = self.csv_service.start_job(job_id)
+        except RuntimeError as exc:
+            return f"Imported `{job_id}` but could not start it: {exc}"
+
+        lines = [
+            f"Started `{started.id}` - status {started.status}",
+            f"Imported {result.get('imported_count') or 0} words"
+            f" (skipped {result.get('skipped_count') or 0})",
+        ]
+        profiles = ", ".join(
+            options.get("gender", []) + options.get("age", []) + options.get("skin", [])
+        )
+        if profiles:
+            lines.append(f"Variants: {profiles}")
+        lines.append("Reply `status` to watch it.")
+        return "\n".join(lines)
 
     def _active_summary(self) -> str:
         csv_jobs = self._jobs_by_status(ACTIVE_JOB_STATUSES)[:8]

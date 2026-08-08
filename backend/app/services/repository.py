@@ -18,12 +18,14 @@ from app.models import (
     CsvTaskNode,
     Entry,
     Export,
+    NotificationLog,
     Prompt,
     Run,
     RunEvent,
     RuntimeConfig,
     Score,
     StageResult,
+    WorkerHeartbeat,
 )
 from app.services.cost_estimator import estimate_stage_costs
 from app.services.model_catalog import (
@@ -1135,6 +1137,35 @@ class Repository:
             "last_progress_at": max(progress_timestamps) if progress_timestamps else None,
             "not_applicable_count": not_applicable_count,
         }
+
+    def record_worker_heartbeat(self, *, worker_id: str, started_at: datetime) -> None:
+        beat = self.db.get(WorkerHeartbeat, worker_id)
+        now = datetime.utcnow()
+        if beat is None:
+            self.db.add(WorkerHeartbeat(id=worker_id, started_at=started_at, last_seen_at=now))
+        else:
+            beat.started_at = started_at
+            beat.last_seen_at = now
+        self.db.commit()
+
+    def get_latest_worker_heartbeat(self) -> WorkerHeartbeat | None:
+        return self.db.scalars(
+            select(WorkerHeartbeat).order_by(desc(WorkerHeartbeat.last_seen_at)).limit(1)
+        ).first()
+
+    def claim_notification(self, *, kind: str, subject_id: str) -> bool:
+        """Reserve a one-time notification. False means someone already sent it.
+
+        The unique constraint is what actually prevents a duplicate, so two
+        worker instances racing on the same job still produce one alert.
+        """
+        self.db.add(NotificationLog(kind=kind, subject_id=subject_id))
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            return False
+        return True
 
     def get_csv_job_last_completed_task_at(self, csv_job_id: str) -> datetime | None:
         """When this job last finished producing an image.
