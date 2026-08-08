@@ -36,6 +36,7 @@ Copy `.env.example` to `.env` and set:
 - optional `REPLICATE_BASE_URL` (defaults to `https://api.replicate.com` for direct requests)
 - `INVENTORY_DATABASE_URL` to enable the Supabase `word_inventory` picker and writeback
 - optional assistant overrides and thresholds
+- `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_ALLOWED_USER_IDS` to enable the Slack bot — see [docs/slack_setup.md](docs/slack_setup.md)
 
 ## Backend Run
 ```bash

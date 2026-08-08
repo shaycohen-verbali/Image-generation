@@ -1,0 +1,50 @@
+# Slack app manifest for the Verbali image-generation bot.
+#
+# Usage: https://api.slack.com/apps -> Create New App -> From an app manifest
+# The request URLs below point at the live Render service `image-gen-api`,
+# which auto-deploys `main`. No placeholders left to fill in.
+#
+# Scope notes:
+#   commands   - the /verbali slash command
+#   chat:write - bot replies in DMs and Step 4 push alerts
+#   im:history - read direct messages sent to the bot
+#   im:write   - open the DM conversation for unsolicited push alerts
+#
+# Slack validates the event request URL by POSTing a challenge the moment you
+# create the app. The backend answers that challenge before it checks the
+# signature, so this succeeds even before SLACK_SIGNING_SECRET is set in Render.
+# The Render service does have to be awake, though - a cold start can time the
+# check out. If it fails, retry once the service is up.
+
+display_information:
+  name: Verbali Ops
+  description: Status and control for the AAC image generation pipeline
+  background_color: "#2c2d30"
+
+features:
+  bot_user:
+    display_name: Verbali Ops
+    always_online: false
+  slash_commands:
+    - command: /verbali
+      url: https://image-gen-api-mibv.onrender.com/api/v1/slack/commands
+      description: Status and control for image generation batches
+      usage_hint: status | health | active | stop | retry | start <id>
+      should_escape: false
+
+oauth_config:
+  scopes:
+    bot:
+      - commands
+      - chat:write
+      - im:history
+      - im:write
+
+settings:
+  event_subscriptions:
+    request_url: https://image-gen-api-mibv.onrender.com/api/v1/slack/events
+    bot_events:
+      - message.im
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

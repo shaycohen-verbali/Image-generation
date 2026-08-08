@@ -1136,6 +1136,19 @@ class Repository:
             "not_applicable_count": not_applicable_count,
         }
 
+    def get_csv_job_last_completed_task_at(self, csv_job_id: str) -> datetime | None:
+        """When this job last finished producing an image.
+
+        `get_csv_job_summary_counts` reports a heartbeat over every status
+        change, which keeps ticking while a job only retries and fails. This is
+        deliberately narrower so a wedged job stops looking productive.
+        """
+        return self.db.execute(
+            select(func.max(CsvTaskNode.finished_at))
+            .where(CsvTaskNode.csv_job_id == csv_job_id)
+            .where(CsvTaskNode.status == "completed")
+        ).scalar_one_or_none()
+
     def update_csv_job(self, job: CsvJob, **updates: Any) -> CsvJob:
         managed = self._managed_instance(job)
         for key, value in updates.items():
