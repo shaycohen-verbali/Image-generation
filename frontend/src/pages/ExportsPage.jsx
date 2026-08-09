@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { buildApiUrl, createExport, downloadWordSourceReport, exportCsvJob, exportWordSourceRows, getCloudflareConfig, getCloudflareUploadStatus, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
+import { buildApiUrl, createExport, downloadWordSourceCsvPackage, downloadWordSourceReport, exportCsvJob, exportWordSourceRows, getCloudflareConfig, getCloudflareUploadStatus, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
 
 const LEGACY_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -186,6 +186,7 @@ export default function ExportsPage() {
   const [cloudflareQuality, setCloudflareQuality] = useState(79)
   const [convertToMatalkTablesFormat, setConvertToMatalkTablesFormat] = useState(false)
   const cloudflareInventoryExport = sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare'
+  const packageOnlyInventoryExport = sourceMode === 'word_inventory' && inventoryDestination === 'csv_package'
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -314,6 +315,22 @@ export default function ExportsPage() {
           includePrompt: includeCsvExportPrompt,
           includeWhiteBackground: includeCsvExportWhiteBackground,
         }
+        if (packageOnlyInventoryExport) {
+          const packageUrl = await downloadWordSourceCsvPackage('word_inventory', {
+            selection_mode: inventorySelectionMode,
+            row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined,
+            range_start: inventorySelectionMode === 'range' ? Number(inventoryRangeStart) : undefined,
+            range_end: inventorySelectionMode === 'range' ? Number(inventoryRangeEnd) : undefined,
+          })
+          setPreparedExport({
+            kind: 'csv_package',
+            package_download_url: packageUrl,
+            export_summary: inventorySelectionMode.replaceAll('_', ' '),
+          })
+          setMessage('CSV package download started; no files were uploaded to Cloudflare')
+          triggerDownload(packageUrl)
+          return
+        }
         const result = await exportWordSourceRows('word_inventory', {
           selection_mode: inventorySelectionMode,
           row_id: inventorySelectionMode === 'single' ? selectedInventoryRowId : undefined,
@@ -410,16 +427,18 @@ export default function ExportsPage() {
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <input
                 type="checkbox"
-                checked={cloudflareInventoryExport || convertToMatalkTablesFormat}
-                disabled={sourceMode === 'legacy_run' || cloudflareInventoryExport}
+                checked={cloudflareInventoryExport || packageOnlyInventoryExport || convertToMatalkTablesFormat}
+                disabled={sourceMode === 'legacy_run' || cloudflareInventoryExport || packageOnlyInventoryExport}
                 onChange={(e) => setConvertToMatalkTablesFormat(e.target.checked)}
               />
-              <span>Convert to MaTalk AI tables format in Neon</span>
+              <span>Include MaTalk AI tables</span>
             </label>
             {sourceMode === 'legacy_run' ? (
               <p className="config-help-text">This option needs the word inventory fields and is not available for legacy run bundles.</p>
             ) : sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare' ? (
-              <p className="config-help-text">Cloudflare exports prepare the MaTalk CSV package automatically after the images finish uploading. Its <code>image_url</code> values contain the public remote location and filename.</p>
+              <p className="config-help-text">Cloudflare exports prepare the MaTalk CSV package automatically after the images finish uploading. Its <code>image_url</code> values contain the stored remote object path.</p>
+            ) : sourceMode === 'word_inventory' && inventoryDestination === 'csv_package' ? (
+              <p className="config-help-text">Builds the MaTalk CSV package from the selected inventory rows and existing Cloudflare upload records. It does not upload or modify images.</p>
             ) : (
               <p className="config-help-text">Adds <code>aac_dictionary.csv</code>, <code>aac_image_meta.csv</code>, and <code>aac_images.csv</code> to the package. It does not write to Neon automatically.</p>
             )}
@@ -544,6 +563,7 @@ export default function ExportsPage() {
                     }}>
                     <option value="zip">Download ZIP package</option>
                     <option value="cloudflare">Upload images to Cloudflare R2</option>
+                    <option value="csv_package">Download CSV package (no upload)</option>
                   </select>
                 </label>
                 {inventoryDestination === 'cloudflare' ? (
@@ -552,8 +572,10 @@ export default function ExportsPage() {
                       <label>Cloudflare bucket<select value={cloudflareBucket} onChange={(e) => setCloudflareBucket(e.target.value)}>{cloudflareBuckets.length ? cloudflareBuckets.map((bucket) => <option key={bucket} value={bucket}>{bucket}</option>) : <option value="matalkimages">matalkimages</option>}</select></label>
                       <label>JPEG quality<input type="number" min="1" max="100" value={cloudflareQuality} onChange={(e) => setCloudflareQuality(Math.max(1, Math.min(100, Number(e.target.value) || 79)))} /></label>
                     </div>
-                    <p className="config-help-text">Every non-empty image variant for the selected words is uploaded: all ages, genders, skin colors, regular images, and white-background images. Prompts and text files are not uploaded. Images are compressed and uploaded in parallel on Render. If MaTalk is checked, its CSVs are prepared after the upload so <code>image_url</code> points to the final public R2 object.</p>
+                    <p className="config-help-text">Every non-empty image variant for the selected words is uploaded: all ages, genders, skin colors, regular images, and white-background images. Prompts and text files are not uploaded. Images are compressed and uploaded in parallel on Render. If MaTalk is checked, its CSVs are prepared after the upload so <code>image_url</code> points to the stored remote object path.</p>
                   </>
+                ) : inventoryDestination === 'csv_package' ? (
+                  <p className="config-help-text">This creates a remote MaTalk CSV package using the existing Cloudflare object paths. Choose “Last job” to regenerate the package for the latest inventory job without sending images to Cloudflare.</p>
                 ) : (
                   <>
                     <p className="config-help-text">This fetches the selected rows and images from Supabase. Large ranges download every selected image before the ZIP is ready; ranges start at 100 words to avoid accidental long exports.</p>
@@ -671,7 +693,7 @@ export default function ExportsPage() {
 
         <div className="inline-fields">
           <button onClick={create}>
-            {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images + CSV Package' : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
+            {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images + CSV Package' : inventoryDestination === 'csv_package' ? 'Download CSV Package (No Upload)' : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
           </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
         </div>
@@ -712,6 +734,12 @@ export default function ExportsPage() {
                 {preparedExport.matalk_warnings?.length ? (
                   <p className="config-help-text"><strong>MaTalk warnings:</strong> {preparedExport.matalk_warnings.join(' ')}</p>
                 ) : null}
+              </>
+            ) : preparedExport.kind === 'csv_package' ? (
+              <>
+                <p className="config-help-text"><strong>Selection:</strong> {preparedExport.export_summary}</p>
+                <p className="config-help-text">This package was generated without uploading files to Cloudflare.</p>
+                <button type="button" onClick={() => triggerDownload(preparedExport.package_download_url)}>Download CSV Package Again</button>
               </>
             ) : preparedExport.kind === 'csv_job' || preparedExport.kind === 'inventory' ? (
               <>

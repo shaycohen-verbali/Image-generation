@@ -198,7 +198,12 @@ def _cloudflare_urls(db: Session | None, source_paths: set[str]) -> dict[tuple[s
         return {}
     try:
         records = db.execute(
-            select(CloudUpload.source_path, CloudUpload.object_key, CloudUpload.variant)
+            select(
+                CloudUpload.source_path,
+                CloudUpload.object_key,
+                CloudUpload.variant,
+                CloudUpload.destination_url,
+            )
             .where(
                 CloudUpload.status == "uploaded",
                 CloudUpload.source_path.in_(sorted(source_paths)),
@@ -209,14 +214,20 @@ def _cloudflare_urls(db: Session | None, source_paths: set[str]) -> dict[tuple[s
         return {}
 
     base_url = _text(getattr(get_settings(), "cloudflare_r2_public_base_url", "")).rstrip("/")
-    if not base_url:
-        return {}
     resolved: dict[tuple[str, str], str] = {}
-    for source_path, object_key, variant in records:
+    for source_path, object_key, variant, destination_url in records:
         source = _text(source_path)
         key = _text(object_key)
         upload_variant = _text(variant)
-        if source and key and upload_variant and (source, upload_variant) not in resolved:
+        stored_destination = _text(destination_url)
+        if not source or not upload_variant or (source, upload_variant) in resolved:
+            continue
+        # Prefer the complete object path recorded during upload. The public
+        # base URL remains a fallback for older ledger rows without a stored
+        # destination URL.
+        if stored_destination:
+            resolved[(source, upload_variant)] = stored_destination
+        elif base_url and key:
             resolved[(source, upload_variant)] = f"{base_url}/{quote(key, safe='/')}"
     return resolved
 
@@ -386,11 +397,11 @@ def build_matalk_tables(
             )
         else:
             warn_once(
-                f"Skipped {len(missing_url_paths)} image path(s) without a public URL; upload them to Cloudflare "
-                "or provide a URL before importing aac_images into Neon."
+                f"Skipped {len(missing_url_paths)} image path(s) without a remote URL/path; upload them to Cloudflare "
+                "or provide a URL/path before importing aac_images into Neon."
             )
     if source_rows and not image_by_key:
-        location_label = "a ZIP-relative location" if image_location == "zip" else "a public URL"
+        location_label = "a ZIP-relative location" if image_location == "zip" else "a remote URL/path"
         warn_once(f"No aac_images rows were exported because no selected image had {location_label}.")
 
     return MatalkTables(
@@ -445,7 +456,7 @@ def write_matalk_artifacts(export_dir: Path, tables: MatalkTables) -> dict[str, 
         "image_url_requirement": (
             "aac_images.image_url is relative to the ZIP root."
             if tables.image_location == "zip"
-            else "aac_images.image_url must be a final public remote URL before Neon import."
+            else "aac_images.image_url must be a complete remote file URL/path before Neon import."
         ),
     }
     paths["manifest"].write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -455,7 +466,7 @@ def write_matalk_artifacts(export_dir: Path, tables: MatalkTables) -> dict[str, 
         "The two array columns are JSON strings in the CSV and must be parsed into PostgreSQL `TEXT[]` values. "
         + (
             "In a ZIP export, `aac_images.image_url` is the exact image path relative to the ZIP root. "
-            "In a remote export, it is the final public URL including the remote object filename. "
+            "In a remote export, it is the complete remote object path including the remote object filename. "
         )
         + "The dictionary and metadata rows are repeat-safe when imported using the documented upsert keys.\n",
         encoding="utf-8",

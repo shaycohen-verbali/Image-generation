@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import uuid
 import zipfile
 from io import StringIO
 from pathlib import Path
@@ -227,6 +228,59 @@ def cloudflare_csv_package(
         local_path,
         media_type="application/zip",
         filename=f"{sanitize_filename(batch.id)}_csv_package.zip",
+    )
+
+
+@router.get("/{table_name}/csv-package.zip")
+def word_source_csv_package(
+    table_name: str,
+    selection_mode: str = Query(default="last_job", pattern="^(last_job|single|range|all)$"),
+    row_id: str = Query(default="", max_length=128),
+    range_start: int | None = Query(default=None, ge=1),
+    range_end: int | None = Query(default=None, ge=1, le=100_000),
+    db: Session = Depends(db_dependency),
+) -> FileResponse:
+    """Build a remote MaTalk CSV package without creating an upload batch."""
+    try:
+        rows = WordSourceService().get_export_rows(
+            table_name,
+            selection_mode=selection_mode,
+            row_id=row_id,
+            range_start=range_start,
+            range_end=range_end,
+            include_inactive=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not rows:
+        raise HTTPException(status_code=404, detail="No word_inventory rows matched this selection")
+
+    settings = get_settings()
+    package_batch = CloudUploadBatch(
+        id=f"pkg_{uuid.uuid4().hex[:24]}",
+        bucket=settings.cloudflare_r2_default_bucket,
+        source_rows_json=json.dumps(rows, default=str),
+        row_count=len(rows),
+        matalk_enabled=True,
+        total=sum(
+            1
+            for row in rows
+            for key, value in row.items()
+            if str(key).endswith("_path") and str(value or "").strip()
+        ),
+        status="completed",
+    )
+    _, _, warnings, paths = _prepare_cloudflare_matalk_artifacts(package_batch, db)
+    package_path = paths.get("package")
+    if package_path is None or not package_path.exists():
+        detail = " ".join(warnings) if warnings else "CSV package could not be prepared"
+        raise HTTPException(status_code=409, detail=detail)
+    return FileResponse(
+        package_path,
+        media_type="application/zip",
+        filename=f"{sanitize_filename(table_name)}_{sanitize_filename(selection_mode)}_csv_package.zip",
     )
 
 

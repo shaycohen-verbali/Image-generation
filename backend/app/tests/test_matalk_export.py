@@ -134,6 +134,34 @@ def test_cloudflare_remote_urls_keep_regular_and_white_background_variants_disti
     assert tables.skipped_image_count == 0
 
 
+def test_cloudflare_destination_urls_are_used_without_public_base_url(db_session, monkeypatch) -> None:
+    regular_path = "/inventory/eat-regular.png"
+    destination_url = "https://r2.example.test/matalkimages/eat-regular.jpg"
+    row = {
+        **_person_row(),
+        "kid_male_white_regular_path": regular_path,
+        "kid_male_white_white_bg_path": "",
+    }
+    db_session.add(
+        CloudUpload(
+            batch_id="r2_destination_url",
+            source_path=regular_path,
+            variant="kid/male/white/regular",
+            bucket="matalkimages",
+            object_key="eat-regular.jpg",
+            destination_url=destination_url,
+            status="uploaded",
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(get_settings(), "cloudflare_r2_public_base_url", "")
+
+    tables = build_matalk_tables([row], db=db_session)
+
+    assert tables.image_rows[0]["image_url"] == destination_url
+    assert tables.skipped_image_count == 0
+
+
 def test_cloudflare_batch_prepares_remote_matalk_artifacts_after_upload(db_session, monkeypatch) -> None:
     regular_path = "/inventory/eat-regular.png"
     row = {
