@@ -4,7 +4,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import logging
 import os
+import signal
 import socket
+import threading
 import time
 
 from sqlalchemy import select
@@ -12,7 +14,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.init_db import init_db
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.services.csv_dag_service import CsvDagService
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
@@ -22,6 +24,7 @@ from app.models import CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService
 from app.services.slack_alerts import SlackAlertService
 from app.core.runtime import PROCESS_STARTED_AT
+from app.services.storage import prune_runtime_cache
 
 # Recover stale database tasks that were orphaned by a worker crash or restart.
 # Tasks still owned by a live future must never be failed here: Python cannot
@@ -31,7 +34,6 @@ CSV_TASK_TIMEOUT_SECONDS = 420
 # The image pipeline is heavy on both providers and the database. Keep a
 # reasonable upper bound so a burst of queued work does not create a second
 # spike inside the process itself.
-WORKER_EXECUTOR_MAX = 64
 WORKER_CLAIM_BURST_MAX = 2
 WORKER_CLAIM_SETTLE_SECONDS = 0.5
 WORKER_ERROR_BACKOFF_MAX_SECONDS = 15.0
@@ -40,6 +42,46 @@ WORKER_ERROR_BACKOFF_MAX_SECONDS = 15.0
 WORKER_HEARTBEAT_SECONDS = 30.0
 SUMMARY_RECOVERY_SECONDS = 60.0
 logger = logging.getLogger(__name__)
+
+SHUTDOWN_REQUESTED = threading.Event()
+_SHUTDOWN_STARTED_AT: float | None = None
+
+
+def _effective_parallelism(requested_parallelism: int, hard_max_parallel: int) -> int:
+    """Clamp the database/UI setting to the process memory safety ceiling."""
+    requested = max(1, int(requested_parallelism or 1))
+    hard_max = max(1, int(hard_max_parallel or 1))
+    return min(requested, hard_max)
+
+
+def _handle_shutdown_signal(signum: int, _frame) -> None:
+    """Signal handler: set intent only; no database or network work here."""
+    global _SHUTDOWN_STARTED_AT
+    if SHUTDOWN_REQUESTED.is_set():
+        return
+    _SHUTDOWN_STARTED_AT = time.monotonic()
+    SHUTDOWN_REQUESTED.set()
+    logger.warning("worker shutdown requested", extra={"signal": signum})
+
+
+def _install_shutdown_handlers() -> None:
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(signum, _handle_shutdown_signal)
+        except ValueError:
+            # Unit tests may invoke run_worker from a non-main thread. Render
+            # always launches the real worker in the main thread.
+            continue
+
+
+def _shutdown_deadline(grace_seconds: int) -> float | None:
+    if _SHUTDOWN_STARTED_AT is None:
+        return None
+    return _SHUTDOWN_STARTED_AT + max(1, int(grace_seconds))
+
+
+def _claims_allowed(claiming_enabled: bool) -> bool:
+    return bool(claiming_enabled and not SHUTDOWN_REQUESTED.is_set())
 
 
 def _process_single_run(run_id: str) -> None:
@@ -135,13 +177,23 @@ def _claim_budget(active_count: int, target_parallelism: int) -> int:
 
 def run_worker() -> None:
     settings = get_settings()
+    if settings.process_role not in {"worker", "all"}:
+        raise RuntimeError(
+            "PROCESS_ROLE=web cannot start the queue worker; run uvicorn app.main:app for the web service"
+        )
     configure_logging(settings.app_log_level)
     init_db()
+    _install_shutdown_handlers()
+    try:
+        prune_runtime_cache()
+    except Exception as exc:  # noqa: BLE001 - cache cleanup is best effort
+        logger.warning("runtime cache prune skipped", extra={"status": type(exc).__name__})
 
-    logger.info("worker started")
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    claiming_enabled = bool(settings.worker_claiming_enabled)
     next_heartbeat_at = 0.0
     next_summary_recovery_at = 0.0
+    startup_logged = False
     active_runs: dict[Future, str] = {}
     active_csv_tasks: dict[Future, str] = {}
     active_cloud_uploads: dict[Future, str] = {}
@@ -154,18 +206,29 @@ def run_worker() -> None:
         stale_seconds=CSV_TASK_TIMEOUT_SECONDS,
     )
 
-    with ThreadPoolExecutor(max_workers=WORKER_EXECUTOR_MAX) as executor:
+    # The executor itself is bounded by the environment ceiling.  A database
+    # value can lower effective parallelism, but can never create more worker
+    # futures than this process-level limit.
+    executor = ThreadPoolExecutor(max_workers=settings.worker_hard_max_parallel)
+    try:
         while True:
             try:
+                timed_out_task_ids: list[str] = []
                 with SessionLocal() as db:
                     repo = Repository(db)
                     config = repo.get_runtime_config()
-                    max_parallel_runs = max(1, int(config.max_parallel_runs or 1))
-                    poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
-                    timed_out_task_ids = repo.fail_stale_running_csv_tasks(
-                        timeout_seconds=CSV_TASK_TIMEOUT_SECONDS,
-                        exclude_task_ids=active_csv_tasks.values(),
+                    requested_parallelism = max(1, int(config.max_parallel_runs or 1))
+                    max_parallel_runs = _effective_parallelism(
+                        requested_parallelism,
+                        settings.worker_hard_max_parallel,
                     )
+                    poll_seconds = config.worker_poll_seconds or settings.worker_poll_seconds
+                    draining = SHUTDOWN_REQUESTED.is_set()
+                    if claiming_enabled and not draining:
+                        timed_out_task_ids = repo.fail_stale_running_csv_tasks(
+                            timeout_seconds=CSV_TASK_TIMEOUT_SECONDS,
+                            exclude_task_ids=active_csv_tasks.values(),
+                        )
                     if time.monotonic() >= next_heartbeat_at:
                         repo.record_worker_heartbeat(
                             worker_id=worker_id, started_at=PROCESS_STARTED_AT
@@ -186,7 +249,9 @@ def run_worker() -> None:
                                     extra={"status": type(exc).__name__},
                                 )
                     if (
-                        settings.phase7_job_summary_enabled
+                        claiming_enabled
+                        and not draining
+                        and settings.phase7_job_summary_enabled
                         and settings.job_summary_async_enabled
                         and time.monotonic() >= next_summary_recovery_at
                     ):
@@ -199,6 +264,20 @@ def run_worker() -> None:
                                 extra={"count": recovered_summaries},
                             )
                         next_summary_recovery_at = time.monotonic() + SUMMARY_RECOVERY_SECONDS
+
+                    if not startup_logged:
+                        logger.info(
+                            "worker started",
+                            extra={
+                                "process_role": settings.process_role,
+                                "requested_parallelism": requested_parallelism,
+                                "hard_max_parallel": settings.worker_hard_max_parallel,
+                                "effective_parallelism": max_parallel_runs,
+                                "claiming_enabled": claiming_enabled,
+                                "worker_id": worker_id,
+                            },
+                        )
+                        startup_logged = True
 
                 if timed_out_task_ids:
                     logger.warning(
@@ -245,11 +324,40 @@ def run_worker() -> None:
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("csv summary failed", extra={"csv_job_id": summary_task_id, "error": str(exc)})
 
-                claimed_count = 0
                 active_total = len(active_runs) + len(active_csv_tasks) + len(active_cloud_uploads) + len(active_summaries)
+                if SHUTDOWN_REQUESTED.is_set():
+                    deadline = _shutdown_deadline(settings.worker_shutdown_grace_seconds)
+                    if active_total == 0:
+                        logger.info("worker drain complete")
+                        break
+                    if deadline is not None and time.monotonic() >= deadline:
+                        unfinished = list(active_runs.values()) + list(active_csv_tasks.values()) + list(active_cloud_uploads.values()) + list(active_summaries.values())
+                        logger.error(
+                            "worker shutdown grace reached with unfinished work",
+                            extra={"status": "grace_expired", "shutdown_grace_seconds": settings.worker_shutdown_grace_seconds},
+                        )
+                        logger.error(
+                            "unfinished worker item ids",
+                            extra={"unfinished_ids": [str(item) for item in unfinished]},
+                        )
+                        break
+                    time.sleep(0.25)
+                    continue
+
+                if not _claims_allowed(claiming_enabled):
+                    # A disabled worker is useful during cutover: it proves the
+                    # process starts and heartbeats without touching queues.
+                    time.sleep(poll_seconds)
+                    continue
+
+                claimed_count = 0
                 # Cloudflare exports are user-triggered and should not wait
                 # behind the normal CSV generation queue.
-                if not active_cloud_uploads and active_total < max_parallel_runs:
+                if (
+                    _claims_allowed(claiming_enabled)
+                    and not active_cloud_uploads
+                    and active_total < max_parallel_runs
+                ):
                     batch_id = _claim_next_cloud_upload_batch()
                     if batch_id is not None:
                         claimed_count += 1
@@ -259,6 +367,8 @@ def run_worker() -> None:
                         active_total += 1
 
                 for _ in range(_claim_budget(active_total, max_parallel_runs)):
+                    if not _claims_allowed(claiming_enabled):
+                        break
                     with SessionLocal() as db:
                         repo = Repository(db)
                         run = repo.claim_next_queued_run()
@@ -279,6 +389,8 @@ def run_worker() -> None:
                     active_total += 1
 
                 for _ in range(_claim_budget(active_total, max_parallel_runs)):
+                    if not _claims_allowed(claiming_enabled):
+                        break
                     with SessionLocal() as db:
                         repo = Repository(db)
                         task = repo.claim_next_ready_csv_task()
@@ -304,6 +416,7 @@ def run_worker() -> None:
                 if (
                     settings.phase7_job_summary_enabled
                     and settings.job_summary_async_enabled
+                    and _claims_allowed(claiming_enabled)
                     and not active_summaries
                     and active_total < max_parallel_runs
                 ):
@@ -337,6 +450,17 @@ def run_worker() -> None:
                     WORKER_ERROR_BACKOFF_MAX_SECONDS,
                     max(idle_poll_seconds, error_backoff_seconds * 2),
                 )
+    finally:
+        # Do not release or mark running tasks successful when the local grace
+        # window expires. Render may terminate the process, and the next worker
+        # will use the existing stale-task recovery rules.
+        has_active_work = bool(active_runs or active_csv_tasks or active_cloud_uploads or active_summaries)
+        executor.shutdown(wait=not has_active_work, cancel_futures=False)
+        if not has_active_work:
+            try:
+                engine.dispose()
+            except Exception:  # pragma: no cover - best effort during process exit
+                pass
 
 
 if __name__ == "__main__":

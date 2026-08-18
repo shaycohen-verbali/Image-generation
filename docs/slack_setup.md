@@ -27,6 +27,10 @@ The job id is optional everywhere it appears. With one job running the bot uses
 it; with several it asks which; with none, read commands fall back to the most
 recent job. `start` never guesses, because starting a job spends credits.
 
+`health`, `status`, `last`, `active`, `start`, `stop`, and `retry` are handled
+directly by the API service. They remain usable while the background worker is
+stopped; long `generate` operations still use Slack's delayed response path.
+
 **Write commands require a non-empty `SLACK_ALLOWED_USER_IDS`.** Reads are
 allowed when it is unset, but `start`, `stop`, and `retry` refuse rather than
 let an unset variable expose batch control to the whole workspace.
@@ -68,11 +72,12 @@ if a cold start times the check out, retry.
 
 ## 4. Set them in Render
 
-Add all three as environment variables on the Render service, then redeploy.
+Add all three as environment variables on the API Render service, then redeploy.
 
-If the worker runs as a **separate** Render service, it needs `SLACK_BOT_TOKEN`
-and `SLACK_ALERT_USER_ID` too once push notifications are added. Missing them
-there fails silently, at exactly the moment you are relying on an alert.
+If the worker runs as a **separate** Render service, it needs only
+`SLACK_BOT_TOKEN` and `SLACK_ALERT_USER_ID` for worker-originated push alerts.
+The signing secret and allowlist stay on the web service, which owns the
+incoming Slack endpoint.
 
 `SLACK_ALLOWED_USER_IDS` is a comma-separated list. Leaving it empty currently
 allows **every** user in the workspace. That is tolerable while the bot is
@@ -130,10 +135,10 @@ exactly the moment you are relying on an alert.
 - **Worker heartbeat** - the worker writes to `worker_heartbeats` every 30s.
   Four missed beats and `health` flags it as NOT RESPONDING.
 
-The worker check is the one that matters: the worker is a separate process
-started with `&` inside the same service, nothing restarts it if it dies, and
-Render's own health check only watches uvicorn. Before this, a dead worker and
-an idle worker looked identical.
+The worker check is the one that matters: the worker is a separate Render
+Background Worker, while Render's health check watches only the API's uvicorn
+process. A stopped worker therefore reports as unavailable without taking the
+UI or Slack control endpoint offline.
 
 The obvious limit: if the whole service is down, Slack gets no answer at all.
 Silence is itself the signal. `health` cannot show Render deploy history - that

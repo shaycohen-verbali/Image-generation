@@ -60,7 +60,7 @@ def test_slash_command_acks_immediately_and_answers_out_of_band(client, monkeypa
     body = urlencode(
         {
             "command": "/verbali",
-            "text": "health",
+            "text": "generate range 1-1",
             "user_id": "U_ALLOWED",
             "response_url": "https://hooks.slack.com/commands/test",
         }
@@ -72,7 +72,7 @@ def test_slash_command_acks_immediately_and_answers_out_of_band(client, monkeypa
     assert "Working on" in response.json()["text"]
     # The real answer must be handed to the background task, not the response.
     assert len(delivered) == 1
-    assert delivered[0]["text"] == "health"
+    assert delivered[0]["text"] == "generate range 1-1"
     assert delivered[0]["response_url"] == "https://hooks.slack.com/commands/test"
 
 
@@ -85,6 +85,31 @@ def test_slash_command_answers_inline_without_a_response_url(client) -> None:
 
     assert response.status_code == 200
     assert "Verbali Slack commands" in response.json()["text"]
+
+
+def test_fast_control_command_answers_inline_even_with_response_url(client, monkeypatch) -> None:
+    delivered: list[dict[str, str]] = []
+    monkeypatch.setattr(slack_api, "_deliver_command_reply", lambda **kwargs: delivered.append(kwargs))
+    monkeypatch.setattr(
+        slack_api.SlackService,
+        "slash_response",
+        lambda self, text, *, user_id, base_url: {"response_type": "ephemeral", "text": "inline health"},
+    )
+
+    body = urlencode(
+        {
+            "command": "/verbali",
+            "text": "health",
+            "user_id": "U_ALLOWED",
+            "response_url": "https://hooks.slack.com/commands/test",
+        }
+    ).encode("utf-8")
+
+    response = client.post("/api/v1/slack/commands", content=body, headers=_signed_headers(body))
+
+    assert response.status_code == 200
+    assert response.json()["text"] == "inline health"
+    assert delivered == []
 
 
 def test_bad_signature_is_still_rejected(client) -> None:

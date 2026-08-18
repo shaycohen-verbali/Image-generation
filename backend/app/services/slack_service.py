@@ -60,7 +60,7 @@ class SlackService:
         self.settings = get_settings()
         # One service instance handles one command, so listing jobs once per
         # instance is safe and keeps `health` from querying twice.
-        self._jobs_cache: list[dict[str, Any]] | None = None
+        self._jobs_cache: dict[frozenset[str], list[dict[str, Any]]] = {}
 
     @property
     def allowed_user_ids(self) -> set[str]:
@@ -174,18 +174,11 @@ class SlackService:
 
         return f"Unknown command: {command}\n\n{self._help_text()}"
 
-    def _all_jobs(self) -> list[dict[str, Any]]:
-        if self._jobs_cache is None:
-            jobs = list(self.csv_service.list_jobs())
-            jobs.sort(key=lambda job: job.get("created_at") or datetime.min, reverse=True)
-            self._jobs_cache = jobs
-        return self._jobs_cache
-
     def _jobs_by_status(self, statuses: set[str]) -> list[dict[str, Any]]:
-        return [
-            job for job in self._all_jobs()
-            if str(job.get("status") or "").lower() in statuses
-        ]
+        key = frozenset(str(status or "").strip() for status in statuses if str(status or "").strip())
+        if key not in self._jobs_cache:
+            self._jobs_cache[key] = self.csv_service.list_jobs(statuses=set(key), limit=50)
+        return self._jobs_cache[key]
 
     def _resolve_job_id(self, explicit: str, *, for_write: bool) -> tuple[str, str]:
         """Turn an omitted job id into the job the user almost certainly means.
@@ -294,36 +287,33 @@ class SlackService:
     def _worker_line(self) -> str:
         beat = self.repo.get_latest_worker_heartbeat()
         if beat is None:
-            return "Worker: no heartbeat yet - either not deployed with heartbeats, or never started"
+            return "Worker: unavailable - no heartbeat yet. The API and database remain available."
         age_seconds = max(0, int((datetime.utcnow() - beat.last_seen_at).total_seconds()))
         if age_seconds > WORKER_HEARTBEAT_STALE_SECONDS:
             return (
-                f":rotating_light: Worker: NOT RESPONDING - last beat {_format_age(beat.last_seen_at)}."
-                " Nothing restarts it automatically; redeploy the Render service."
+                f":rotating_light: Worker: NOT RESPONDING / unavailable - last beat {_format_age(beat.last_seen_at)}."
+                " The API remains available; restart or redeploy the Render worker service."
             )
         uptime = int((datetime.utcnow() - beat.started_at).total_seconds())
         return (
-            f"Worker: ok - last beat {_format_age(beat.last_seen_at)},"
+            f"Worker: ok ({beat.id}) - last beat {_format_age(beat.last_seen_at)},"
             f" up {format_duration(uptime)} (restarted {_format_age(beat.started_at)})"
         )
 
     def _health_summary(self) -> str:
         run_count = self.repo.count_runs()
-        running_jobs = self._jobs_by_status(RUNNING_JOB_STATUSES)
-        pending_jobs = self._jobs_by_status(PENDING_JOB_STATUSES)
-        active_runs = [
-            run for run in self.repo.list_runs()
-            if str(run.status or "") in RUNNING_JOB_STATUSES
-        ]
+        running_jobs = self.repo.count_csv_jobs(statuses=RUNNING_JOB_STATUSES)
+        pending_jobs = self.repo.count_csv_jobs(statuses=PENDING_JOB_STATUSES)
+        active_runs = self.repo.count_runs(statuses=RUNNING_JOB_STATUSES)
         return (
             "*Verbali health*\n"
             f"API: ok - up {format_duration(uptime_seconds())}"
             f" (restarted {_format_age(PROCESS_STARTED_AT)})\n"
             "DB: reachable\n"
             f"{self._worker_line()}\n"
-            f"Running CSV jobs: {len(running_jobs)}\n"
-            f"Imported, not started: {len(pending_jobs)}\n"
-            f"Active legacy runs: {len(active_runs)}\n"
+            f"Running CSV jobs: {running_jobs}\n"
+            f"Imported, not started: {pending_jobs}\n"
+            f"Active legacy runs: {active_runs}\n"
             f"Legacy runs in DB: {run_count}"
         )
 
@@ -430,10 +420,10 @@ class SlackService:
 
     def _active_summary(self) -> str:
         csv_jobs = self._jobs_by_status(ACTIVE_JOB_STATUSES)[:8]
-        runs = [
-            run for run in self.repo.list_runs()
-            if str(run.status or "") in {"queued", "retry_queued", "running", "cancel_requested"}
-        ][:8]
+        runs = self.repo.list_runs(
+            statuses={"queued", "retry_queued", "running", "cancel_requested"},
+            limit=8,
+        )
 
         lines = ["*Active work*"]
         if csv_jobs:

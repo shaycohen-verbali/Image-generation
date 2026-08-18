@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -96,6 +96,23 @@ class Settings(BaseSettings):
     job_summary_async_enabled: bool = Field(default=False, alias="JOB_SUMMARY_ASYNC_ENABLED")
     job_summary_max_attempts: int = Field(default=3, ge=1, le=10, alias="JOB_SUMMARY_MAX_ATTEMPTS")
     job_summary_stale_seconds: int = Field(default=900, ge=60, alias="JOB_SUMMARY_STALE_SECONDS")
+
+    # Render runs the API and worker as separate processes in production.  The
+    # ``all`` role remains available for local development compatibility only.
+    process_role: str = Field(default="all", alias="PROCESS_ROLE")
+    worker_claiming_enabled: bool = Field(default=True, alias="WORKER_CLAIMING_ENABLED")
+    worker_hard_max_parallel: int = Field(default=2, ge=1, le=32, alias="WORKER_HARD_MAX_PARALLEL")
+    worker_shutdown_grace_seconds: int = Field(default=270, ge=1, le=295, alias="WORKER_SHUTDOWN_GRACE_SECONDS")
+    storage_cache_max_bytes: int = Field(default=536870912, ge=10485760, alias="STORAGE_CACHE_MAX_BYTES")
+    storage_cache_max_age_seconds: int = Field(default=86400, ge=60, alias="STORAGE_CACHE_MAX_AGE_SECONDS")
+
+    @field_validator("process_role")
+    @classmethod
+    def _normalize_process_role(cls, value: str) -> str:
+        role = str(value or "").strip().lower()
+        if role not in {"web", "worker", "all"}:
+            raise ValueError("PROCESS_ROLE must be one of: web, worker, all")
+        return role
 
 
 @lru_cache(maxsize=1)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,9 +17,16 @@ from app.api.word_sources import router as word_sources_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.init_db import init_db
+from app.services.storage import prune_runtime_cache
 
 settings = get_settings()
 configure_logging(settings.app_log_level)
+logger = logging.getLogger(__name__)
+
+if settings.process_role not in {"web", "all"}:
+    raise RuntimeError(
+        "PROCESS_ROLE=worker cannot start the HTTP API; run python -m app.worker for the worker service"
+    )
 
 app = FastAPI(title="AAC Image Generator and Optimizer", version="v1")
 
@@ -43,6 +52,13 @@ app.include_router(slack_router)
 @app.on_event("startup")
 def on_startup() -> None:
     import time
+
+    logger.info("api process started", extra={"process_role": settings.process_role})
+
+    try:
+        prune_runtime_cache()
+    except Exception as exc:  # noqa: BLE001 - cache cleanup is best effort
+        logger.warning("runtime cache prune skipped", extra={"status": type(exc).__name__})
 
     last_exc: Exception | None = None
     for attempt in range(1, 4):

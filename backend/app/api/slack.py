@@ -17,6 +17,14 @@ router = APIRouter(prefix="/api/v1/slack", tags=["slack"])
 
 logger = logging.getLogger(__name__)
 
+# These commands are deliberately DB-only and should answer within Slack's
+# three-second window even when the background worker is stopped. Large
+# inventory imports keep the response_url/background path below.
+FAST_CONTROL_COMMANDS = {
+    "help", "commands", "health", "status", "last", "latest", "active",
+    "start", "stop", "cancel", "retry",
+}
+
 
 def _verify_slack_request(service: SlackService, request: Request, body: bytes) -> None:
     timestamp = str(request.headers.get("x-slack-request-timestamp") or "")
@@ -73,9 +81,13 @@ async def slack_commands(
     response_url = str(form.get("response_url") or "").strip()
     base_url = str(request.base_url).rstrip("/")
 
-    # Slack abandons a slash command after 3 seconds, and a Render cold start
-    # alone can consume most of that. Acknowledge now, answer over response_url.
-    if response_url:
+    command = str(text.split(maxsplit=1)[0] if text else "help").lower()
+    # Critical control commands are intentionally answered directly from the
+    # web service. The worker may be stopped or restarting; response_url work
+    # queued inside that same process would make control fragile.
+    if response_url and command not in FAST_CONTROL_COMMANDS:
+        # Slack abandons a slash command after 3 seconds. Large `generate` and
+        # export/import operations keep the durable response_url path.
         background.add_task(
             _deliver_command_reply,
             text=text,

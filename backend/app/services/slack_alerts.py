@@ -93,10 +93,10 @@ class SlackAlertService:
         """Warn once per stall that tasks are running but not progressing."""
         if not self.enabled() or stale_tasks <= 0:
             return False
-        running = [
-            job for job in self.repo.list_csv_jobs()
-            if str(job.status or "").lower() in {"queued", "retry_queued", "running"}
-        ]
+        running = self.repo.list_csv_jobs(
+            statuses={"queued", "retry_queued", "running"},
+            limit=50,
+        )
         if not running:
             return False
         # Oldest first: with several jobs running, the long-lived one is the one

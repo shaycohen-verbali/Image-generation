@@ -461,13 +461,18 @@ class Repository:
         self,
         *,
         status: str | None = None,
+        statuses: Collection[str] | None = None,
         entry_id: str | None = None,
         min_score: float | None = None,
         max_score: float | None = None,
+        limit: int | None = None,
     ) -> list[Run]:
         stmt = select(Run)
         if status:
             stmt = stmt.where(Run.status == status)
+        normalized_statuses = [str(value or "").strip() for value in (statuses or ()) if str(value or "").strip()]
+        if normalized_statuses:
+            stmt = stmt.where(Run.status.in_(normalized_statuses))
         if entry_id:
             stmt = stmt.where(Run.entry_id == entry_id)
         if min_score is not None:
@@ -476,6 +481,8 @@ class Repository:
             stmt = stmt.where(Run.quality_score <= max_score)
         stmt = stmt.where(Run.execution_mode == "legacy")
         stmt = stmt.order_by(desc(Run.created_at))
+        if limit is not None:
+            stmt = stmt.limit(max(1, int(limit)))
         return list(self.db.execute(stmt).scalars())
 
     def get_entry(self, entry_id: str) -> Entry | None:
@@ -1248,8 +1255,19 @@ class Repository:
     def get_csv_job_by_batch(self, batch_id: str) -> CsvJob | None:
         return self.db.execute(select(CsvJob).where(CsvJob.batch_id == batch_id)).scalar_one_or_none()
 
-    def list_csv_jobs(self) -> list[CsvJob]:
-        return list(self.db.execute(select(CsvJob).order_by(desc(CsvJob.created_at))).scalars())
+    def list_csv_jobs(
+        self,
+        *,
+        statuses: Collection[str] | None = None,
+        limit: int | None = None,
+    ) -> list[CsvJob]:
+        stmt = select(CsvJob).order_by(desc(CsvJob.created_at))
+        normalized_statuses = [str(status or "").strip() for status in (statuses or ()) if str(status or "").strip()]
+        if normalized_statuses:
+            stmt = stmt.where(CsvJob.status.in_(normalized_statuses))
+        if limit is not None:
+            stmt = stmt.limit(max(1, int(limit)))
+        return list(self.db.execute(stmt).scalars())
 
     def queue_pending_csv_tasks(self, csv_job_id: str) -> int:
         updated = self.db.execute(
@@ -2104,8 +2122,19 @@ class Repository:
         self.db.refresh(run)
         return run
 
-    def count_runs(self) -> int:
-        return self.db.execute(select(func.count()).select_from(Run).where(Run.execution_mode == "legacy")).scalar_one()
+    def count_runs(self, *, statuses: Collection[str] | None = None) -> int:
+        stmt = select(func.count()).select_from(Run).where(Run.execution_mode == "legacy")
+        normalized_statuses = [str(status or "").strip() for status in (statuses or ()) if str(status or "").strip()]
+        if normalized_statuses:
+            stmt = stmt.where(Run.status.in_(normalized_statuses))
+        return int(self.db.execute(stmt).scalar_one() or 0)
+
+    def count_csv_jobs(self, *, statuses: Collection[str] | None = None) -> int:
+        stmt = select(func.count()).select_from(CsvJob)
+        normalized_statuses = [str(status or "").strip() for status in (statuses or ()) if str(status or "").strip()]
+        if normalized_statuses:
+            stmt = stmt.where(CsvJob.status.in_(normalized_statuses))
+        return int(self.db.execute(stmt).scalar_one() or 0)
 
     def create_shadow_run(
         self,

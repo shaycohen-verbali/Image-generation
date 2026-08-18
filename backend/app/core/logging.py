@@ -17,6 +17,10 @@ class JsonFormatter(logging.Formatter):
             "run_id", "stage_name", "latency_ms", "provider", "status", "cost_estimate",
             "queued_tasks", "running_tasks", "failed_tasks", "stale_tasks",
             "oldest_running_age_seconds", "worker_heartbeat_age_seconds", "query_ms",
+            "process_role", "requested_parallelism", "hard_max_parallel", "effective_parallelism",
+            "claiming_enabled", "worker_id", "signal", "shutdown_grace_seconds", "unfinished_ids",
+            "removed_cache_files", "removed_cache_bytes", "cache_files", "cache_bytes",
+            "storage_bucket", "storage_object_key",
             "cloudflare_batch_id", "cloudflare_bucket", "cloudflare_key",
             "cloudflare_response", "cloudflare_error",
         ):

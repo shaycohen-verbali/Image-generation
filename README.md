@@ -4,9 +4,9 @@ This repository implements a local web system that turns a concept key `(word, p
 
 ## Stack
 - Backend: FastAPI + SQLAlchemy + SQLite
-- Worker: separate Python process polling queued runs
+- Worker: separate Python process polling queued runs (Render Background Worker in production)
 - Frontend: React (Vite)
-- Storage: local filesystem under `/Users/anna.cohen/Documents/Image generation/runtime_data`
+- Storage: local filesystem for development; Supabase Storage for production assets/exports
 
 ## Features Implemented
 - Entry creation (`POST /api/v1/entries`) with unique key enforcement.
@@ -37,24 +37,34 @@ Copy `.env.example` to `.env` and set:
 - `INVENTORY_DATABASE_URL` to enable the Supabase `word_inventory` picker and writeback
 - optional assistant overrides and thresholds
 - `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_ALLOWED_USER_IDS` to enable the Slack bot — see [docs/slack_setup.md](docs/slack_setup.md)
+- `PROCESS_ROLE=web|worker|all` selects the process role (`all` is local-development compatibility only).
+- `WORKER_HARD_MAX_PARALLEL=2` caps per-instance worker concurrency even when the database runtime setting is higher.
+- `WORKER_CLAIMING_ENABLED=false` starts a heartbeat-only worker for safe Render cutovers.
+- `STORAGE_CACHE_MAX_BYTES` and `STORAGE_CACHE_MAX_AGE_SECONDS` bound remote download materialization.
 
-## Backend Run
+## Backend Run (local development)
 ```bash
-cd /Users/anna.cohen/Documents/Image generation/backend
+cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python -m app.db.init_db
-python run_api.py
+PROCESS_ROLE=web python run_api.py
 ```
 
-## Worker Run
+## Worker Run (local development)
 In a second terminal:
 ```bash
-cd /Users/anna.cohen/Documents/Image generation/backend
+cd backend
 source .venv/bin/activate
-python -m app.worker
+PROCESS_ROLE=worker python -m app.worker
 ```
+
+Production uses two independent Render services: `uvicorn app.main:app` for the
+web/API service and `python -m app.worker` for the background worker. The web
+service owns `/livez`, `/healthz`, the UI API, and Slack commands; it never
+claims provider work. Keep `WORKER_CLAIMING_ENABLED=false` while validating a
+new worker, then enable it only after the web service is healthy.
 
 ## Frontend Run
 Node is required for the UI.
@@ -74,8 +84,8 @@ pytest app/tests -q
 ```
 
 ## Runtime Data Layout
-- Runs: `/Users/anna.cohen/Documents/Image generation/runtime_data/runs/{run_id}/`
-- Exports: `/Users/anna.cohen/Documents/Image generation/runtime_data/exports/{export_id}/`
+- Runs: `runtime_data/runs/{run_id}/` (local development metadata/temp files)
+- Exports: `runtime_data/exports/{export_id}/` (local staging only; production artifacts use remote storage)
 
 Generated files per run:
 - `stage2_draft_*.jpg`

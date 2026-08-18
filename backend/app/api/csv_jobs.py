@@ -29,7 +29,7 @@ from app.schemas import (
     ExecutionMode,
 )
 from app.services.csv_dag_service import CsvDagService
-from app.services.storage import export_artifact_uri, materialize_path
+from app.services.storage import export_artifact_uri, is_remote_path, materialize_path
 
 router = APIRouter(prefix="/api/v1/csv-jobs", tags=["csv-jobs"])
 
@@ -311,8 +311,19 @@ def download_csv_job_export(job_id: str, db: Session = Depends(db_dependency)) -
     if local_zip.exists():
         local = local_zip
     else:
-        export_result = service.export_job(job_id)
-        local = materialize_path(str(export_result["zip_path"]), cache_namespace="csv_job_exports")
+        # Production export assembly is removed after its durable upload. Try
+        # the remote artifact before regenerating a potentially large package.
+        remote_uri = export_artifact_uri(job_id, service.export_zip_name(repo_job.batch_id))
+        if is_remote_path(remote_uri):
+            try:
+                local = materialize_path(remote_uri, cache_namespace="csv_job_exports")
+            except RuntimeError:
+                local = local_zip
+        else:
+            local = local_zip
+        if not local.exists():
+            export_result = service.export_job(job_id)
+            local = materialize_path(str(export_result["zip_path"]), cache_namespace="csv_job_exports")
     if not local.exists():
         raise HTTPException(status_code=404, detail="Export artifact not found")
     return FileResponse(local, media_type="application/zip", filename=service.export_zip_name(repo_job.batch_id))

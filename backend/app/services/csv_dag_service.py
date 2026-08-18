@@ -763,8 +763,13 @@ class CsvDagService:
             "continued_from_job_id": source_job.id,
         }
 
-    def list_jobs(self) -> list[dict[str, Any]]:
-        jobs = self.repo.list_csv_jobs()
+    def list_jobs(
+        self,
+        *,
+        statuses: set[str] | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        jobs = self.repo.list_csv_jobs(statuses=statuses, limit=limit)
         row_counts = self.repo.get_csv_job_row_counts([job.id for job in jobs])
         output: list[dict[str, Any]] = []
         for job in jobs:

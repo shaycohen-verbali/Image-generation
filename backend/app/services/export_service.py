@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -12,8 +13,10 @@ from sqlalchemy.orm import Session
 from app.models import Asset
 from app.services.person_profiles import entry_age_options, entry_gender_options, entry_skin_color_options
 from app.services.repository import Repository
-from app.services.storage import exports_root, materialize_path, persist_export_artifact
+from app.services.storage import cleanup_export_staging, exports_root, materialize_path, persist_export_artifact
 from app.services.utils import sanitize_filename
+
+logger = logging.getLogger(__name__)
 
 EXPORT_FIELD_SPECS: tuple[dict[str, str], ...] = (
     {"key": "word", "header": "word"},
@@ -51,6 +54,7 @@ class ExportService:
         record = self.repo.create_export(normalized_filters)
         export_dir = exports_root() / record.id
         export_dir.mkdir(parents=True, exist_ok=True)
+        uploaded_objects: list[tuple[str, str]] = []
 
         try:
             runs = self.repo.list_runs_for_export(normalized_filters)
@@ -74,11 +78,20 @@ class ExportService:
                 manifest_path=manifest_path,
             )
 
+            def record_upload(stored) -> None:
+                if stored.bucket and stored.object_key:
+                    uploaded_objects.append((stored.bucket, stored.object_key))
+
             stored_csv = persist_export_artifact(record.id, "export.csv", csv_path.read_bytes(), content_type="text/csv")
+            record_upload(stored_csv)
             stored_white = persist_export_artifact(record.id, "images_white_bg.zip", white_bg_zip_path.read_bytes(), content_type="application/zip")
-            persist_export_artifact(record.id, "images_with_bg_last_attempt.zip", with_bg_zip_path.read_bytes(), content_type="application/zip")
+            record_upload(stored_white)
+            stored_with_bg = persist_export_artifact(record.id, "images_with_bg_last_attempt.zip", with_bg_zip_path.read_bytes(), content_type="application/zip")
+            record_upload(stored_with_bg)
             stored_manifest = persist_export_artifact(record.id, "manifest.json", manifest_path.read_bytes(), content_type="application/json")
-            persist_export_artifact(record.id, "export_package.zip", package_zip_path.read_bytes(), content_type="application/zip")
+            record_upload(stored_manifest)
+            stored_package = persist_export_artifact(record.id, "export_package.zip", package_zip_path.read_bytes(), content_type="application/zip")
+            record_upload(stored_package)
 
             self.repo.update_export(
                 record,
@@ -88,7 +101,22 @@ class ExportService:
                 manifest_path=stored_manifest.persisted_path,
             )
         except Exception as exc:  # noqa: BLE001
+            for bucket, object_key in uploaded_objects:
+                logger.error(
+                    "remote export object orphaned after database failure",
+                    extra={
+                        "status": "db_persist_failed",
+                        "storage_bucket": bucket,
+                        "storage_object_key": object_key,
+                    },
+                )
             self.repo.update_export(record, status="failed", error_detail=str(exc))
+        finally:
+            # Remote production exports are assembled in a bounded ephemeral
+            # staging directory and removed after persistence (success or
+            # failure). Local development keeps the existing files for quick
+            # inspection/downloads.
+            cleanup_export_staging(record.id)
 
         return self.repo.get_export(record.id)
 

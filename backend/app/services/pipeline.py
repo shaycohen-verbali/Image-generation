@@ -34,7 +34,7 @@ from app.services.prompt_templates import (
 from app.services.replicate_client import ReplicateClient
 from app.services.repository import Repository
 from app.services.storage import (
-    image_dimensions,
+    image_dimensions_bytes,
     materialize_path,
     normalize_saved_image,
     persist_run_image,
@@ -258,20 +258,33 @@ class PipelineRunner:
             mime_type=mime_type,
             storage_prefix=self._asset_storage_prefix,
         )
-        width, height = image_dimensions(stored.local_path)
-        return self.repo.add_asset(
-            run_id=run_id,
-            stage_name=stage_name,
-            attempt=attempt,
-            file_name=stored.local_path.name,
-            abs_path=stored.persisted_path,
-            mime_type=mime_type,
-            sha256=sha256_bytes(normalized_bytes),
-            width=width,
-            height=height,
-            origin_url=origin_url,
-            model_name=model_name,
-        )
+        width, height = image_dimensions_bytes(normalized_bytes)
+        safe_file_name = Path(sanitize_filename(filename)).with_suffix(suffix).name
+        try:
+            return self.repo.add_asset(
+                run_id=run_id,
+                stage_name=stage_name,
+                attempt=attempt,
+                file_name=safe_file_name,
+                abs_path=stored.persisted_path,
+                mime_type=mime_type,
+                sha256=sha256_bytes(normalized_bytes),
+                width=width,
+                height=height,
+                origin_url=origin_url,
+                model_name=model_name,
+            )
+        except Exception:
+            if stored.bucket and stored.object_key:
+                logger.error(
+                    "remote asset upload orphaned after database failure",
+                    extra={
+                        "status": "db_persist_failed",
+                        "storage_bucket": stored.bucket,
+                        "storage_object_key": stored.object_key,
+                    },
+                )
+            raise
 
     def _configure_generation_clients(
         self,
