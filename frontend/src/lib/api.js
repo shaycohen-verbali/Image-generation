@@ -138,7 +138,7 @@ export async function downloadWordSourceCsvPackage(tableName, params = {}) {
 }
 
 export async function listCsvJobs() {
-  return fetchJson(`${API_BASE}/csv-jobs`, {}, 2)
+  return fetchJson(`${API_BASE}/csv-jobs`, {}, 0)
 }
 
 export async function getCsvJob(jobId) {
@@ -150,24 +150,24 @@ export async function getCsvJobOverview(jobId) {
 }
 
 export async function getCsvJobMetadata(jobId) {
-  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/metadata`, {}, 1)
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/metadata`, {}, 0)
 }
 
 export async function getCsvJobSummary(jobId) {
-  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary`, {}, 1)
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary`, {}, 0)
 }
 
 export async function getCsvJobSummaryDetails(jobId) {
-  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary/details`, {}, 1)
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary/details`, {}, 0)
 }
 
 export async function getCsvJobItems(jobId, { offset = 0, limit = 50 } = {}) {
   const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
-  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/items?${query.toString()}`, {}, 1)
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/items?${query.toString()}`, {}, 0)
 }
 
 export async function getCsvJobItemDetail(jobId, itemId) {
-  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/items/${itemId}`, {}, 1)
+  return fetchJson(`${API_BASE}/csv-jobs/${jobId}/items/${itemId}`, {}, 0)
 }
 
 export async function startCsvJob(jobId) {

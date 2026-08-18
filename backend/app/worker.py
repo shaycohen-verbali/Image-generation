@@ -17,7 +17,7 @@ from app.services.csv_dag_service import CsvDagService
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
 from app.services.task_health_monitor import TaskHealthMonitor
-from app.services.job_summary_service import JobSummaryService
+from app.services.job_summary_queue_service import JobSummaryQueueService
 from app.models import CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService
 from app.services.slack_alerts import SlackAlertService
@@ -38,6 +38,7 @@ WORKER_ERROR_BACKOFF_MAX_SECONDS = 15.0
 # Often enough that a dead worker is obvious within a minute, rare enough that
 # an idle worker is not writing to the database constantly.
 WORKER_HEARTBEAT_SECONDS = 30.0
+SUMMARY_RECOVERY_SECONDS = 60.0
 logger = logging.getLogger(__name__)
 
 
@@ -53,11 +54,11 @@ def _process_single_csv_task(task_id: str) -> None:
         task = service.execute_task(task_id)
         if get_settings().phase7_job_summary_enabled:
             try:
-                JobSummaryService(db).finalize_if_terminal(task.csv_job_id)
+                JobSummaryQueueService(db).enqueue_if_terminal(task.csv_job_id)
             except Exception as exc:  # noqa: BLE001
                 db.rollback()
                 logger.warning(
-                    "job summary skipped",
+                    "job summary enqueue skipped",
                     extra={"status": type(exc).__name__},
                 )
         # The batch may have just finished on this task. The alert claims itself
@@ -67,6 +68,13 @@ def _process_single_csv_task(task_id: str) -> None:
         except Exception as exc:  # noqa: BLE001 - never fail a task over a DM
             db.rollback()
             logger.warning("slack alert skipped", extra={"status": type(exc).__name__})
+
+
+def _process_single_csv_summary(summary_task_id: str) -> None:
+    # The claim session is already closed by the worker loop.  The queue
+    # processor opens exactly one fresh session for calculation and state
+    # updates, so no claim transaction remains open during the bounded scan.
+    JobSummaryQueueService(None).process_claimed(summary_task_id)
 
 
 def _process_cloud_upload_batch(batch_id: str) -> None:
@@ -133,9 +141,11 @@ def run_worker() -> None:
     logger.info("worker started")
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
     next_heartbeat_at = 0.0
+    next_summary_recovery_at = 0.0
     active_runs: dict[Future, str] = {}
     active_csv_tasks: dict[Future, str] = {}
     active_cloud_uploads: dict[Future, str] = {}
+    active_summaries: dict[Future, str] = {}
     idle_poll_seconds = settings.worker_poll_seconds or 2.0
     error_backoff_seconds = idle_poll_seconds
     task_health_monitor = TaskHealthMonitor(
@@ -175,6 +185,20 @@ def run_worker() -> None:
                                     "slack stall alert skipped",
                                     extra={"status": type(exc).__name__},
                                 )
+                    if (
+                        settings.phase7_job_summary_enabled
+                        and settings.job_summary_async_enabled
+                        and time.monotonic() >= next_summary_recovery_at
+                    ):
+                        recovered_summaries = repo.recover_stale_csv_job_summaries(
+                            settings.job_summary_stale_seconds
+                        )
+                        if recovered_summaries:
+                            logger.warning(
+                                "recovered stale summary tasks",
+                                extra={"count": recovered_summaries},
+                            )
+                        next_summary_recovery_at = time.monotonic() + SUMMARY_RECOVERY_SECONDS
 
                 if timed_out_task_ids:
                     logger.warning(
@@ -212,8 +236,17 @@ def run_worker() -> None:
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("cloud upload batch failed", extra={"cloud_upload_batch_id": batch_id, "error": str(exc)})
 
+                done_summaries = [future for future in active_summaries if future.done()]
+                for future in done_summaries:
+                    summary_task_id = active_summaries.pop(future)
+                    try:
+                        future.result()
+                        logger.info("csv summary finished", extra={"csv_job_id": summary_task_id})
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("csv summary failed", extra={"csv_job_id": summary_task_id, "error": str(exc)})
+
                 claimed_count = 0
-                active_total = len(active_runs) + len(active_csv_tasks) + len(active_cloud_uploads)
+                active_total = len(active_runs) + len(active_csv_tasks) + len(active_cloud_uploads) + len(active_summaries)
                 # Cloudflare exports are user-triggered and should not wait
                 # behind the normal CSV generation queue.
                 if not active_cloud_uploads and active_total < max_parallel_runs:
@@ -265,11 +298,35 @@ def run_worker() -> None:
                     active_csv_tasks[future] = task.id
                     active_total += 1
 
+                # Summary calculation is intentionally a single, low-priority
+                # unit of work.  The claim commits before the calculation and
+                # consumes the same total capacity as every other job type.
+                if (
+                    settings.phase7_job_summary_enabled
+                    and settings.job_summary_async_enabled
+                    and not active_summaries
+                    and active_total < max_parallel_runs
+                ):
+                    with SessionLocal() as db:
+                        summary_task = JobSummaryQueueService(db).claim(worker_id)
+                    if summary_task is not None:
+                        claimed_count += 1
+                        logger.info(
+                            "csv summary claimed",
+                            extra={
+                                "csv_job_id": summary_task.csv_job_id,
+                                "attempt": summary_task.attempt_count,
+                            },
+                        )
+                        future = executor.submit(_process_single_csv_summary, summary_task.csv_job_id)
+                        active_summaries[future] = summary_task.csv_job_id
+                        active_total += 1
+
                 error_backoff_seconds = idle_poll_seconds
 
                 if claimed_count and active_total < max_parallel_runs:
                     time.sleep(WORKER_CLAIM_SETTLE_SECONDS)
-                elif not claimed_count and not active_runs and not active_csv_tasks and not active_cloud_uploads:
+                elif not claimed_count and not active_runs and not active_csv_tasks and not active_cloud_uploads and not active_summaries:
                     time.sleep(poll_seconds)
                 elif not claimed_count:
                     time.sleep(0.25)

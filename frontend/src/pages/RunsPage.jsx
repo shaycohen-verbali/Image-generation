@@ -27,13 +27,13 @@ import PageErrorBoundary from '../components/PageErrorBoundary'
 import RunExecutionDiagram from '../components/RunExecutionDiagram'
 import DeferredAssetImage from '../components/DeferredAssetImage'
 import { formatDurationSeconds, jobElapsedSeconds } from '../lib/jobSummary'
+import { nextPollDelay } from '../lib/polling'
 
 const SELECTED_RUN_STORAGE_KEY = 'aac:selectedRunId'
 const RUNS_POLL_MS = 30000
 const DETAIL_POLL_RUNNING_MS = 12000
 const DETAIL_POLL_WAITING_MS = 20000
 const CSV_LIST_POLL_MS = 15000
-const CSV_LIST_POLL_FAST_MS = 5000
 const CSV_DETAIL_POLL_MS = 15000
 const CSV_DETAIL_POLL_FAST_MS = 5000
 
@@ -60,6 +60,10 @@ function canStopRun(status) {
 function isTerminalCsvJobStatus(status) {
   const value = String(status || '').toLowerCase()
   return ['completed', 'failed', 'partial_failed', 'canceled'].includes(value)
+}
+
+function isActiveCsvJobStatus(status) {
+  return !isTerminalCsvJobStatus(status)
 }
 
 function csvItemTaskSummary(tasks, itemId) {
@@ -648,6 +652,7 @@ export default function RunsPage() {
   const runsRequestInFlightRef = useRef(false)
   const runDetailRequestInFlightRef = useRef(false)
   const selectedCsvJobIdRef = useRef('')
+  const csvListLoadedRef = useRef(false)
   const csvListRequestInFlightRef = useRef(false)
   const csvOverviewRequestInFlightRef = useRef(false)
   const csvSummaryRequestInFlightRef = useRef(false)
@@ -732,10 +737,6 @@ export default function RunsPage() {
     return (asset.attempt || 0) >= (latest.attempt || 0) ? asset : latest
   }, null)
 
-  const csvJobPollKey = useMemo(
-    () => csvJobs.map((job) => `${job.id}:${job.status}:${job.updated_at || ''}`).join('|'),
-    [csvJobs]
-  )
   const csvJobItems = Array.isArray(csvItemsPage?.items) ? csvItemsPage.items : []
   const csvJobTasks = Array.isArray(csvItemsPage?.tasks) ? csvItemsPage.tasks : []
   const requestedProfileHistory = Array.isArray(csvJobOverview?.requested_profile_history)
@@ -826,6 +827,19 @@ export default function RunsPage() {
     [selectedCsvItem],
   )
   const selectedCsvJob = csvJobOverview?.job || csvJobs.find((job) => job.id === selectedCsvJobId) || null
+  const hasActiveCsvJobs = useMemo(
+    () => csvJobs.some((job) => isActiveCsvJobStatus(job?.status)),
+    [csvJobs],
+  )
+  const summaryGenerationStatus = String(compactJobSummary?.generation_status || 'not_requested').toLowerCase()
+  const summaryGenerationError = String(compactJobSummary?.generation_error || '').slice(0, 300)
+  const summaryGenerationMessage = {
+    pending: 'Final summary is preparing.',
+    running: 'Final summary is preparing.',
+    failed: 'Final summary failed. The job result is still available.',
+    missing: 'Final summary is unavailable for this completed job.',
+    not_requested: 'Final summary is unavailable.',
+  }[summaryGenerationStatus] || 'Final summary status is unavailable.'
   const showBaseCsvOutputs = !csvIsVariantJob(selectedCsvJob)
   const selectedCsvItemImages = useMemo(
     () => {
@@ -970,13 +984,13 @@ export default function RunsPage() {
   }
 
   async function loadCsvJobSummary(jobId, { isPolling = false } = {}) {
-    if (!jobId) return
-    if (csvSummaryRequestInFlightRef.current) return
+    if (!jobId) return null
+    if (csvSummaryRequestInFlightRef.current) return null
     csvSummaryRequestInFlightRef.current = true
     try {
       const data = await getCsvJobSummary(jobId)
       if (selectedCsvJobIdRef.current && selectedCsvJobIdRef.current !== jobId) {
-        return
+        return null
       }
       setCsvJobs((previous) => previous.map((job) => (job.id === jobId ? { ...job, ...data.job } : job)))
       setCsvJobOverview((previous) => {
@@ -993,10 +1007,12 @@ export default function RunsPage() {
           job_summary: data.job_summary,
         }
       })
+      return data
     } catch (error) {
       if (!isPolling) {
         setMessage(`Error loading CSV job summary: ${error.message}`)
       }
+      return null
     } finally {
       csvSummaryRequestInFlightRef.current = false
     }
@@ -1030,7 +1046,7 @@ export default function RunsPage() {
   }
 
   async function loadCsvJobSummaryDetails(jobId) {
-    if (!jobId || csvSummaryDetailsRequestInFlightRef.current || csvJobSummaryDetails) return
+    if (!jobId || csvSummaryDetailsRequestInFlightRef.current || csvJobSummaryDetails?.available) return
     csvSummaryDetailsRequestInFlightRef.current = true
     try {
       const data = await getCsvJobSummaryDetails(jobId)
@@ -1094,7 +1110,6 @@ export default function RunsPage() {
     if (!showingCsvWords) {
       refreshRuns()
     }
-    refreshCsvJobs()
     const timer = setInterval(() => {
       if (!pageVisible) return
       if (selectedCsvJobIdRef.current) return
@@ -1105,18 +1120,37 @@ export default function RunsPage() {
   }, [query, pageVisible, showingCsvWords])
 
   useEffect(() => {
-    refreshCsvJobs()
+    if (!csvListLoadedRef.current) {
+      csvListLoadedRef.current = true
+      refreshCsvJobs()
+    }
+    if (!hasActiveCsvJobs) return undefined
     const timer = setInterval(() => {
       if (!pageVisible) return
       refreshCsvJobs({ isPolling: true })
-    }, shouldFastPollCsv ? CSV_LIST_POLL_FAST_MS : CSV_LIST_POLL_MS)
+    }, CSV_LIST_POLL_MS)
     return () => clearInterval(timer)
-  }, [pageVisible, shouldFastPollCsv])
+  }, [pageVisible, hasActiveCsvJobs])
 
   useEffect(() => {
-    if (!selectedCsvJobId || !pageVisible) return
-    loadCsvJobSummary(selectedCsvJobId, { isPolling: true })
-  }, [selectedCsvJobId, csvJobPollKey, pageVisible])
+    if (!selectedCsvJobId || !pageVisible) return undefined
+    if (!['pending', 'running'].includes(summaryGenerationStatus)) return undefined
+    let canceled = false
+    let delayMs = 30000
+    let timer
+    const pollSummary = async () => {
+      if (canceled || !pageVisible || !selectedCsvJobIdRef.current) return
+      const data = await loadCsvJobSummary(selectedCsvJobIdRef.current, { isPolling: true })
+      if (canceled) return
+      delayMs = nextPollDelay(delayMs, Boolean(data))
+      timer = window.setTimeout(pollSummary, delayMs)
+    }
+    timer = window.setTimeout(pollSummary, delayMs)
+    return () => {
+      canceled = true
+      window.clearTimeout(timer)
+    }
+  }, [selectedCsvJobId, pageVisible, summaryGenerationStatus])
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -1154,13 +1188,18 @@ export default function RunsPage() {
       setSelectedCsvStatusFilter('')
       return undefined
     }
+    if (!pageVisible) return undefined
     loadCsvJobDetail(selectedCsvJobId)
     loadCsvJobItems(selectedCsvJobId, 0)
+    return undefined
+  }, [selectedCsvJobId, pageVisible])
+
+  useEffect(() => {
+    if (!selectedCsvJobId || !pageVisible) return undefined
+    if (isTerminalCsvJobStatus(csvJobOverview?.job?.status)) return undefined
     const timer = setInterval(() => {
       if (!pageVisible) return
       if (!selectedCsvJobId) return
-      if (isTerminalCsvJobStatus(csvJobOverview?.job?.status)) return
-      loadCsvJobSummary(selectedCsvJobId, { isPolling: true })
       loadCsvJobItems(selectedCsvJobId, csvItemsPage.offset || 0)
     }, shouldFastPollCsv ? CSV_DETAIL_POLL_FAST_MS : CSV_DETAIL_POLL_MS)
     return () => clearInterval(timer)
@@ -1783,6 +1822,13 @@ export default function RunsPage() {
                   </div>
                   <span className="csv-status-chip">{compactJobSummary?.cost_label || 'Cost unavailable'}</span>
                 </div>
+                {summaryGenerationStatus !== 'ready' ? (
+                  <p className="config-help-text" role="status">
+                    {summaryGenerationMessage}
+                    {summaryGenerationError ? ` ${summaryGenerationError}` : ''}
+                    {summaryGenerationStatus === 'failed' ? ' Retry summary can be requested by an operator.' : ''}
+                  </p>
+                ) : null}
                 <div className="csv-job-stat-grid">
                   <div><strong>Status</strong><p>{csvPrettyStatus(compactJobSummary?.status || csvJobOverview.job.status)}</p></div>
                   <div><strong>Completed</strong><p>{compactJobCounts.completed ?? '-'}</p></div>

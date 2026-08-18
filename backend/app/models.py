@@ -335,6 +335,25 @@ class CsvJobAggregate(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class CsvJobSummaryTask(Base):
+    __tablename__ = "csv_job_summary_tasks"
+
+    csv_job_id: Mapped[str] = mapped_column(
+        ForeignKey("csv_jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    target_pricing_version: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    worker_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    available_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class RuntimeConfig(Base):
     __tablename__ = "runtime_config"
 

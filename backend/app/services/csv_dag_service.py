@@ -817,15 +817,25 @@ class CsvDagService:
 
         summary_service = JobSummaryService(self.db)
         stored_summary = summary_service.get(job_id)
-        if str(job.status or "").lower() in {"completed", "failed", "partial_failed", "canceled"}:
-            stored_summary = summary_service.finalize_if_terminal(job_id) or stored_summary
-        live_cost = {}
-        if stored_summary is None:
-            live_cost_details = summary_service.live_details(job_id)
-            live_cost = (live_cost_details or {}).get("cost") or {}
+        generation = summary_service.generation_status(job_id)
+        generation_status = str(generation.get("status") or "missing")
+        generation_error = str(generation.get("error") or "")
+        if stored_summary is not None:
+            stored_summary = dict(stored_summary)
+            stored_summary["generation_status"] = "ready"
+            stored_summary["generation_error"] = ""
+        summary_label = {
+            "pending": "Final summary is preparing",
+            "running": "Final summary is preparing",
+            "failed": "Final summary failed",
+            "missing": "Final summary is unavailable",
+            "not_requested": "Final summary is unavailable",
+        }.get(generation_status, "Final summary is unavailable")
         live_summary = stored_summary or {
-            "available": True,
+            "available": False,
             "is_final": False,
+            "generation_status": generation_status,
+            "generation_error": generation_error,
             "status": str(job.status or ""),
             "counts": {
                 "completed": word_counts["completed"],
@@ -836,16 +846,12 @@ class CsvDagService:
             },
             "wall_clock_seconds": None,
             "average_elapsed_per_completed_word_seconds": None,
-            "total_cost_usd": live_cost.get("total_cost_usd"),
-            "average_cost_per_completed_word_usd": (
-                round(float(live_cost.get("total_cost_usd") or 0.0) / word_counts["completed"], 6)
-                if word_counts["completed"] and live_cost.get("basis") == "estimated"
-                else None
-            ),
-            "cost_basis": live_cost.get("basis") or "unavailable",
-            "cost_label": "Estimated from recorded usage and image operations so far" if live_cost.get("basis") == "estimated" else "Cost unavailable",
-            "pricing_version": live_cost.get("pricing_version"),
-            "billable_calls": live_cost.get("billable_calls"),
+            "total_cost_usd": None,
+            "average_cost_per_completed_word_usd": None,
+            "cost_basis": "unavailable",
+            "cost_label": summary_label,
+            "pricing_version": None,
+            "billable_calls": None,
         }
         return {
             "job": self._serialize_job(
@@ -870,7 +876,7 @@ class CsvDagService:
         if self.repo.get_csv_job(job_id) is None:
             return None
         summary_service = JobSummaryService(self.db)
-        return summary_service.get_details(job_id) or summary_service.live_details(job_id)
+        return summary_service.get_details(job_id) or summary_service.unavailable_details()
 
     def job_metadata(self, job_id: str) -> dict[str, Any] | None:
         summary = self.job_summary(job_id)
@@ -902,9 +908,9 @@ class CsvDagService:
         if not tasks:
             finalized = self.repo.finalize_csv_job_status(job_id) or job
             if get_settings().phase7_job_summary_enabled:
-                from app.services.job_summary_service import JobSummaryService
+                from app.services.job_summary_queue_service import JobSummaryQueueService
 
-                JobSummaryService(self.db).finalize_if_terminal(job_id)
+                JobSummaryQueueService(self.db).enqueue_if_terminal(job_id)
             return finalized
         self.repo.queue_pending_csv_tasks(job_id)
         started_at = job.started_at or datetime.utcnow()
@@ -923,9 +929,9 @@ class CsvDagService:
         if job is None:
             raise RuntimeError(f"CSV job not found: {job_id}")
         if get_settings().phase7_job_summary_enabled:
-            from app.services.job_summary_service import JobSummaryService
+            from app.services.job_summary_queue_service import JobSummaryQueueService
 
-            JobSummaryService(self.db).finalize_if_terminal(job_id)
+            JobSummaryQueueService(self.db).enqueue_if_terminal(job_id)
         return job, canceled
 
     def sync_inventory(self, job_id: str) -> dict[str, Any]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Collection
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Select, desc, func, select, update
@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session, defer
 from app.models import (
     Asset,
     CsvJob,
+    CsvJobAggregate,
     CsvJobItem,
+    CsvJobSummaryTask,
     CsvTaskAttempt,
     CsvTaskNode,
     Entry,
@@ -1063,6 +1065,185 @@ class Repository:
 
     def get_csv_job(self, job_id: str) -> CsvJob | None:
         return self.db.execute(select(CsvJob).where(CsvJob.id == job_id)).scalar_one_or_none()
+
+    def get_csv_job_summary_task(self, csv_job_id: str) -> CsvJobSummaryTask | None:
+        return self.db.get(CsvJobSummaryTask, csv_job_id)
+
+    def enqueue_csv_job_summary(
+        self,
+        csv_job_id: str,
+        target_pricing_version: str,
+        max_attempts: int = 3,
+        force: bool = False,
+    ) -> CsvJobSummaryTask | None:
+        """Create or refresh the one-row summary queue entry idempotently."""
+        if self.get_csv_job(csv_job_id) is None:
+            return None
+        now = datetime.utcnow()
+        target = str(target_pricing_version or "")[:64]
+        attempts = max(1, int(max_attempts))
+        aggregate = self.db.get(CsvJobAggregate, csv_job_id)
+        aggregate_ready = bool(
+            aggregate is not None
+            and aggregate.is_final
+            and aggregate.pricing_version == target
+        )
+        task = self.db.get(CsvJobSummaryTask, csv_job_id)
+        if task is None:
+            task = CsvJobSummaryTask(
+                csv_job_id=csv_job_id,
+                status="ready" if aggregate_ready else "pending",
+                target_pricing_version=target,
+                max_attempts=attempts,
+                finished_at=now if aggregate_ready else None,
+                available_at=now,
+            )
+            self.db.add(task)
+        else:
+            pricing_changed = task.target_pricing_version != target
+            task.max_attempts = attempts
+            if task.status == "running" and not force and not pricing_changed:
+                # A normal enqueue must never steal a live calculation.  The
+                # stale-recovery pass will reconcile it if the worker dies.
+                pass
+            elif force:
+                task.target_pricing_version = target
+                task.status = "pending"
+                task.attempt_count = 0
+                task.worker_id = None
+                task.last_error = ""
+                task.started_at = None
+                task.finished_at = None
+                task.available_at = now
+            elif aggregate_ready:
+                task.target_pricing_version = target
+                task.status = "ready"
+                task.last_error = ""
+                task.finished_at = now
+                task.available_at = now
+            elif pricing_changed or force:
+                task.target_pricing_version = target
+                task.status = "ready" if aggregate_ready else "pending"
+                task.attempt_count = 0
+                task.worker_id = None
+                task.last_error = ""
+                task.started_at = None
+                task.finished_at = now if aggregate_ready else None
+                task.available_at = now
+            elif task.status == "pending" and task.available_at is None:
+                task.available_at = now
+            task.updated_at = now
+        self.db.commit()
+        self.db.refresh(task)
+        return self._release_instance(task)
+
+    def claim_next_csv_job_summary(self, worker_id: str) -> CsvJobSummaryTask | None:
+        """Claim one summary row and commit before the expensive calculation."""
+        now = datetime.utcnow()
+        candidate = self.db.execute(
+            select(CsvJobSummaryTask)
+            .join(CsvJob, CsvJob.id == CsvJobSummaryTask.csv_job_id)
+            .where(CsvJobSummaryTask.status == "pending")
+            .where(CsvJobSummaryTask.available_at <= now)
+            .where(CsvJob.status.in_(["completed", "failed", "partial_failed", "canceled"]))
+            .order_by(CsvJobSummaryTask.available_at.asc(), CsvJobSummaryTask.created_at.asc())
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        ).scalar_one_or_none()
+        if candidate is None:
+            return None
+        updated = self.db.execute(
+            update(CsvJobSummaryTask)
+            .where(CsvJobSummaryTask.csv_job_id == candidate.csv_job_id)
+            .where(CsvJobSummaryTask.status == "pending")
+            .where(CsvJobSummaryTask.available_at <= now)
+            .values(
+                status="running",
+                attempt_count=CsvJobSummaryTask.attempt_count + 1,
+                worker_id=str(worker_id or "")[:160],
+                started_at=now,
+                finished_at=None,
+                updated_at=now,
+            )
+        )
+        if int(updated.rowcount or 0) != 1:
+            self.db.rollback()
+            return None
+        self.db.commit()
+        self.db.refresh(candidate)
+        return self._release_instance(candidate)
+
+    def mark_csv_job_summary_ready(self, csv_job_id: str) -> CsvJobSummaryTask | None:
+        task = self.db.get(CsvJobSummaryTask, csv_job_id)
+        if task is None:
+            return None
+        now = datetime.utcnow()
+        task.status = "ready"
+        task.last_error = ""
+        task.worker_id = None
+        task.finished_at = now
+        task.updated_at = now
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return self._release_instance(task)
+
+    def retry_or_fail_csv_job_summary(
+        self,
+        csv_job_id: str,
+        error: str,
+        retry_delay_seconds: int = 30,
+    ) -> CsvJobSummaryTask | None:
+        task = self.db.get(CsvJobSummaryTask, csv_job_id)
+        if task is None:
+            return None
+        now = datetime.utcnow()
+        task.last_error = str(error or "summary generation failed")[:2000]
+        task.worker_id = None
+        task.updated_at = now
+        if task.attempt_count < task.max_attempts:
+            task.status = "pending"
+            task.available_at = now + timedelta(seconds=max(1, int(retry_delay_seconds)))
+            task.started_at = None
+            task.finished_at = None
+        else:
+            task.status = "failed"
+            task.finished_at = now
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return self._release_instance(task)
+
+    def recover_stale_csv_job_summaries(self, stale_seconds: int = 900) -> int:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(seconds=max(60, int(stale_seconds)))
+        rows = list(
+            self.db.execute(
+                select(CsvJobSummaryTask)
+                .where(CsvJobSummaryTask.status == "running")
+                .where(CsvJobSummaryTask.started_at <= cutoff)
+            ).scalars()
+        )
+        recovered = 0
+        for task in rows:
+            aggregate = self.db.get(CsvJobAggregate, task.csv_job_id)
+            if aggregate is not None and aggregate.is_final and aggregate.pricing_version == task.target_pricing_version:
+                task.status = "ready"
+                task.finished_at = now
+                task.last_error = ""
+                task.worker_id = None
+            else:
+                task.status = "pending"
+                task.available_at = now
+                task.started_at = None
+                task.finished_at = None
+                task.worker_id = None
+                task.last_error = "Recovered stale summary worker claim"
+            task.updated_at = now
+            recovered += 1
+        if recovered:
+            self.db.commit()
+        return recovered
 
     def get_csv_job_by_batch(self, batch_id: str) -> CsvJob | None:
         return self.db.execute(select(CsvJob).where(CsvJob.batch_id == batch_id)).scalar_one_or_none()
