@@ -88,7 +88,7 @@ const STAGE_DEFINITIONS = [
     id: 'stage4_background',
     label: 'Stage 4 White Background',
     provider: 'Google API: gemini-3.1-flash-lite-image',
-    inputs: ['passing stage3 image'],
+    inputs: ['best-scoring stage3 image, even when below threshold'],
     expected: ['white background image'],
     retryPolicy: 'API retry + stage retry',
   },
@@ -144,7 +144,7 @@ const FLOW_EDGES = [
   { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt + resolved style', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_generate', to: 'quality_gate', label: 'image', fromPort: 'right', toPort: 'left' },
   { from: 'quality_gate', to: 'stage3_critique', label: 'loop retry', type: 'loop', fromPort: 'left', toPort: 'top' },
-  { from: 'quality_gate', to: 'stage3_post_quality_accessibility_critique', label: 'winner selected', fromPort: 'top', toPort: 'left' },
+  { from: 'quality_gate', to: 'stage3_post_quality_accessibility_critique', label: 'pass, or best attempt after budget', fromPort: 'top', toPort: 'left' },
   { from: 'stage3_post_quality_accessibility_critique', to: 'stage3_post_quality_accessibility_generate', label: 'soften only if needed', fromPort: 'right', toPort: 'left' },
   { from: 'stage3_post_quality_accessibility_critique', to: 'stage4_background', label: 'already AAC-friendly', fromPort: 'bottom', toPort: 'top' },
   { from: 'stage3_post_quality_accessibility_generate', to: 'stage4_background', label: 'use softened image when created', fromPort: 'right', toPort: 'left' },
@@ -313,7 +313,7 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
     if (isCompleted && winnerAttempt > 0 && attempt !== winnerAttempt && !stageResult) return 'skipped'
     if (isCurrentAttemptStage) return 'running'
     if (stageResult) return asStageStatus(stageResult.status)
-    if (score && score.pass_fail === false) return 'skipped'
+    if (score && score.pass_fail === false && winnerAttempt > 0 && attempt !== winnerAttempt) return 'skipped'
     return 'queued'
   }
 
@@ -321,10 +321,9 @@ function nodeStatus({ stageId, stageResult, run, attempt, score }) {
     const winnerAttempt = Number(run.optimization_attempt || 0)
     const isCompleted = String(run.status || '').startsWith('completed_')
     if (isCompleted && winnerAttempt > 0 && attempt !== winnerAttempt && !stageResult) return 'skipped'
-    if (run.status === 'completed_pass' && !stageResult) return 'skipped'
+    if (isCompleted && !stageResult) return 'skipped'
     if (isCurrentAttemptStage) return 'running'
     if (stageResult) return asStageStatus(stageResult.status)
-    if (score && score.pass_fail === false) return 'skipped'
     return 'queued'
   }
 

@@ -453,9 +453,9 @@ const STAGE_DETAILS = {
     apiCall: 'internal status transition',
     provider: 'system',
     model: 'N/A',
-    inputs: ['quality_gate fail and attempts exhausted'],
+    inputs: ['best score below threshold after post-processing and requested legacy variants finish'],
     outputs: ['completed_fail_threshold'],
-    instruction: 'No AI instruction. System updates run.status=completed_fail_threshold.',
+    instruction: 'No AI instruction. After completing the best-attempt post-quality, white-background, and requested variant work, the system updates run.status=completed_fail_threshold.',
     requestExample: { status: 'completed_fail_threshold' },
   },
   variant_requested: {
@@ -473,7 +473,7 @@ const STAGE_DETAILS = {
     model: 'N/A',
     inputs: ['word/part_of_sentence/category entry', 'requested profile key', 'override_existing_variants flag'],
     outputs: ['reuse exact requested profile or continue dependency planning'],
-    instruction: 'Check word_inventory for the exact requested profile. If it already exists and override is false, reuse it and skip generation for that profile.',
+    instruction: 'Check word_inventory for the exact requested profile. If either its regular or white-background slot exists and override is false, reuse the available inventory assets and skip generation for that profile.',
     requestExample: { requested_profile: 'male:kid:black', override_existing_variants: false },
   },
   variant_family_router: {
@@ -482,7 +482,7 @@ const STAGE_DETAILS = {
     model: 'N/A',
     inputs: ['requested profile'],
     outputs: ['one of the profile-family branches'],
-    instruction: 'Route the requested profile into the correct branch: white male kid base, male age branch, white female kid seed, female age branch, or race branch from a matching white age+gender baseline.',
+    instruction: 'Route the requested profile using the CSV dependency table: white male kid is the base; non-white kids depend on the same-gender white kid; non-kid profiles normally depend on the same-race same-gender kid; white female kid depends on white male kid; white female teenager is the special case that depends on white male teenager.',
     requestExample: { requested_profile: 'female:teenager:brown' },
   },
   variant_dependency_check: {
@@ -491,7 +491,7 @@ const STAGE_DETAILS = {
     model: 'N/A',
     inputs: ['dependency profile key', 'inventory row'],
     outputs: ['reuse dependency or create it first'],
-    instruction: 'If the dependency profile already exists in inventory, reuse it. Otherwise create the dependency profile first, then continue into the requested target profile.',
+    instruction: 'If the dependency regular image already exists in inventory, reuse it. Otherwise recursively schedule the dependency profile first, then continue into the requested target profile.',
     requestExample: { dependency_profile: 'female:kid:white', action: 'create first if missing' },
   },
   variant_reuse_complete: {
@@ -500,8 +500,65 @@ const STAGE_DETAILS = {
     model: 'N/A',
     inputs: ['existing exact inventory profile'],
     outputs: ['completed path by reuse'],
-    instruction: 'No new image generation is needed for this profile. Reuse the inventory assets and continue to completion/export readiness.',
+    instruction: 'No new image generation is needed for this requested profile. Reuse whichever regular and/or white-background inventory assets exist; export validation still reports any missing slot.',
     requestExample: { reused_profile: 'male:kid:black' },
+  },
+  final_quality_decision: {
+    apiCall: 'run status decision',
+    provider: 'Backend pipeline',
+    model: 'N/A',
+    inputs: ['best quality score', 'run quality threshold', 'completed base and optional variant work'],
+    outputs: ['completed_pass or completed_fail_threshold'],
+    instruction: 'After the best attempt has continued through post-quality processing, base white-background generation, and any requested legacy variants, mark the run completed_pass when the best score meets the threshold; otherwise mark it completed_fail_threshold.',
+    requestExample: { best_score: 78, threshold: 80, status: 'completed_fail_threshold' },
+  },
+}
+
+const CSV_DAG_STAGE_DETAIL_OVERRIDES = {
+  stage5_male_age: {
+    apiCall: 'Google profile image edit API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-lite-image',
+    inputs: ['same-race male kid regular image', 'requested non-kid male profile'],
+    outputs: ['regular target profile image'],
+    instruction: 'Edit the same-race male kid dependency image into the requested male toddler, tween, or teenager profile while preserving the concept, action, props, framing, and composition.',
+    requestExample: { source_profile: 'male:kid:brown', target_profile: 'male:teenager:brown' },
+  },
+  stage6_female_seed: {
+    apiCall: 'Google profile image edit API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-lite-image',
+    inputs: ['white male dependency image', 'requested white female profile'],
+    outputs: ['regular white female target image'],
+    instruction: 'Create the white female kid from white male kid. For the explicit white-female-teenager exception, create white female teenager from white male teenager. Preserve the concept and scene.',
+    requestExample: { source_profile: 'male:teenager:white', target_profile: 'female:teenager:white' },
+  },
+  stage7_female_age: {
+    apiCall: 'Google profile image edit API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-lite-image',
+    inputs: ['same-race female kid regular image', 'requested non-kid female profile'],
+    outputs: ['regular target profile image'],
+    instruction: 'Edit the same-race female kid dependency image into the requested female toddler, tween, or non-white teenager profile while preserving the concept and scene.',
+    requestExample: { source_profile: 'female:kid:brown', target_profile: 'female:teenager:brown' },
+  },
+  stage8_race_expand: {
+    apiCall: 'Google profile image edit API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-lite-image',
+    inputs: ['white same-gender kid regular image', 'requested non-white kid profile'],
+    outputs: ['regular non-white kid image'],
+    instruction: 'Create the requested non-white kid from the same-gender white kid while preserving age, concept, action, props, framing, and composition. Because only skin color changes, the age/gender clothing critique is skipped.',
+    requestExample: { source_profile: 'female:kid:white', target_profile: 'female:kid:asian' },
+  },
+  stage9_variant_white_bg: {
+    apiCall: 'Google white-background image edit API',
+    provider: 'Google API',
+    model: 'gemini-3.1-flash-lite-image',
+    inputs: ['the just-created final regular profile image'],
+    outputs: ['its paired white-background image'],
+    instruction: 'Within each CSV profile task, create the matching white-background image immediately after the regular image and any required critique/correction.',
+    requestExample: { source: 'current task regular_asset', output: 'current task white_bg_asset' },
   },
 }
 
@@ -545,8 +602,8 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       { id: 'stage4_background', label: 'Stage 4 White Background', subtitle: 'use softened image when present', status: 'queued', x: 3040, y: 72 },
       {
         id: 'variant_requested',
-        label: 'IF more profiles are requested',
-        subtitle: 'No -> finish after Stage 4. Yes -> open the variant DAG.',
+        label: 'Use CSV Profile Plan',
+        subtitle: 'This plan was computed at import, before image execution.',
         kind: 'decision',
         status: 'queued',
         x: 3340,
@@ -554,8 +611,8 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       },
       {
         id: 'variant_inventory_check',
-        label: 'THEN check exact profile in inventory',
-        subtitle: 'Reuse exact requested profile if it already exists and override is off.',
+        label: 'CSV Import: Check Exact Profile',
+        subtitle: 'Reuse when either exact regular/white-BG slot exists and override is off.',
         kind: 'decision',
         status: 'queued',
         x: 3640,
@@ -564,7 +621,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       {
         id: 'variant_reuse_complete',
         label: 'Reuse Existing Inventory Variant',
-        subtitle: 'No new generation for that exact profile.',
+        subtitle: 'No new generation; export validation may still report a missing slot.',
         kind: 'decision',
         status: 'ok',
         x: 3940,
@@ -573,7 +630,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       {
         id: 'variant_family_router',
         label: 'THEN choose profile path',
-        subtitle: 'male age / female seed / female age / race branch',
+        subtitle: 'kid seed/race branch or same-race age branch',
         kind: 'decision',
         status: 'queued',
         x: 4240,
@@ -582,7 +639,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       {
         id: 'variant_dependency_check',
         label: 'IF dependency baseline is missing',
-        subtitle: 'Reuse it from inventory when present; otherwise create it first.',
+        subtitle: 'Reuse its regular image when present; otherwise schedule it first.',
         kind: 'decision',
         status: 'queued',
         x: 4540,
@@ -591,11 +648,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       {
         id: 'stage5_male_age',
         label: 'Step 5 Male Age Expansion',
-        subtitle: 'White male kid -> requested male ages for the same race.',
+        subtitle: 'Same-race male kid -> requested non-kid male age.',
         badge: 'backend: stage4_variant_generate',
         meta: [
-          'Input: matching male kid baseline',
-          'Output: requested male tween/teen baselines',
+          'Input: same-race male kid baseline',
+          'Output: requested male toddler/tween/teen profile',
         ],
         status: 'queued',
         x: 2740,
@@ -604,11 +661,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       {
         id: 'stage6_female_seed',
         label: 'Step 6 Female Seed',
-        subtitle: 'White male kid -> white female kid seed.',
+        subtitle: 'Male baseline -> matching white female baseline.',
         badge: 'backend: stage4_variant_generate',
         meta: [
-          'Input: white male kid baseline',
-          'Output: white female kid baseline',
+          'Kid: white male kid -> white female kid',
+          'Special case: white male teenager -> white female teenager',
         ],
         status: 'queued',
         x: 3040,
@@ -617,11 +674,11 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       {
         id: 'stage7_female_age',
         label: 'Step 7 Female Age Expansion',
-        subtitle: 'White female kid -> requested female ages for the same race.',
+        subtitle: 'Same-race female kid -> requested non-kid female age.',
         badge: 'backend: stage4_variant_generate',
         meta: [
-          'Input: matching female kid baseline',
-          'Output: requested female tween/teen baselines',
+          'Input: same-race female kid baseline',
+          'Output: requested female toddler/tween/teen profile',
         ],
         status: 'queued',
         x: 3340,
@@ -629,12 +686,12 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       },
       {
         id: 'stage8_race_expand',
-        label: 'Step 8 Race Expansion',
-        subtitle: 'Use matching white age+gender baseline -> requested race.',
+        label: 'Step 8 Kid Race Expansion',
+        subtitle: 'White same-gender kid -> requested non-white kid.',
         badge: 'backend: stage4_variant_generate',
         meta: [
           'Example: white male kid -> black/asian/brown male kid',
-          'Example: white female teenager -> black/asian/brown female teenager',
+          'Non-kid race profiles then use that same-race kid as their source',
         ],
         status: 'queued',
         x: 3640,
@@ -659,8 +716,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
         y: 356,
       },
       { id: 'stage9_variant_white_bg', label: 'Step 9 Variant White BG', subtitle: 'white background for every final variant', badge: 'backend: stage5_variant_white_bg', status: 'queued', x: 4540, y: 356 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 4840, y: 356 },
-      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold', status: 'error', x: 2140, y: 204 },
+      { id: 'completed_pass', label: 'CSV Item Path Complete', subtitle: 'export validation reports complete or missing slots', status: 'ok', x: 4840, y: 356 },
     ],
     [promptEngineerLabel],
   )
@@ -676,26 +732,25 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
-      { from: 'quality_gate', to: 'stage3_post_quality_accessibility_critique', label: 'winner selected', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'stage3_post_quality_accessibility_critique', label: 'pass, or best attempt after budget exhausted', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_post_quality_accessibility_critique', to: 'stage3_post_quality_accessibility_generate', label: 'only if minor softening is needed', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_post_quality_accessibility_critique', to: 'stage4_background', label: 'already AAC-friendly', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_post_quality_accessibility_generate', to: 'stage4_background', label: 'use softened image', fromPort: 'right', toPort: 'left' },
-      { from: 'quality_gate', to: 'completed_fail', label: 'fail after max attempts', type: 'branch', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage4_background', to: 'variant_requested', label: 'base winner is ready', fromPort: 'right', toPort: 'left' },
-      { from: 'variant_requested', to: 'completed_pass', label: 'no extra profiles requested', fromPort: 'bottom', toPort: 'top' },
-      { from: 'variant_requested', to: 'variant_inventory_check', label: 'yes -> inspect requested profile(s)', fromPort: 'right', toPort: 'left' },
+      { from: 'variant_requested', to: 'completed_pass', label: 'no profile task needs generation', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_requested', to: 'variant_inventory_check', label: 'follow precomputed profile task(s)', fromPort: 'right', toPort: 'left' },
       { from: 'variant_inventory_check', to: 'variant_reuse_complete', label: 'exact profile already exists + override off', fromPort: 'right', toPort: 'left' },
       { from: 'variant_reuse_complete', to: 'completed_pass', label: 'reuse existing assets', fromPort: 'bottom', toPort: 'top' },
       { from: 'variant_inventory_check', to: 'variant_family_router', label: 'exact profile missing or override on', fromPort: 'bottom', toPort: 'top' },
       { from: 'variant_family_router', to: 'variant_dependency_check', label: 'look up dependency baseline', fromPort: 'right', toPort: 'left' },
-      { from: 'variant_dependency_check', to: 'stage5_male_age', label: 'male age path', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_dependency_check', to: 'stage5_male_age', label: 'same-race male kid -> male non-kid', fromPort: 'bottom', toPort: 'top' },
       { from: 'variant_dependency_check', to: 'stage6_female_seed', label: 'white female kid seed path', fromPort: 'bottom', toPort: 'top' },
-      { from: 'variant_dependency_check', to: 'stage7_female_age', label: 'female age path', fromPort: 'bottom', toPort: 'top' },
-      { from: 'variant_dependency_check', to: 'stage8_race_expand', label: 'race path from matching white baseline', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_dependency_check', to: 'stage7_female_age', label: 'same-race female kid -> female non-kid', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_dependency_check', to: 'stage8_race_expand', label: 'non-white kid from white same-gender kid', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage5_male_age', to: 'stage81_variant_critique', label: 'gender same, age changed', fromPort: 'right', toPort: 'left' },
       { from: 'stage6_female_seed', to: 'stage81_variant_critique', label: 'gender changed', fromPort: 'right', toPort: 'left' },
       { from: 'stage7_female_age', to: 'stage81_variant_critique', label: 'gender/age path complete', fromPort: 'right', toPort: 'left' },
-      { from: 'stage8_race_expand', to: 'stage81_variant_critique', label: 'review clothing/styling', fromPort: 'right', toPort: 'left' },
+      { from: 'stage8_race_expand', to: 'stage9_variant_white_bg', label: 'skin-only change: critique is skipped', fromPort: 'right', toPort: 'left' },
       { from: 'stage81_variant_critique', to: 'stage82_variant_correction', label: 'only if fixes are needed', fromPort: 'right', toPort: 'left' },
       { from: 'stage81_variant_critique', to: 'stage9_variant_white_bg', label: 'skip correction when clean', fromPort: 'right', toPort: 'left' },
       { from: 'stage82_variant_correction', to: 'stage9_variant_white_bg', label: 'corrected final -> white BG', fromPort: 'right', toPort: 'left' },
@@ -758,8 +813,9 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
         y: 72,
       },
       { id: 'stage5_variant_white_bg', label: 'Stage 9 Variant White BG', subtitle: 'white background for every final variant', badge: 'backend: stage5_variant_white_bg', status: 'queued', x: 4540, y: 72 },
-      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'ready for export', status: 'ok', x: 4840, y: 72 },
-      { id: 'completed_fail', label: 'Completed Fail', subtitle: 'below threshold or technical failure', status: 'error', x: 2140, y: 220 },
+      { id: 'final_quality_decision', label: 'Final Quality Status', subtitle: 'evaluated after base + optional variant work', kind: 'decision', status: 'queued', x: 4840, y: 72 },
+      { id: 'completed_pass', label: 'Completed Pass', subtitle: 'best score met threshold', status: 'ok', x: 5140, y: 72 },
+      { id: 'completed_fail', label: 'Completed Fail Threshold', subtitle: 'best score remained below threshold', status: 'error', x: 5140, y: 220 },
     ],
     [promptEngineerLabel],
   )
@@ -775,29 +831,33 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       { from: 'stage3_prompt_upgrade', to: 'stage3_generate', label: 'upgraded prompt', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_generate', to: 'quality_gate', label: 'candidate image', fromPort: 'right', toPort: 'left' },
       { from: 'quality_gate', to: 'stage3_critique', label: 'fail + attempts remain', type: 'loop', fromPort: 'left', toPort: 'top' },
-      { from: 'quality_gate', to: 'stage3_post_quality_accessibility_critique', label: 'winner selected', fromPort: 'right', toPort: 'left' },
+      { from: 'quality_gate', to: 'stage3_post_quality_accessibility_critique', label: 'pass, or best attempt after budget exhausted', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_post_quality_accessibility_critique', to: 'stage3_post_quality_accessibility_generate', label: 'only if minor softening is needed', fromPort: 'right', toPort: 'left' },
       { from: 'stage3_post_quality_accessibility_critique', to: 'stage4_background', label: 'already AAC-friendly', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage3_post_quality_accessibility_generate', to: 'stage4_background', label: 'use softened image', fromPort: 'right', toPort: 'left' },
-      { from: 'quality_gate', to: 'completed_fail', label: 'fail after max attempts', type: 'branch', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage4_background', to: 'variant_requested', label: 'base winner is ready', fromPort: 'right', toPort: 'left' },
-      { from: 'variant_requested', to: 'completed_pass', label: 'no variants selected', fromPort: 'bottom', toPort: 'top' },
+      { from: 'variant_requested', to: 'final_quality_decision', label: 'no variants selected', fromPort: 'bottom', toPort: 'top' },
       { from: 'variant_requested', to: 'stage4_variant_generate', label: 'yes -> create selected variants', fromPort: 'right', toPort: 'left' },
       { from: 'stage4_variant_generate', to: 'stage81_variant_critique', label: 'review clothing/styling', fromPort: 'right', toPort: 'left' },
       { from: 'stage81_variant_critique', to: 'stage82_variant_correction', label: 'only if fixes are needed', fromPort: 'right', toPort: 'left' },
       { from: 'stage81_variant_critique', to: 'stage5_variant_white_bg', label: 'skip correction when clean', fromPort: 'bottom', toPort: 'top' },
       { from: 'stage82_variant_correction', to: 'stage5_variant_white_bg', label: 'corrected final -> white BG', fromPort: 'right', toPort: 'left' },
-      { from: 'stage5_variant_white_bg', to: 'completed_pass', label: 'done', fromPort: 'right', toPort: 'left' },
+      { from: 'stage5_variant_white_bg', to: 'final_quality_decision', label: 'all requested work finished', fromPort: 'right', toPort: 'left' },
+      { from: 'final_quality_decision', to: 'completed_pass', label: 'best score >= threshold', fromPort: 'right', toPort: 'left' },
+      { from: 'final_quality_decision', to: 'completed_fail', label: 'best score < threshold', fromPort: 'bottom', toPort: 'top' },
     ],
     [],
   )
 
   const nodes = mode === 'legacy' ? legacyNodes : csvDagNodes
   const edges = mode === 'legacy' ? legacyEdges : csvDagEdges
-  const canvasWidth = mode === 'legacy' ? 4260 : 4560
+  const canvasWidth = mode === 'legacy' ? 5440 : 5180
   const canvasHeight = mode === 'legacy' ? 360 : 560
 
-  const selectedBase = STAGE_DETAILS[selectedNodeId] || STAGE_DETAILS.stage1_prompt
+  const selectedBase =
+    (mode === 'csv_dag' ? CSV_DAG_STAGE_DETAIL_OVERRIDES[selectedNodeId] : null) ||
+    STAGE_DETAILS[selectedNodeId] ||
+    STAGE_DETAILS.stage1_prompt
   const selected = useMemo(() => {
     if (selectedNodeId === 'stage1_prompt') {
       return {
@@ -872,7 +932,7 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
             <strong>How to read this:</strong> this tab shows the simpler per-run fallback flow. Each imported row becomes its own legacy run, and the run works left-to-right without the CSV inventory dependency planner.
           </p>
           <p className="algo-assistant-name">
-            <strong>Base track:</strong> Stage 1 decides the first prompt -> Stage 2 makes the draft -> Stage 3.1 critiques concept clarity -> Stage 3.15 checks anatomy only for person/animal scenes -> Stage 3.2 upgrades the prompt -> Stage 3.3 regenerates the image -> Quality Gate loops back until pass or max attempts -> Stage 4 creates the base white-background winner.
+            <strong>Base track:</strong> Stage 1 decides the first prompt -&gt; Stage 2 makes the draft -&gt; Stage 3.1 critiques concept clarity -&gt; Stage 3.15 checks anatomy only for person/animal scenes -&gt; Stage 3.2 upgrades the prompt -&gt; Stage 3.3 regenerates the image -&gt; Quality Gate loops until pass or max attempts. Even below threshold, the best attempt continues through post-quality review and Stage 4 before the final pass/fail status is assigned.
           </p>
           <p className="algo-assistant-name">
             <strong>Legacy variant track:</strong> after Stage 4, the run optionally creates the selected person variants directly from the current run winner, then runs Step 8.1 critique, optional Step 8.2 correction, and Stage 9 white background.
@@ -884,16 +944,16 @@ export default function AlgorithmStaticMap({ assistantName = '', config = null, 
       ) : (
         <>
           <p className="algo-assistant-name">
-            <strong>How to read this:</strong> follow the top row from left to right for the base image pipeline. After Stage 4, the top-row decision nodes explain whether we reuse inventory, which dependency baseline is needed, and which profile-specific branch runs next.
+            <strong>How to read this:</strong> follow the top row from left to right for the base image pipeline. The CSV profile and inventory decisions shown after Stage 4 are actually precomputed during CSV import; they are placed there to show which generated base asset feeds the already-planned profile tasks.
           </p>
           <p className="algo-assistant-name">
-            <strong>Base track:</strong> Stage 1 decides the first prompt -> Stage 2 makes the draft -> Stage 3.1 critiques concept clarity -> Stage 3.15 checks anatomy only for person/animal scenes -> Stage 3.2 upgrades the prompt -> Stage 3.3 regenerates the image -> Quality Gate loops back until pass or max attempts -> Stage 4 creates the base white-background winner.
+            <strong>Base track:</strong> Stage 1 decides the first prompt -&gt; Stage 2 makes the draft -&gt; Stage 3.1 critiques concept clarity -&gt; Stage 3.15 checks anatomy only for person/animal scenes -&gt; Stage 3.2 upgrades the prompt -&gt; Stage 3.3 regenerates the image -&gt; Quality Gate loops until pass or max attempts. The best attempt always continues through post-quality review and Stage 4; CSV base tasks complete even when the best score is below the threshold.
           </p>
           <p className="algo-assistant-name">
-            <strong>Variant track:</strong> After Stage 4, the system first checks whether the exact requested profile already exists in inventory. If yes and override is off, it reuses it. Otherwise it follows the dependency table: white male kid base -> male age expansion, white female kid seed, female age expansion, and race expansion from the matching white age+gender baseline. Then it runs Step 8.1 critique, optional Step 8.2 correction, and Step 9 white background.
+            <strong>Variant track:</strong> During CSV import, the system reuses an exact requested profile when either of its inventory slots exists and override is off. Missing profiles follow the code dependency table: non-white kids come from the same-gender white kid; non-kid profiles normally come from the same-race, same-gender kid; white female kid comes from white male kid; and white female teenager is the special case sourced from white male teenager. Age/gender changes run Step 8.1 critique and optional Step 8.2 correction. Skin-only changes skip that critique. Each generated regular variant then gets its white-background pair.
           </p>
           <p className="algo-assistant-name">
-            <strong>Dependency examples:</strong> requesting <code>male:kid:asian</code> reuses <code>male:kid:asian</code> if it already exists; otherwise it looks for <code>male:kid:white</code> and creates that dependency first if needed. Requesting <code>female:teenager:brown</code> can require the chain <code>male:kid:white -&gt; female:kid:white -&gt; female:teenager:white -&gt; female:teenager:brown</code>.
+            <strong>Dependency examples:</strong> requesting <code>male:kid:asian</code> reuses it if present; otherwise it uses <code>male:kid:white</code>. Requesting <code>female:teenager:brown</code> can require <code>male:kid:white -&gt; female:kid:white -&gt; female:kid:brown -&gt; female:teenager:brown</code>. The special white case is <code>male:kid:white -&gt; male:teenager:white -&gt; female:teenager:white</code>.
           </p>
           <p className="algo-assistant-name">
             <strong>Variant staging in code:</strong> Steps 5-8 run inside backend stage <code>stage4_variant_generate</code>, Step 8.1 is recorded as <code>stage4_variant_critique</code>, Step 8.2 is recorded as <code>stage4_variant_correction</code>, and Step 9 runs inside backend stage <code>stage5_variant_white_bg</code>. If no extra variants are selected, or if the exact profile is reused from inventory, the run completes without new variant generation.

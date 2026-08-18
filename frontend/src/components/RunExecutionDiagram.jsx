@@ -570,7 +570,7 @@ function runNarrative(detail, selectedSummary, threshold) {
     return `The run completed successfully. Attempt ${run.optimization_attempt} met the quality threshold of ${threshold} and the winner image moved to white background processing.`
   }
   if (run.status === 'completed_fail_threshold') {
-    return `The run completed without reaching the quality threshold of ${threshold}. The best scored attempt stayed below the acceptance rule.`
+    return `The run completed its best-attempt post-processing and requested asset work, but the best score stayed below the quality threshold of ${threshold}.`
   }
   if (run.status === 'failed_technical') {
     return `The run stopped because of a technical failure during ${prettyStage(run.current_stage)}.`
@@ -1651,8 +1651,8 @@ export default function RunExecutionDiagram({
         <div className="run-detail-section-grid">
           <div className="run-help-card">
             <p><strong>How to read this:</strong> each attempt is one full try to improve the image and pass the quality score.</p>
-            <p>Flow: Stage 1 prompt + initial person guess -> Stage 2 draft -> Stage 3 critique validates whether a person is actually needed -> Stage 3 prompt/image enforce the resolved style -> Quality Gate -> winner selection -> Stage 4 white background -> Stage 5 white male age expansion from the Stage 3 winner -> Stage 6 white female kid seed from the Stage 3 winner -> Stage 7 white female age expansion -> Stage 8 race expansion from matching white age/gender baselines -> Stage 9 white-background copies for every final variant.</p>
-            <p>If quality fails and attempts remain, the system loops from Quality Gate back to Stage 3 for the next attempt.</p>
+            <p>Flow: Stage 1 prompt + initial person guess -&gt; Stage 2 draft -&gt; Stage 3 critique validates whether a person is actually needed -&gt; Stage 3 prompt/image enforce the resolved style -&gt; Quality Gate -&gt; best-attempt selection -&gt; post-quality AAC review -&gt; Stage 4 white background -&gt; optional profile variants, critique/correction, and matching white-background copies.</p>
+            <p>If quality fails and attempts remain, the system loops from Quality Gate back to Stage 3. If the attempt budget is exhausted, the best-scoring attempt still completes post-quality, white-background, and requested variant processing before the run receives its below-threshold status.</p>
           </div>
 
           <div className="attempt-chip-row">

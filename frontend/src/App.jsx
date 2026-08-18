@@ -19,7 +19,7 @@ export default function App() {
       <header className="hero">
         <div>
           <h1>AAC Image Generator</h1>
-          <p>Word -> Prompt -> Draft -> Upgrade -> White background -> Score</p>
+          <p>Word -&gt; Prompt -&gt; Draft -&gt; Upgrade -&gt; Score -&gt; White background -&gt; Optional variants</p>
         </div>
       </header>
 
