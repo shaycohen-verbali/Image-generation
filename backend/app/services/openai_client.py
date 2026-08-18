@@ -435,13 +435,12 @@ class OpenAIClient:
             '"person_presence_problem":"missing_person|unnecessary_person|none", '
             '"person_decision_reasoning":"...", "animal_present":"yes|no"}. '
             f"Concept word: {word}. Part of sentence: {part_of_sentence}. Word sense: {category}. "
-            f"Current system hypothesis: person needed = {initial_need_person}. "
-            f"Current render style = {current_render_style_mode}. "
-            "If the concept would be clearer with a person, return person_needed_for_clarity=yes and "
-            "person_presence_problem=missing_person when the image lacks the needed person. "
-            "If a person is distracting or unnecessary, return person_needed_for_clarity=no and "
-            "person_presence_problem=unnecessary_person. Otherwise return person_presence_problem=none. "
-            "In person_decision_reasoning, explain in one short sentence why a person is or is not needed for clarity. "
+            "Decide independently whether a person is necessary for a child to understand the intended word. "
+            "Ask: if every person were removed, would the intended meaning of the word remain clear? "
+            "If yes, return person_needed_for_clarity=no; if no, return yes. "
+            "Return person_presence_problem=missing_person when a required person is absent, "
+            "unnecessary_person when a nonessential person is present, and none otherwise. "
+            "Briefly explain the decision in person_decision_reasoning. "
             "Set animal_present=yes when the image contains or is meant to contain an animal that should be checked for anatomy."
         )
         return self._vision_json(image_path=image_path, prompt=prompt, model=model, temperature=0.2)

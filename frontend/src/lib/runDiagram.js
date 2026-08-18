@@ -410,7 +410,14 @@ function critiqueTemplate(ctx) {
     'You are an expert AAC visual designer for children. ' +
     'Analyze the image for concept clarity. Return STRICT JSON with keys ' +
     '{"challenges":"...", "recommendations":"...", "person_needed_for_clarity":"yes|no", "person_presence_problem":"missing_person|unnecessary_person|none", "person_decision_reasoning":"...", "animal_present":"yes|no"}. ' +
-    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}.`
+    `Concept word: ${ctx.word}. Part of sentence: ${ctx.partOfSentence}. Word sense: ${ctx.category}. ` +
+    'Decide independently whether a person is necessary for a child to understand the intended word. ' +
+    'Ask: if every person were removed, would the intended meaning of the word remain clear? ' +
+    'If yes, return person_needed_for_clarity=no; if no, return yes. ' +
+    'Return person_presence_problem=missing_person when a required person is absent, ' +
+    'unnecessary_person when a nonessential person is present, and none otherwise. ' +
+    'Briefly explain the decision in person_decision_reasoning. ' +
+    'Set animal_present=yes when the image contains or is meant to contain an animal that should be checked for anatomy.'
   )
 }
 
