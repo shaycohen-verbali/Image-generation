@@ -3,12 +3,14 @@ import SubmitPage from './pages/SubmitPage'
 import RunsPage from './pages/RunsPage'
 import ExportsPage from './pages/ExportsPage'
 import AlgorithmPage from './pages/AlgorithmPage'
+import LibraryPage from './pages/LibraryPage'
 
 const tabs = [
   { id: 'submit', label: 'Submit' },
   { id: 'algorithm', label: 'Algorithm' },
   { id: 'runs', label: 'Runs + Details' },
   { id: 'exports', label: 'Exports' },
+  { id: 'library', label: 'Library' },
 ]
 
 export default function App() {
@@ -40,6 +42,7 @@ export default function App() {
         {activeTab === 'algorithm' && <AlgorithmPage />}
         {activeTab === 'runs' && <RunsPage />}
         {activeTab === 'exports' && <ExportsPage />}
+        {activeTab === 'library' && <LibraryPage />}
       </main>
     </div>
   )
