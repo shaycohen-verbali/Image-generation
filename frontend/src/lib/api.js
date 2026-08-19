@@ -258,6 +258,23 @@ export async function deleteRun(runId) {
   return parseResponse(response)
 }
 
+export async function listLibraryLemmas({ q = '', pos = '', cursor = '', limit = 20 } = {}) {
+  const query = new URLSearchParams()
+  if (q) query.set('q', q)
+  if (pos) query.set('pos', pos)
+  if (cursor) query.set('cursor', cursor)
+  query.set('limit', String(limit))
+  return fetchJson(`${API_BASE}/library/lemmas?${query.toString()}`, {}, 1)
+}
+
+export async function getLibraryLemma(lemma) {
+  return fetchJson(`${API_BASE}/library/lemmas/${encodeURIComponent(lemma)}`, {}, 1)
+}
+
+export async function listSenseImages(senseId) {
+  return fetchJson(`${API_BASE}/library/senses/${encodeURIComponent(senseId)}/images`, {}, 1)
+}
+
 export async function clearTerminalRuns(options = {}) {
   const query = new URLSearchParams()
   query.set('terminal_only', 'true')

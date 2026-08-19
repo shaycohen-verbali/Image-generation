@@ -12,6 +12,7 @@ from app.api.health import router as health_router
 from app.api.runs import router as runs_router
 from app.api.slack import router as slack_router
 from app.api.word_sources import router as word_sources_router
+from app.api.library import router as library_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.init_db import init_db
@@ -37,6 +38,7 @@ app.include_router(exports_router)
 app.include_router(config_router)
 app.include_router(csv_jobs_router)
 app.include_router(word_sources_router)
+app.include_router(library_router)
 app.include_router(slack_router)
 
 
