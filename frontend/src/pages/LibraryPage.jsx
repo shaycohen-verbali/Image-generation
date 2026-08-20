@@ -1,7 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { buildApiUrl, getLibraryLemma, listLibraryLemmas, listSenseImages } from '../lib/api'
 
-const POS_OPTIONS = ['All parts of speech', 'noun', 'verb', 'adjective', 'adverb', 'preposition', 'pronoun', 'conjunction']
+const POS_OPTIONS = [
+  'All parts of speech',
+  'noun',
+  'verb',
+  'adjective',
+  'adverb',
+  'preposition',
+  'pronoun',
+  'number',
+  'exclamation',
+  'determiner',
+  'conjunction',
+  'auxiliary',
+  'interjection',
+  'modal verb',
+  'contraction',
+  'infinitive marker',
+  'linking verb',
+]
 const AGE_OPTIONS = ['All ages', 'toddler', 'kid', 'tween', 'teenager']
 const GENDER_OPTIONS = ['All genders', 'male', 'female']
 const SKIN_OPTIONS = ['All skin tones', 'white', 'black', 'asian', 'brown']
@@ -11,6 +29,9 @@ const PREVIEW_LEMMAS = [
   { lemma: 'abandon', forms: ['abandon', 'abandons', 'abandoned', 'abandoning'], parts_of_speech: ['noun', 'verb'], sense_count: 7, image_count: 2 },
   { lemma: 'abandoned', forms: ['abandoned'], parts_of_speech: ['adjective'], sense_count: 2, image_count: 0 },
   { lemma: 'abandonment', forms: ['abandonment'], parts_of_speech: ['noun'], sense_count: 1, image_count: 0 },
+  { lemma: '100%', forms: ['100%'], parts_of_speech: ['adverb'], sense_count: 1, image_count: 0 },
+  { lemma: 'a', forms: ['a'], parts_of_speech: ['determiner'], sense_count: 1, image_count: 0 },
+  { lemma: 'a-lister', forms: ['a-lister'], parts_of_speech: ['noun'], sense_count: 1, image_count: 0 },
 ]
 
 const PREVIEW_WORD = {
@@ -93,6 +114,20 @@ function normalizeLemma(item) {
     sense_count: Number(item.sense_count ?? item.senses ?? 0),
     image_count: Number(item.image_count ?? item.images ?? 0),
   }
+}
+
+function normalizePos(value) {
+  return String(value || '').trim().toLowerCase().replaceAll('_', ' ').replace(/\s+/g, ' ')
+}
+
+function filterPreviewLemmas(query, pos) {
+  const text = String(query || '').trim().toLowerCase()
+  const selectedPos = normalizePos(pos)
+  return PREVIEW_LEMMAS.filter((lemma) => {
+    const textMatch = !text || [lemma.lemma, ...(lemma.forms || [])].some((value) => String(value || '').toLowerCase().includes(text))
+    const posMatch = !selectedPos || selectedPos.startsWith('all ') || (lemma.parts_of_speech || []).some((value) => normalizePos(value) === selectedPos)
+    return textMatch && posMatch
+  })
 }
 
 function normalizeWord(payload) {
@@ -280,7 +315,7 @@ function ImageLightbox({ images, image, onClose, onChange, onCopy }) {
     <div className="library-lightbox-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="library-lightbox" role="dialog" aria-modal="true" aria-label="Full-size image viewer">
         <div className="library-lightbox-heading">
-          <div><h2>{formatLabel(image.background)} background</h2><p>abandon · noun · {formatLabel(image.age)} · {formatLabel(image.gender)} · {formatLabel(image.skin_tone)}</p></div>
+          <div><h2>{formatLabel(image.background)} background</h2><p>{image.word || 'Library image'}{image.part_of_speech ? ` · ${formatLabel(image.part_of_speech)}` : ''} · {formatLabel(image.age)} · {formatLabel(image.gender)} · {formatLabel(image.skin_tone)}</p></div>
           <button ref={closeRef} type="button" className="library-icon-button" onClick={onClose} aria-label="Close image viewer"><Icon name="close" size={22} /></button>
         </div>
         <div className="library-lightbox-body">
@@ -341,13 +376,9 @@ export default function LibraryPage() {
         setLemmas(next)
         setSelectedLemma((current) => next.find((item) => item.lemma === current?.lemma) || next[0] || null)
       } catch {
-        if (query.trim().toLowerCase() === 'abandon') {
-          setLemmas(PREVIEW_LEMMAS)
-          setSelectedLemma((current) => current || PREVIEW_LEMMAS[0])
-        } else {
-          setLemmas([])
-          setSelectedLemma(null)
-        }
+        const preview = filterPreviewLemmas(query, pos)
+        setLemmas(preview)
+        setSelectedLemma((current) => preview.find((item) => item.lemma === current?.lemma) || preview[0] || null)
       } finally {
         setLoadingLemmas(false)
       }
