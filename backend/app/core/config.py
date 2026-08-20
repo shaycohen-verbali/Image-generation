@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     supabase_sense_images_style_version: str = Field(default="1", alias="SUPABASE_SENSE_IMAGES_STYLE_VERSION")
     supabase_sense_images_bucket: str = Field(default="aac-images-v1", alias="SUPABASE_SENSE_IMAGES_BUCKET")
     supabase_sense_images_sync_batch_size: int = Field(default=100, alias="SUPABASE_SENSE_IMAGES_SYNC_BATCH_SIZE")
+    selected_winner_flow_enabled: bool = Field(default=False, alias="SELECTED_WINNER_FLOW_ENABLED")
+    immediate_sense_image_sync_enabled: bool = Field(default=False, alias="IMMEDIATE_SENSE_IMAGE_SYNC_ENABLED")
     supabase_export_bucket: str = Field(default="exports", alias="SUPABASE_EXPORT_BUCKET")
     supabase_csv_bucket: str = Field(default="csv-imports", alias="SUPABASE_CSV_BUCKET")
     cloudflare_r2_endpoint: str = Field(default="", alias="CLOUDFLARE_R2_ENDPOINT")

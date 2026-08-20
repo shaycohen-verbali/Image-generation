@@ -196,6 +196,9 @@ class AssetOut(BaseModel):
     height: int
     origin_url: str
     model_name: str
+    generation_prompt_id: str | None = None
+    source_asset_id: str | None = None
+    canonical_path: str | None = None
     created_at: datetime
 
 

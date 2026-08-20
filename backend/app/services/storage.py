@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -43,14 +44,16 @@ def is_remote_path(path: str) -> bool:
     return str(path or "").startswith(SUPABASE_URI_PREFIX)
 
 
-def _supabase_headers(*, content_type: str = "application/octet-stream") -> dict[str, str]:
+def _supabase_headers(*, content_type: str = "application/octet-stream", upsert: bool | None = None) -> dict[str, str]:
     token = str(settings.supabase_service_role_key or "").strip()
-    return {
+    headers = {
         "Authorization": f"Bearer {token}",
         "apikey": token,
         "Content-Type": content_type,
-        "x-upsert": "true",
     }
+    if upsert is not None:
+        headers["x-upsert"] = "true" if upsert else "false"
+    return headers
 
 
 def _supabase_upload_url(bucket: str, object_key: str) -> str:
@@ -71,10 +74,17 @@ def _parse_supabase_uri(uri: str) -> tuple[str, str]:
     return bucket, key
 
 
-def _upload_to_supabase(bucket: str, object_key: str, payload: bytes, *, content_type: str) -> str:
+def _upload_to_supabase(
+    bucket: str,
+    object_key: str,
+    payload: bytes,
+    *,
+    content_type: str,
+    upsert: bool = True,
+) -> str:
     response = get_http_session().post(
         _supabase_upload_url(bucket, object_key),
-        headers=_supabase_headers(content_type=content_type),
+        headers=_supabase_headers(content_type=content_type, upsert=upsert),
         data=payload,
         timeout=120,
     )
@@ -138,6 +148,7 @@ def persist_run_image(
     *,
     mime_type: str,
     storage_prefix: str | None = None,
+    upsert: bool = True,
 ) -> StoredObject:
     local_path = write_image(run_id, filename, image_bytes)
     if storage_backend() != "supabase":
@@ -145,7 +156,13 @@ def persist_run_image(
 
     normalized_prefix = str(storage_prefix or f"runs/{sanitize_filename(run_id)}").strip().strip("/")
     object_key = f"{normalized_prefix}/{sanitize_filename(filename)}"
-    persisted_path = _upload_to_supabase(settings.supabase_image_bucket, object_key, image_bytes, content_type=mime_type)
+    persisted_path = _upload_to_supabase(
+        settings.supabase_image_bucket,
+        object_key,
+        image_bytes,
+        content_type=mime_type,
+        upsert=upsert,
+    )
     return StoredObject(
         local_path=local_path,
         persisted_path=persisted_path,
@@ -255,6 +272,69 @@ def read_binary(path_or_uri: str) -> bytes:
 
 def sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def verify_materialized_path(path: Path, expected_sha256: str) -> Path:
+    expected = str(expected_sha256 or "").strip().lower()
+    # Some legacy rows contain descriptive placeholders rather than a digest.
+    # Preserve their readability; all newly written assets have a 64-char SHA-256.
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return path
+    actual = sha256_bytes(path.read_bytes())
+    if actual != expected:
+        raise RuntimeError(f"Asset checksum mismatch: expected {expected}, received {actual}")
+    return path
+
+
+def selected_asset_path(asset, *, prefer_canonical: bool = False) -> str:
+    if prefer_canonical:
+        canonical = str(getattr(asset, "canonical_path", "") or "").strip()
+        if canonical:
+            return canonical
+    return str(getattr(asset, "abs_path", "") or "").strip()
+
+
+def materialize_verified_asset(
+    asset,
+    *,
+    force_refresh: bool = False,
+    prefer_canonical: bool = False,
+) -> Path:
+    asset_id = sanitize_filename(str(getattr(asset, "id", "") or "asset"))
+    expected_sha = str(getattr(asset, "sha256", "") or "").strip().lower()
+    selected_path = selected_asset_path(asset, prefer_canonical=prefer_canonical)
+    path_kind = "canonical" if prefer_canonical and str(getattr(asset, "canonical_path", "") or "").strip() else "attempt"
+    namespace = f"assets-{asset_id}-{path_kind}-{expected_sha[:16] or 'legacy'}"
+    path = materialize_path(
+        selected_path,
+        cache_namespace=namespace,
+        force_refresh=force_refresh,
+    )
+    return verify_materialized_path(path, expected_sha)
+
+
+def promote_run_image(
+    run_id: str,
+    canonical_filename: str,
+    source_path: str,
+    *,
+    expected_sha256: str,
+    mime_type: str,
+    storage_prefix: str | None = None,
+) -> StoredObject:
+    source = materialize_path(source_path, cache_namespace="winner-promotion")
+    verify_materialized_path(source, expected_sha256)
+    payload = source.read_bytes()
+    stored = persist_run_image(
+        run_id,
+        canonical_filename,
+        payload,
+        mime_type=mime_type,
+        storage_prefix=storage_prefix,
+        upsert=True,
+    )
+    verify_materialized_path(stored.local_path, expected_sha256)
+    return stored
 
 
 def normalize_saved_image(image_bytes: bytes, output_mime_type: str) -> tuple[bytes, str, str]:

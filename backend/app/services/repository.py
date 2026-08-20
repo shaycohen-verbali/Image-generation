@@ -6,7 +6,7 @@ from collections.abc import Collection
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Select, desc, func, select, update
+from sqlalchemy import Select, desc, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, defer
 
@@ -845,6 +845,12 @@ class Repository:
             .limit(1)
         ).scalar_one_or_none()
 
+    def get_prompt(self, prompt_id: str) -> Prompt | None:
+        normalized = str(prompt_id or "").strip()
+        if not normalized:
+            return None
+        return self.db.execute(select(Prompt).where(Prompt.id == normalized).limit(1)).scalar_one_or_none()
+
     def add_asset(
         self,
         *,
@@ -859,8 +865,12 @@ class Repository:
         height: int,
         origin_url: str,
         model_name: str,
+        asset_id: str | None = None,
+        generation_prompt_id: str | None = None,
+        source_asset_id: str | None = None,
+        canonical_path: str | None = None,
     ) -> Asset:
-        existing = self.db.execute(
+        existing = None if asset_id else self.db.execute(
             select(Asset)
             .where(Asset.run_id == run_id)
             .where(Asset.stage_name == stage_name)
@@ -876,24 +886,33 @@ class Repository:
             existing.height = height
             existing.origin_url = origin_url
             existing.model_name = model_name
+            existing.generation_prompt_id = generation_prompt_id
+            existing.source_asset_id = source_asset_id
+            existing.canonical_path = canonical_path
             self.db.add(existing)
             self.db.commit()
             self.db.refresh(existing)
             return self._release_instance(existing)
 
-        asset = Asset(
-            run_id=run_id,
-            stage_name=stage_name,
-            attempt=attempt,
-            file_name=file_name,
-            abs_path=abs_path,
-            mime_type=mime_type,
-            sha256=sha256,
-            width=width,
-            height=height,
-            origin_url=origin_url,
-            model_name=model_name,
-        )
+        asset_values = {
+            "run_id": run_id,
+            "stage_name": stage_name,
+            "attempt": attempt,
+            "file_name": file_name,
+            "abs_path": abs_path,
+            "mime_type": mime_type,
+            "sha256": sha256,
+            "width": width,
+            "height": height,
+            "origin_url": origin_url,
+            "model_name": model_name,
+            "generation_prompt_id": generation_prompt_id,
+            "source_asset_id": source_asset_id,
+            "canonical_path": canonical_path,
+        }
+        if asset_id:
+            asset_values["id"] = asset_id
+        asset = Asset(**asset_values)
         self.db.add(asset)
         self.db.commit()
         self.db.refresh(asset)
@@ -907,12 +926,14 @@ class Repository:
         attempt: int,
         file_name: str,
     ) -> Asset | None:
+        canonical_suffix = f"%/{file_name}"
         return self.db.execute(
             select(Asset)
             .where(Asset.run_id == run_id)
             .where(Asset.stage_name == stage_name)
             .where(Asset.attempt == attempt)
-            .where(Asset.file_name == file_name)
+            .where(or_(Asset.file_name == file_name, Asset.canonical_path.like(canonical_suffix)))
+            .order_by(desc(Asset.created_at))
             .limit(1)
         ).scalar_one_or_none()
 
@@ -922,7 +943,7 @@ class Repository:
             return None
         return self.db.execute(
             select(Asset)
-            .where(Asset.abs_path == normalized)
+            .where(or_(Asset.abs_path == normalized, Asset.canonical_path == normalized))
             .order_by(desc(Asset.created_at))
             .limit(1)
         ).scalar_one_or_none()
@@ -934,16 +955,35 @@ class Repository:
         rows = list(
             self.db.execute(
                 select(Asset)
-                .where(Asset.abs_path.in_(normalized))
+                .where(or_(Asset.abs_path.in_(normalized), Asset.canonical_path.in_(normalized)))
                 .order_by(desc(Asset.created_at))
             ).scalars()
         )
         assets_by_path: dict[str, Asset] = {}
         for row in rows:
-            key = str(row.abs_path or "").strip()
-            if key and key not in assets_by_path:
-                assets_by_path[key] = row
+            for key in (str(row.canonical_path or "").strip(), str(row.abs_path or "").strip()):
+                if key and key in normalized and key not in assets_by_path:
+                    assets_by_path[key] = row
         return assets_by_path
+
+    def promote_asset(self, asset_id: str, *, canonical_path: str) -> Asset:
+        asset = self.get_asset(asset_id)
+        if asset is None:
+            raise RuntimeError(f"Asset not found: {asset_id}")
+        normalized = str(canonical_path or "").strip()
+        if not normalized:
+            raise RuntimeError("Canonical asset path is required")
+        self.db.execute(
+            update(Asset)
+            .where(Asset.id != asset.id)
+            .where(Asset.canonical_path == normalized)
+            .values(canonical_path=None)
+        )
+        asset.canonical_path = normalized
+        self.db.add(asset)
+        self.db.commit()
+        self.db.refresh(asset)
+        return self._release_instance(asset)
 
     def add_score(
         self,

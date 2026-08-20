@@ -137,9 +137,14 @@ class Asset(Base):
     height: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     origin_url: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
     model_name: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    generation_prompt_id: Mapped[str | None] = mapped_column(ForeignKey("prompts.id", ondelete="SET NULL"), nullable=True)
+    source_asset_id: Mapped[str | None] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    canonical_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, nullable=False)
 
     run: Mapped[Run] = relationship(back_populates="assets")
+    generation_prompt: Mapped[Prompt | None] = relationship(foreign_keys=[generation_prompt_id])
+    source_asset: Mapped[Asset | None] = relationship(remote_side=[id], foreign_keys=[source_asset_id])
 
 
 class Score(Base):

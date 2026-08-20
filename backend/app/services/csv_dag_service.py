@@ -29,7 +29,13 @@ from app.services.matalk_export import (
 from app.services.person_profiles import DEFAULT_AGE, DEFAULT_GENDER, DEFAULT_SKIN_COLOR, profile_key
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
-from app.services.storage import exports_root, materialize_path, persist_csv_source, persist_export_artifact
+from app.services.storage import (
+    exports_root,
+    materialize_path,
+    persist_csv_source,
+    persist_export_artifact,
+    verify_materialized_path,
+)
 from app.services.utils import sanitize_filename
 
 
@@ -2182,7 +2188,11 @@ Debugging and backwards-compatible files are under `_metadata/`.
                 for future in as_completed(pending):
                     source_path = pending[future]
                     try:
-                        materialized_by_path[source_path] = future.result()
+                        materialized = future.result()
+                        asset = assets_by_path.get(source_path)
+                        if asset is not None:
+                            verify_materialized_path(materialized, asset.sha256)
+                        materialized_by_path[source_path] = materialized
                     except Exception as exc:  # noqa: BLE001
                         export_warnings.append(f"Skipped {source_path}: {exc}")
         image_rows: list[dict[str, Any]] = []
@@ -2250,6 +2260,11 @@ Debugging and backwards-compatible files are under `_metadata/`.
                     "missing_slots_json": row.get("missing_slots_json", "[]"),
                     "failure_reasons_json": row.get("failure_reasons_json", "[]"),
                 }
+                prompt_text = row.get(prompt_field, "")
+                if asset is not None and asset.generation_prompt_id:
+                    linked_prompt = self.repo.get_prompt(asset.generation_prompt_id)
+                    if linked_prompt is not None:
+                        prompt_text = linked_prompt.prompt_text
                 prompt_row = {
                     "row_index": row_index,
                     "word": word,
@@ -2263,7 +2278,7 @@ Debugging and backwards-compatible files are under `_metadata/`.
                     "image_relative_path": image_relative_path,
                     "asset_id": asset.id if asset is not None else "",
                     "prompt_stage": self._export_prompt_stage(profile["background_type"]),
-                    "prompt_text": row.get(prompt_field, ""),
+                    "prompt_text": prompt_text,
                     "source_storage_path": source_path,
                 }
                 image_rows.append(image_row)
@@ -2310,6 +2325,20 @@ Debugging and backwards-compatible files are under `_metadata/`.
                 "manifest": "_metadata/manifest.json",
             },
             "image_count": len(image_rows),
+            "asset_provenance": [
+                {
+                    "asset_id": asset.id,
+                    "source_sha256": asset.sha256,
+                    "attempt_source_path": asset.abs_path,
+                    "canonical_source_path": asset.canonical_path,
+                    "generation_prompt_id": asset.generation_prompt_id,
+                    "source_asset_id": asset.source_asset_id,
+                }
+                for asset in sorted(
+                    {asset.id: asset for asset in assets_by_path.values()}.values(),
+                    key=lambda value: value.id,
+                )
+            ],
             "step_counts": overview.get("step_counts", {}),
             "issues_by_step": overview.get("issues_by_step", {}),
             "items": [

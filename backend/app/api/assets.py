@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.schemas import AssetOut
 from app.services.repository import Repository
-from app.services.storage import materialize_path
+from app.services.storage import materialize_verified_asset
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
 
@@ -32,6 +32,9 @@ def get_asset(asset_id: str, db: Session = Depends(db_dependency)) -> AssetOut:
         height=asset.height,
         origin_url=asset.origin_url,
         model_name=asset.model_name,
+        generation_prompt_id=asset.generation_prompt_id,
+        source_asset_id=asset.source_asset_id,
+        canonical_path=asset.canonical_path,
         created_at=asset.created_at,
     )
 
@@ -43,7 +46,10 @@ def get_asset_content(asset_id: str, db: Session = Depends(db_dependency)) -> Fi
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    path = materialize_path(asset.abs_path, cache_namespace="assets")
+    try:
+        path = materialize_verified_asset(asset)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail="Asset content failed integrity verification") from exc
     if not path.exists():
         raise HTTPException(status_code=404, detail="Asset file missing")
 

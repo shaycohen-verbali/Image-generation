@@ -118,14 +118,18 @@ def _library_secret() -> bytes:
     return (configured or fallback).encode("utf-8")
 
 
-def make_image_token(path: str) -> str:
-    payload = {"path": _clean(path), "exp": int(time.time()) + IMAGE_TOKEN_TTL_SECONDS}
+def make_image_token(path: str, *, version: str = "") -> str:
+    payload = {
+        "path": _clean(path),
+        "version": _clean(version),
+        "exp": int(time.time()) + IMAGE_TOKEN_TTL_SECONDS,
+    }
     raw = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
     signature = hmac.new(_library_secret(), raw.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{raw}.{signature}"
 
 
-def resolve_image_token(token: str) -> str:
+def _resolve_image_token_payload(token: str) -> dict[str, str]:
     raw, separator, signature = _clean(token).partition(".")
     if not separator or not raw or not signature:
         raise ValueError("Invalid image token")
@@ -142,7 +146,11 @@ def resolve_image_token(token: str) -> str:
     path = _clean(payload.get("path"))
     if not path:
         raise ValueError("Image path missing")
-    return path
+    return {"path": path, "version": _clean(payload.get("version"))}
+
+
+def resolve_image_token(token: str) -> str:
+    return _resolve_image_token_payload(token)["path"]
 
 
 def _image_columns() -> list[str]:
@@ -659,7 +667,8 @@ def list_sense_images(sense_id: str) -> dict[str, Any]:
         if not path or profile is None:
             continue
         filename = path.rsplit("/", 1)[-1] or f"{requested}_{path_column}.jpg"
-        token = make_image_token(path)
+        row_version = _clean(row.get("updated_at"))
+        token = make_image_token(path, version=row_version)
         image_url = f"/api/v1/library/images/{token}"
         images.append({
             "id": f"{requested}:{path_column}",
@@ -678,5 +687,8 @@ def list_sense_images(sense_id: str) -> dict[str, Any]:
 
 
 def materialize_image(token: str):
-    path = resolve_image_token(token)
-    return materialize_path(path, cache_namespace="library-images")
+    payload = _resolve_image_token_payload(token)
+    version_key = hashlib.sha256(
+        f"{payload['path']}:{payload['version']}".encode("utf-8")
+    ).hexdigest()[:20]
+    return materialize_path(payload["path"], cache_namespace=f"library-images-{version_key}")

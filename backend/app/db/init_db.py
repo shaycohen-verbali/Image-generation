@@ -68,13 +68,14 @@ def _postgres_existing_columns(conn, table_name: str) -> set[str]:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     init_inventory_db()
-    _ensure_hot_indexes()
     _ensure_inventory_columns()
     _ensure_entry_columns()
     _ensure_run_columns()
+    _ensure_asset_columns()
     _ensure_csv_job_item_columns()
     _ensure_cloud_upload_columns()
     _ensure_runtime_config_columns()
+    _ensure_hot_indexes()
     settings = get_settings()
     with SessionLocal() as db:
         existing = db.execute(select(RuntimeConfig).where(RuntimeConfig.id == 1)).scalar_one_or_none()
@@ -233,6 +234,15 @@ def init_db() -> None:
 def _ensure_hot_indexes() -> None:
     with engine.begin() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assets_abs_path ON assets (abs_path)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assets_generation_prompt_id ON assets (generation_prompt_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assets_source_asset_id ON assets (source_asset_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assets_canonical_path ON assets (canonical_path)"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_assets_current_canonical_path "
+                "ON assets (canonical_path) WHERE canonical_path IS NOT NULL"
+            )
+        )
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_runs_execution_mode_created_at ON runs (execution_mode, created_at DESC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_jobs_status_created_at ON csv_jobs (status, created_at DESC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_csv_task_nodes_job_status_created_at ON csv_task_nodes (csv_job_id, status, created_at ASC)"))
@@ -450,6 +460,28 @@ def _ensure_run_columns() -> None:
             existing = _postgres_existing_columns(conn, "runs")
             if "execution_mode" not in existing:
                 conn.execute(text("ALTER TABLE runs ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'legacy'"))
+
+
+def _ensure_asset_columns() -> None:
+    """Add selected-winner provenance without changing legacy asset reads."""
+    with engine.begin() as conn:
+        if str(engine.url).startswith("sqlite"):
+            rows = conn.execute(text("PRAGMA table_info(assets)")).fetchall()
+            existing = {row[1] for row in rows}
+            if "generation_prompt_id" not in existing:
+                conn.execute(text("ALTER TABLE assets ADD COLUMN generation_prompt_id TEXT"))
+            if "source_asset_id" not in existing:
+                conn.execute(text("ALTER TABLE assets ADD COLUMN source_asset_id TEXT"))
+            if "canonical_path" not in existing:
+                conn.execute(text("ALTER TABLE assets ADD COLUMN canonical_path TEXT"))
+        else:
+            existing = _postgres_existing_columns(conn, "assets")
+            if "generation_prompt_id" not in existing:
+                conn.execute(text("ALTER TABLE assets ADD COLUMN generation_prompt_id TEXT REFERENCES prompts(id) ON DELETE SET NULL"))
+            if "source_asset_id" not in existing:
+                conn.execute(text("ALTER TABLE assets ADD COLUMN source_asset_id TEXT REFERENCES assets(id) ON DELETE SET NULL"))
+            if "canonical_path" not in existing:
+                conn.execute(text("ALTER TABLE assets ADD COLUMN canonical_path TEXT"))
 
 
 def _ensure_csv_job_item_columns() -> None:

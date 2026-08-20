@@ -23,6 +23,7 @@ from app.inventory_models import (
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry
 from app.services.repository import Repository
 from app.services.http_client import get_http_session
+from app.services.storage import materialize_verified_asset
 from app.core.config import get_settings
 
 
@@ -127,6 +128,9 @@ class InventorySyncService:
         settings = get_settings()
         if not self._sense_images_sync_url() or not str(getattr(settings, "supabase_service_role_key", "") or "").strip():
             return
+        if bool(getattr(settings, "immediate_sense_image_sync_enabled", False)):
+            self.sync_sense_images(reason=reason)
+            return
         threshold = max(1, int(getattr(settings, "supabase_sense_images_sync_batch_size", 100) or 100))
         with _SENSE_SYNC_COUNTER_LOCK:
             _SENSE_SYNC_IMAGE_COUNTER += max(1, int(image_count or 1))
@@ -142,6 +146,17 @@ class InventorySyncService:
         if prompt is None:
             prompt = self.repo.get_latest_prompt_for_stage(run_id=run_id, stage_name=stage_name)
         return prompt
+
+    def _prompt_for_asset(self, asset: Asset, *, legacy_stage_name: str):
+        if asset.generation_prompt_id:
+            linked = self.repo.get_prompt(asset.generation_prompt_id)
+            if linked is not None:
+                return linked
+        return self._prompt_for_stage(
+            run_id=asset.run_id,
+            stage_name=legacy_stage_name,
+            attempt=int(asset.attempt or 0),
+        )
 
     @staticmethod
     def _requested_options(job: CsvJob) -> tuple[list[str], list[str], list[str]]:
@@ -309,18 +324,35 @@ class InventorySyncService:
         source_row_id = str(source_row.get("_word_source_row_id") or "").strip()
         existing_row = self.latest_entry_inventory_row(entry, source_row_id=source_row_id) or {}
 
+        def asset_is_verified(asset: Asset, *, slot_name: str) -> bool:
+            try:
+                materialize_verified_asset(asset, prefer_canonical=True)
+                return True
+            except Exception as exc:  # noqa: BLE001
+                detail = f"Asset integrity: {slot_name} ({asset.id}): {exc}"
+                failures.append(
+                    {
+                        "task_key": "asset_integrity",
+                        "step_name": slot_name,
+                        "profile_key": "",
+                        "status": "failed",
+                        "error": detail,
+                    }
+                )
+                return False
+
         if item.base_regular_asset_id:
             asset = self.repo.get_asset(item.base_regular_asset_id)
-            if asset is not None:
-                slot_values[inventory_slot_column_name("kid", "male", "white", "regular")] = asset.abs_path
-                prompt = self._prompt_for_stage(run_id=asset.run_id, stage_name="stage3_upgrade", attempt=int(asset.attempt or 0))
+            if asset is not None and asset_is_verified(asset, slot_name="kid_male_white_regular"):
+                slot_values[inventory_slot_column_name("kid", "male", "white", "regular")] = asset.canonical_path or asset.abs_path
+                prompt = self._prompt_for_asset(asset, legacy_stage_name="stage3_upgrade")
                 if prompt is not None:
                     prompt_values[inventory_prompt_column_name("kid", "male", "white", "regular")] = prompt.prompt_text
         if item.base_white_bg_asset_id:
             asset = self.repo.get_asset(item.base_white_bg_asset_id)
-            if asset is not None:
-                slot_values[inventory_slot_column_name("kid", "male", "white", "white_bg")] = asset.abs_path
-                prompt = self._prompt_for_stage(run_id=asset.run_id, stage_name="stage4_background", attempt=int(asset.attempt or 0))
+            if asset is not None and asset_is_verified(asset, slot_name="kid_male_white_white_bg"):
+                slot_values[inventory_slot_column_name("kid", "male", "white", "white_bg")] = asset.canonical_path or asset.abs_path
+                prompt = self._prompt_for_asset(asset, legacy_stage_name="stage4_background")
                 if prompt is not None:
                     prompt_values[inventory_prompt_column_name("kid", "male", "white", "white_bg")] = prompt.prompt_text
 
@@ -330,24 +362,20 @@ class InventorySyncService:
                 gender, age, skin_color = profile[0], profile[1], profile[2]
                 if task.regular_asset_id:
                     regular = self.repo.get_asset(task.regular_asset_id)
-                    if regular is not None:
-                        slot_values[inventory_slot_column_name(age, gender, skin_color, "regular")] = regular.abs_path
-                        prompt = self._prompt_for_stage(
-                            run_id=regular.run_id,
-                            stage_name="stage4_variant_generate",
-                            attempt=int(regular.attempt or 0),
-                        )
+                    if regular is not None and asset_is_verified(
+                        regular, slot_name=f"{age}_{gender}_{skin_color}_regular"
+                    ):
+                        slot_values[inventory_slot_column_name(age, gender, skin_color, "regular")] = regular.canonical_path or regular.abs_path
+                        prompt = self._prompt_for_asset(regular, legacy_stage_name="stage4_variant_generate")
                         if prompt is not None:
                             prompt_values[inventory_prompt_column_name(age, gender, skin_color, "regular")] = prompt.prompt_text
                 if task.white_bg_asset_id:
                     white_bg = self.repo.get_asset(task.white_bg_asset_id)
-                    if white_bg is not None:
-                        slot_values[inventory_slot_column_name(age, gender, skin_color, "white_bg")] = white_bg.abs_path
-                        prompt = self._prompt_for_stage(
-                            run_id=white_bg.run_id,
-                            stage_name="stage5_variant_white_bg",
-                            attempt=int(white_bg.attempt or 0),
-                        )
+                    if white_bg is not None and asset_is_verified(
+                        white_bg, slot_name=f"{age}_{gender}_{skin_color}_white_bg"
+                    ):
+                        slot_values[inventory_slot_column_name(age, gender, skin_color, "white_bg")] = white_bg.canonical_path or white_bg.abs_path
+                        prompt = self._prompt_for_asset(white_bg, legacy_stage_name="stage5_variant_white_bg")
                         if prompt is not None:
                             prompt_values[inventory_prompt_column_name(age, gender, skin_color, "white_bg")] = prompt.prompt_text
             if task.status in {"failed", "canceled"}:
