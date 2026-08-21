@@ -148,14 +148,27 @@ class InventorySyncService:
         return prompt
 
     def _prompt_for_asset(self, asset: Asset, *, legacy_stage_name: str):
-        if asset.generation_prompt_id:
-            linked = self.repo.get_prompt(asset.generation_prompt_id)
+        prompt_asset = asset
+        visited_asset_ids: set[str] = set()
+        while (
+            prompt_asset.stage_name == "stage3_post_quality_accessibility_generate"
+            and prompt_asset.source_asset_id
+            and prompt_asset.id not in visited_asset_ids
+        ):
+            visited_asset_ids.add(prompt_asset.id)
+            source_asset = self.repo.get_asset(prompt_asset.source_asset_id)
+            if source_asset is None:
+                break
+            prompt_asset = source_asset
+
+        if prompt_asset.generation_prompt_id:
+            linked = self.repo.get_prompt(prompt_asset.generation_prompt_id)
             if linked is not None:
                 return linked
         return self._prompt_for_stage(
-            run_id=asset.run_id,
+            run_id=prompt_asset.run_id,
             stage_name=legacy_stage_name,
-            attempt=int(asset.attempt or 0),
+            attempt=int(prompt_asset.attempt or 0),
         )
 
     @staticmethod

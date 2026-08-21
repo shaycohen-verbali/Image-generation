@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from app.services.inventory_sync import normalize_csv_job_export_fields
 from app.services.inventory_sync import InventorySyncService
+from app.services.library import _winning_prompts_by_path
+from app.services.repository import Repository
 
 
 def test_normalize_csv_job_export_fields_filters_invalid_and_duplicate_keys() -> None:
@@ -42,3 +44,77 @@ def test_sense_image_sync_retries_and_sends_server_side_payload(db_session, monk
         "requested_storage_bucket": "aac-images-v1",
     }
     assert timeout == 20
+
+
+def test_softened_asset_uses_winning_source_prompt_for_inventory(db_session) -> None:
+    repo = Repository(db_session)
+    entry = repo.create_entry({
+        "word": "abbey",
+        "part_of_sentence": "noun",
+        "category": "a church associated with a monastery or convent",
+        "context": "AAC",
+        "person_gender_options": ["male"],
+        "person_age_options": ["kid"],
+        "person_skin_color_options": ["white"],
+        "batch": "test",
+    })
+    run = repo.create_shadow_run(entry_id=entry.id, quality_threshold=95, max_optimization_attempts=3)
+    winning_prompt = repo.add_prompt(
+        run_id=run.id,
+        stage_name="stage3_upgrade",
+        attempt=1,
+        prompt_text="Create the winning abbey image.",
+        needs_person="yes",
+        source="test",
+        raw_response_json={},
+    )
+    soften_prompt = repo.add_prompt(
+        run_id=run.id,
+        stage_name="stage3_post_quality_accessibility_generate",
+        attempt=1,
+        prompt_text="Soften the background.",
+        needs_person="yes",
+        source="test",
+        raw_response_json={},
+    )
+    winning_asset = repo.add_asset(
+        run_id=run.id,
+        stage_name="stage3_upgraded",
+        attempt=1,
+        file_name="abbey-winning.jpg",
+        abs_path="/tmp/abbey-winning.jpg",
+        mime_type="image/jpeg",
+        sha256="winning",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+        generation_prompt_id=winning_prompt.id,
+    )
+    softened_asset = repo.add_asset(
+        run_id=run.id,
+        stage_name="stage3_post_quality_accessibility_generate",
+        attempt=1,
+        file_name="abbey-softened.jpg",
+        abs_path="/tmp/abbey-softened.jpg",
+        mime_type="image/jpeg",
+        sha256="softened",
+        width=100,
+        height=100,
+        origin_url="",
+        model_name="test",
+        generation_prompt_id=soften_prompt.id,
+        source_asset_id=winning_asset.id,
+    )
+
+    selected = InventorySyncService(db_session)._prompt_for_asset(
+        softened_asset,
+        legacy_stage_name="stage3_upgrade",
+    )
+
+    assert selected is not None
+    assert selected.id == winning_prompt.id
+    assert selected.prompt_text == "Create the winning abbey image."
+
+    resolved = _winning_prompts_by_path(db_session.connection(), {softened_asset.abs_path})
+    assert resolved[softened_asset.abs_path] == "Create the winning abbey image."

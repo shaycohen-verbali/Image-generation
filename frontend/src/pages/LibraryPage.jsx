@@ -143,7 +143,7 @@ function normalizeWord(payload) {
       senses: (group.senses || []).map((sense) => ({
         ...sense,
         id: sense.id || sense.sense_id || sense.source_sense_id,
-        definition: sense.definition || sense.sense_oxford || sense.sense_wordnet || 'No definition available',
+        definition: sense.definition || sense.category || sense.sense_wordnet || sense.sense_oxford || 'No definition available',
         image_count: Number(sense.image_count ?? sense.images ?? 0),
       })),
     })),
@@ -274,7 +274,7 @@ function ImageCard({ image, selected, onSelect, onOpenLightbox }) {
       </button>
       <div className="library-image-copy">
         <div className="library-image-meta-line"><strong>{formatLabel(image.background)} background</strong><span>{formatLabel(image.age)} · {formatLabel(image.gender)} · {formatLabel(image.skin_tone)}</span></div>
-        <span className="library-prompt-label">Prompt</span>
+        <span className="library-prompt-label">Winning image prompt</span>
         <p>{image.prompt || 'No prompt stored for this image.'}</p>
         <button type="button" className="library-link-button" onClick={() => onSelect(image)}>View full prompt <Icon name="arrowRight" size={16} /></button>
       </div>
@@ -284,12 +284,12 @@ function ImageCard({ image, selected, onSelect, onOpenLightbox }) {
 
 function PromptPanel({ image, onCopy, onOpenLightbox }) {
   if (!image) {
-    return <aside className="library-prompt-panel library-prompt-panel-empty"><Icon name="image" size={28} /><h3>Image prompt</h3><p>Select an image to inspect its exact prompt.</p></aside>
+    return <aside className="library-prompt-panel library-prompt-panel-empty"><Icon name="image" size={28} /><h3>Winning image prompt</h3><p>Select an image to inspect the prompt that created its winning source image.</p></aside>
   }
   return (
     <aside className="library-prompt-panel" aria-label="Image prompt">
-      <h3>Image prompt</h3>
-      <span className="library-prompt-label">Full prompt</span>
+      <h3>Winning image prompt</h3>
+      <span className="library-prompt-label">Original generation prompt</span>
       <p className="library-full-prompt">{image.prompt || 'No prompt stored for this image.'}</p>
       <button type="button" className="library-primary-button" onClick={() => onCopy(image.prompt)}><Icon name="copy" size={18} /> Copy prompt</button>
       <button type="button" className="library-secondary-button" onClick={() => image.image_url && onOpenLightbox(image)} disabled={!image.image_url}><Icon name="external" size={18} /> Open full image</button>
@@ -325,7 +325,7 @@ function ImageLightbox({ images, image, onClose, onChange, onCopy }) {
             <button type="button" className="library-lightbox-arrow right" onClick={() => index < images.length - 1 && onChange(images[index + 1])} disabled={index === images.length - 1} aria-label="Next image"><Icon name="arrowRight" size={22} /></button>
           </div>
           <aside className="library-lightbox-details">
-            <h3>Image details</h3><span className="library-prompt-label">Prompt</span>
+            <h3>Image details</h3><span className="library-prompt-label">Winning image prompt</span>
             <p className="library-full-prompt">{image.prompt || 'No prompt stored for this image.'}</p>
             <button type="button" className="library-primary-button" onClick={() => image.original_url && downloadImage(image)} disabled={!image.original_url}><Icon name="download" size={18} /> Download image</button>
             <button type="button" className="library-secondary-button" onClick={() => image.original_url && window.open(image.original_url, '_blank', 'noopener,noreferrer')} disabled={!image.original_url}><Icon name="external" size={18} /> Open original</button>
