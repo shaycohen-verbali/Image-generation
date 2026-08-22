@@ -41,8 +41,8 @@ const PREVIEW_WORD = {
     {
       pos: 'noun',
       senses: [
-        { id: 'cc88eab6025a4403', definition: 'the trait of lacking restraint or control; reckless freedom from inhibition or worry', image_count: 2 },
-        { id: 'abandon-noun-2', definition: 'a feeling of extreme emotional intensity', image_count: 0 },
+        { id: 'cc88eab6025a4403', definition: 'the trait of lacking restraint or control; reckless freedom from inhibition or worry', image_count: 2, canonical_word: 'abandon', canonical_sense_id: 'cc88eab6025a4403' },
+        { id: 'abandon-noun-2', definition: 'a feeling of extreme emotional intensity', image_count: 0, canonical_word: 'abandon', canonical_sense_id: 'abandon-noun-2' },
       ],
     },
     {
@@ -246,12 +246,15 @@ function LemmaList({ lemmas, selectedLemma, onSelect, loading }) {
 }
 
 function SenseRow({ sense, selected, onSelect }) {
+  const canonicalWord = sense.canonical_word || 'Unknown'
+  const canonicalSense = sense.canonical_sense_id || sense.id || 'Unknown sense'
   return (
     <button type="button" className={`library-sense-row${selected ? ' is-selected' : ''}`} onClick={() => onSelect(sense)}>
       <span className="library-sense-number">{sense.number || ''}</span>
       <span className="library-sense-copy">
         <strong>{sense.definition}</strong>
         <span><code>{sense.id || 'No sense ID'}</code><span className="library-sense-dot">•</span>{sense.image_count ? `${sense.image_count} V1 images` : 'No images'}</span>
+        <span className="library-sense-source">Images from <b>{canonicalWord}</b> <code>{canonicalSense}</code></span>
       </span>
       <Icon name="arrowRight" size={20} />
     </button>
@@ -459,6 +462,10 @@ export default function LibraryPage() {
   return (
     <section className="library-page">
       <header className="library-page-heading"><h1>Word Library</h1><p>Search by lemma, explore senses, and inspect every V1 image prompt.</p></header>
+      <div className="library-data-guide">
+        <Icon name="book" size={20} />
+        <div><strong>How Library data works</strong><span>Senses come from AAC Word Lookup. Images, prompts, and categories come from Word Inventory. If a sense maps to another canonical word, Library reuses that canonical word’s images.</span></div>
+      </div>
       <LemmaSearch query={query} setQuery={setQuery} pos={pos} setPos={setPos} />
       <div className="library-mobile-back"><button type="button" onClick={() => setSelectedLemma(null)}><Icon name="arrowLeft" size={20} /> All lemmas</button></div>
       {!selectedLemma ? <div className="library-no-selection-list"><LemmaList lemmas={lemmas} selectedLemma={selectedLemma} onSelect={selectLemma} loading={loadingLemmas} /></div> : null}
@@ -474,7 +481,7 @@ export default function LibraryPage() {
             <div className="library-sense-list">
               {(activeGroup?.senses || []).map((sense, index) => <SenseRow key={sense.id || index} sense={{ ...sense, number: index + 1 }} selected={selectedSense?.id === sense.id} onSelect={selectSense} />)}
             </div>
-            <div className="library-gallery-heading"><div><h3>V1 images</h3><p>{selectedSense?.definition || 'Choose a sense to browse current inventory images.'}</p></div><span>{filteredImages.length} shown</span></div>
+            <div className="library-gallery-heading"><div><h3>V1 images</h3><p>{selectedSense?.definition || 'Choose a sense to browse current inventory images.'}</p>{selectedSense ? <p className="library-gallery-source">Canonical image source: <strong>{selectedSense.canonical_word || word.lemma}</strong> · {formatLabel(activeGroup?.pos)} · <code>{selectedSense.canonical_sense_id || selectedSense.id}</code></p> : null}</div><span>{filteredImages.length} shown</span></div>
             <div className="library-filter-row">
               <FilterSelect label="Age" compact value={filters.age} onChange={(value) => setFilters((current) => ({ ...current, age: value }))} options={AGE_OPTIONS} />
               <FilterSelect label="Gender" compact value={filters.gender} onChange={(value) => setFilters((current) => ({ ...current, gender: value }))} options={GENDER_OPTIONS} />

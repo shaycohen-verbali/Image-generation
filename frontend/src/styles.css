@@ -1143,6 +1143,37 @@ pre {
   font-size: 0.98rem;
 }
 
+.library-data-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1px solid #c9ddd7;
+  border-radius: 12px;
+  background: #eef8f5;
+  color: #334b47;
+}
+
+.library-data-guide > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #128980;
+}
+
+.library-data-guide > div {
+  display: grid;
+  gap: 3px;
+}
+
+.library-data-guide strong {
+  color: #183d38;
+}
+
+.library-data-guide span {
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 .library-search-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 174px;
@@ -1486,6 +1517,19 @@ pre {
   font-size: 0.68rem;
 }
 
+.library-sense-copy > .library-sense-source {
+  color: #47615d;
+  font-size: 0.78rem;
+}
+
+.library-sense-source b {
+  color: #117e76;
+}
+
+.library-sense-source code {
+  margin-left: 4px;
+}
+
 .library-sense-dot {
   color: #988c7e;
 }
@@ -1507,6 +1551,16 @@ pre {
   max-width: 60ch;
   color: var(--library-muted);
   font-size: 0.74rem;
+}
+
+.library-gallery-heading .library-gallery-source {
+  margin-top: 6px;
+  color: #47615d;
+  font-size: 0.8rem;
+}
+
+.library-gallery-source strong {
+  color: #117e76;
 }
 
 .library-filter-row {

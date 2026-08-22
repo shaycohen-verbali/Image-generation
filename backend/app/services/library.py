@@ -89,6 +89,27 @@ def _sense_definition(row: dict[str, Any]) -> str:
     )
 
 
+def _image_source_metadata(
+    *,
+    requested_word: str,
+    sense_id: str,
+    canonical_words: set[str],
+    canonical_sense_ids: set[str],
+) -> dict[str, Any]:
+    canonical_word = sorted({_clean(value) for value in canonical_words if _clean(value)}, key=str.casefold)
+    canonical_sense_id = sorted({_clean(value) for value in canonical_sense_ids if _clean(value)})
+    image_source_word = canonical_word[0] if canonical_word else _clean(requested_word)
+    image_source_sense_id = canonical_sense_id[0] if canonical_sense_id else _clean(sense_id)
+    return {
+        "canonical_word": image_source_word,
+        "canonical_sense_id": image_source_sense_id,
+        "uses_canonical_image": (
+            image_source_word.casefold() != _clean(requested_word).casefold()
+            or image_source_sense_id != _clean(sense_id)
+        ),
+    }
+
+
 def _normalise_pos(value: Any) -> str:
     normalized = " ".join(_clean(value).casefold().replace("_", " ").split())
     return POS_ALIASES.get(normalized, normalized)
@@ -633,6 +654,12 @@ def get_lemma(lemma: str) -> dict[str, Any]:
     for group in groups.values():
         for sense in group["senses"]:
             sense["image_count"] = counts.get(sense["id"], 0)
+            sense.update(_image_source_metadata(
+                requested_word=requested,
+                sense_id=sense["id"],
+                canonical_words=canonical_words_by_sense.get(sense["id"], set()),
+                canonical_sense_ids=canonical_senses_by_sense.get(sense["id"], set()),
+            ))
 
     ordered_groups = sorted(groups.values(), key=lambda item: item["pos"])
     return {"lemma": requested, "observed_forms": sorted(forms), "pos_groups": ordered_groups}
