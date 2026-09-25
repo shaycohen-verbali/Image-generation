@@ -4,10 +4,13 @@ import json
 from datetime import datetime
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, func, select, text
 
+from app.api.word_sources import import_word_source_rows
 from app.inventory_models import inventory_metadata, inventory_slot_column_name, word_inventory
-from app.models import CsvJobItem, CsvTaskNode, Entry
+from app.models import CsvJob, CsvJobItem, CsvTaskNode, Entry
+from app.schemas import WordSourceImportRequest
 from app.services.pipeline import PipelineRunner
 from app.services.csv_dag_service import CsvDagService
 from app.services.inventory_sync import InventorySyncService
@@ -125,6 +128,45 @@ def test_word_inventory_read_import_and_writeback_targets_same_row(db_session, m
     assert row["id"] == "inv_source_1"
     assert row["word"] == "balance"
     assert row["source_csv_job_id"] == result["job_id"]
+
+
+def test_long_word_sense_imports_without_truncation(db_session, monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    inventory_metadata.create_all(bind=engine)
+    long_sense = "a detailed word sense " * 20
+    _seed_inventory_row(engine, sense_wordnet=long_sense)
+
+    import app.services.word_sources as word_sources_module
+
+    monkeypatch.setattr(word_sources_module, "inventory_engine", engine)
+    rows = WordSourceService().get_rows("word_inventory", selection_mode="range", range_start=1, range_end=1)
+    result = CsvDagService(db_session).import_word_source_rows(
+        table_name="word_inventory",
+        rows=rows,
+        person_gender_options=["male"],
+        person_age_options=["kid"],
+        person_skin_color_options=["white"],
+    )
+    entry = db_session.get(Entry, result["rows"][0]["entry_id"])
+    assert entry.category == long_sense.strip()
+    assert len(entry.category) > 256
+
+
+def test_word_source_preflight_rejects_oversized_word_before_creating_job(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(
+        WordSourceService,
+        "get_rows",
+        lambda *args, **kwargs: [{"word": "x" * 257, "part_of_sentence": "noun", "_word_source_position": 1508}],
+    )
+    with pytest.raises(HTTPException) as exc:
+        import_word_source_rows(
+            "word_inventory",
+            WordSourceImportRequest(selection_mode="range", range_start=1501, range_end=2000),
+            db_session,
+        )
+    assert exc.value.status_code == 400
+    assert "position 1508" in exc.value.detail
+    assert db_session.query(CsvJob).count() == 0
 
 
 def test_range_and_pos_selection_use_global_stable_positions(monkeypatch) -> None:

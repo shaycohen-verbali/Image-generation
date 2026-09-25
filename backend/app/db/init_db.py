@@ -419,6 +419,15 @@ def _ensure_entry_columns() -> None:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN sense_id TEXT NOT NULL DEFAULT ''"))
         else:
             existing = _postgres_existing_columns(conn, "entries")
+            category_type = conn.execute(
+                text(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() "
+                    "AND table_name = 'entries' AND column_name = 'category'"
+                )
+            ).scalar_one_or_none()
+            if category_type == "character varying":
+                conn.execute(text("ALTER TABLE entries ALTER COLUMN category TYPE TEXT"))
             if "has_person" not in existing:
                 conn.execute(text("ALTER TABLE entries ADD COLUMN has_person TEXT NOT NULL DEFAULT ''"))
             if "word_synonyms_for_better_meaning" not in existing:

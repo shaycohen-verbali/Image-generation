@@ -26,6 +26,7 @@ from app.schemas import (
 from app.models import CloudUpload, CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService, configured_buckets
 from app.services.csv_dag_service import CsvDagService
+from app.services.csv_service import validate_entry_row
 from app.services.matalk_export import MATALK_ARTIFACT_FILENAMES, build_matalk_tables, write_matalk_artifacts
 from app.services.storage import exports_root
 from app.services.utils import sanitize_filename
@@ -337,6 +338,13 @@ def import_word_source_rows(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if not rows:
         raise HTTPException(status_code=404, detail="No word-source rows matched this selection")
+    for row in rows:
+        error = validate_entry_row(row)
+        if error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot import position {row.get('_word_source_position', '?')} ({row.get('word') or 'unnamed'}): {error}",
+            )
     result = CsvDagService(db).import_word_source_rows(
         table_name=table_name,
         rows=rows,

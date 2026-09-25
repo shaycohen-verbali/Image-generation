@@ -24,7 +24,7 @@ class Entry(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     word: Mapped[str] = mapped_column(String(256), nullable=False)
     part_of_sentence: Mapped[str] = mapped_column(String(128), nullable=False)
-    category: Mapped[str] = mapped_column(String(256), nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
     sense_id: Mapped[str] = mapped_column(String(256), default="", nullable=False)
     context: Mapped[str] = mapped_column(Text, default="", nullable=False)
     word_synonyms_for_better_meaning: Mapped[str] = mapped_column(Text, default="", nullable=False)

@@ -261,6 +261,7 @@ class WordSourceService:
             rows.append(
                 {
                     "word": str(row.get("word") or "").strip(),
+                    "_word_source_position": int(row.get("position") or 0),
                     "part_of_sentence": part_of_speech,
                     "category": word_sense,
                     "sense_id": sense_id,
