@@ -329,12 +329,16 @@ class WordSourceRowsOut(BaseModel):
     parts_of_speech: list[str] = Field(default_factory=list)
 
 
+K12UseRating = Literal["very probable", "probable", "possible but not common", "not likely"]
+
+
 class WordSourceImportRequest(BaseModel):
     selection_mode: Literal["single", "range", "all"] = "single"
     row_id: str | None = None
     range_start: int | None = Field(default=None, ge=1)
     range_end: int | None = Field(default=None, ge=1, le=100_000)
     parts_of_speech: list[str] = Field(default_factory=list)
+    k12_use_ratings: list[K12UseRating] = Field(default_factory=list)
     person_gender_options: list[str] = Field(default_factory=list)
     person_age_options: list[str] = Field(default_factory=list)
     person_skin_color_options: list[str] = Field(default_factory=list)

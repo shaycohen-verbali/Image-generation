@@ -88,6 +88,9 @@ export async function listWordSourceRows(tableName, filters = {}) {
   for (const partOfSpeech of filters.parts_of_speech || []) {
     query.append('parts_of_speech', partOfSpeech)
   }
+  for (const rating of filters.k12_use_ratings || []) {
+    query.append('k12_use_ratings', rating)
+  }
   query.set('limit', String(filters.limit || 200))
   query.set('offset', String(filters.offset || 0))
   return fetchJson(`${API_BASE}/word-sources/${encodeURIComponent(tableName)}/rows?${query.toString()}`, {}, 1)

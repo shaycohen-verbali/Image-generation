@@ -65,6 +65,7 @@ export default function SubmitPage() {
   const [wordSourceRangeEnd, setWordSourceRangeEnd] = useState(1000)
   const [wordSourcePartsOfSpeech, setWordSourcePartsOfSpeech] = useState([])
   const [selectedWordSourcePartsOfSpeech, setSelectedWordSourcePartsOfSpeech] = useState([])
+  const [selectedK12UseRatings, setSelectedK12UseRatings] = useState([])
   const [wordSourceLoading, setWordSourceLoading] = useState(false)
   const [overrideExistingVariants, setOverrideExistingVariants] = useState(false)
   const [runWorkerCount, setRunWorkerCount] = useState(4)
@@ -361,6 +362,7 @@ export default function SubmitPage() {
         range_start: wordSourceSelectionMode === 'range' ? wordSourceRangeStart : undefined,
         range_end: wordSourceSelectionMode === 'range' ? wordSourceRangeEnd : undefined,
         parts_of_speech: wordSourceSelectionMode === 'single' ? [] : selectedWordSourcePartsOfSpeech,
+        k12_use_ratings: selectedK12UseRatings,
         limit: 200,
       })
       setWordSourceRows(Array.isArray(result.rows) ? result.rows : [])
@@ -401,6 +403,7 @@ export default function SubmitPage() {
         range_start: wordSourceSelectionMode === 'range' ? Number(wordSourceRangeStart) : undefined,
         range_end: wordSourceSelectionMode === 'range' ? Number(wordSourceRangeEnd) : undefined,
         parts_of_speech: wordSourceSelectionMode === 'single' ? [] : selectedWordSourcePartsOfSpeech,
+        k12_use_ratings: selectedK12UseRatings,
         person_gender_options: form.person_gender_options,
         person_age_options: form.person_age_options,
         person_skin_color_options: form.person_skin_color_options,
@@ -891,6 +894,26 @@ export default function SubmitPage() {
                   </label>
                 ) : null}
               </div>
+              <fieldset className="checkbox-group word-source-pos-options" disabled={wordSourceLoading || csvActivity.active}>
+                <legend>K–12 use rating (leave all unchecked to include all ratings)</legend>
+                {['very probable', 'probable', 'possible but not common', 'not likely'].map((rating) => (
+                  <label className="checkbox-option" key={rating}>
+                    <input
+                      type="checkbox"
+                      checked={selectedK12UseRatings.includes(rating)}
+                      onChange={() => {
+                        setSelectedK12UseRatings((current) => current.includes(rating)
+                          ? current.filter((value) => value !== rating)
+                          : [...current, rating])
+                        setWordSourceRows([])
+                        setSelectedWordSourceRowIds([])
+                        setWordSourceTotal(0)
+                      }}
+                    />
+                    {rating.charAt(0).toUpperCase() + rating.slice(1)}
+                  </label>
+                ))}
+              </fieldset>
               {wordSourceSelectionMode !== 'single' && wordSourcePartsOfSpeech.length ? (
                 <fieldset className="checkbox-group word-source-pos-options">
                   <legend>Part of speech (leave all unchecked to include every POS)</legend>
@@ -971,7 +994,7 @@ export default function SubmitPage() {
                   : `Import ${wordSourceTotal || (wordSourceSelectionMode === 'all' ? 'all' : 'range')} words`}
               </button>
               <p className="config-help-text">
-                Ranges use stable alphabetical positions before the POS filter. Writeback targets the exact word + POS + sense ID row.
+                Ranges use stable alphabetical positions before the POS and K–12 use rating filters. Writeback targets the exact word + POS + sense ID row.
                 Existing images for a requested person profile are skipped unless Override existing inventory variants is checked.
               </p>
             </div>

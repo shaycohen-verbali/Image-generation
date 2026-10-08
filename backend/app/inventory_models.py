@@ -17,6 +17,14 @@ aac_word_lookup = table(
     column("synonyms", JSON),
 )
 
+# QA owns this view and resolves the latest rating for the current word meaning.
+# Keep this read-only projection outside inventory_metadata.
+qa_word_information = table(
+    "qa_word_information",
+    column("id", Text),
+    column("rating", Text),
+)
+
 
 def inventory_slot_column_name(age: str, gender: str, skin_color: str, background: str) -> str:
     return f"{age}_{gender}_{skin_color}_{background}_path"

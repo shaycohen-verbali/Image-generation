@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.core.config import get_settings
 from app.schemas import (
+    K12UseRating,
     CsvJobImportResponse,
     CsvJobExportResponse,
     CloudflareUploadResponse,
@@ -296,6 +297,7 @@ def list_word_source_rows(
     range_start: int | None = Query(default=None, ge=1),
     range_end: int | None = Query(default=None, ge=1, le=100_000),
     parts_of_speech: list[str] = Query(default=[]),
+    k12_use_ratings: list[K12UseRating] = Query(default=[]),
 ) -> WordSourceRowsOut:
     try:
         result = WordSourceService().list_rows(
@@ -308,6 +310,7 @@ def list_word_source_rows(
             range_start=range_start,
             range_end=range_end,
             parts_of_speech=parts_of_speech,
+            k12_use_ratings=k12_use_ratings,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -331,6 +334,7 @@ def import_word_source_rows(
             range_start=payload.range_start,
             range_end=payload.range_end,
             parts_of_speech=payload.parts_of_speech,
+            k12_use_ratings=payload.k12_use_ratings,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

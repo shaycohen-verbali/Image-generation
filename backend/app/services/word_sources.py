@@ -7,12 +7,14 @@ from typing import Any
 from sqlalchemy import case, desc, func, or_, select
 
 from app.db.inventory_session import inventory_enabled, inventory_engine
-from app.inventory_models import aac_word_lookup, word_inventory
+from app.inventory_models import aac_word_lookup, qa_word_information, word_inventory
 
 
 APPROVED_WORD_SOURCE_TABLES = {
     "word_inventory": word_inventory,
 }
+
+K12_USE_RATINGS = {"very probable", "probable", "possible but not common", "not likely"}
 
 
 def _json_value(value: Any) -> Any:
@@ -84,6 +86,7 @@ class WordSourceService:
         range_start: int | None = None,
         range_end: int | None = None,
         parts_of_speech: list[str] | None = None,
+        k12_use_ratings: list[str] | None = None,
     ) -> dict[str, Any]:
         normalized, table = self.approved_table(table_name)
         if inventory_engine is None:
@@ -98,6 +101,7 @@ class WordSourceService:
             range_start=range_start,
             range_end=range_end,
             parts_of_speech=parts_of_speech,
+            k12_use_ratings=k12_use_ratings,
         ).subquery()
         lookup = aac_word_lookup.alias("word_lookup")
         image_columns = [selected.c[column.name] for column in table.columns if column.name.endswith("_path")]
@@ -171,6 +175,7 @@ class WordSourceService:
         range_end: int | None = None,
         parts_of_speech: list[str] | None = None,
         include_inactive: bool = False,
+        k12_use_ratings: list[str] | None = None,
     ):
         mode = str(selection_mode or "all").strip().lower()
         if mode not in {"single", "range", "all"}:
@@ -202,6 +207,18 @@ class WordSourceService:
         normalized_pos = sorted({str(value or "").strip().lower() for value in (parts_of_speech or []) if str(value or "").strip()})
         if normalized_pos:
             query = query.where(func.lower(table.c.part_of_speech).in_(normalized_pos))
+        ratings = sorted({str(value).strip().lower() for value in (k12_use_ratings or [])})
+        if set(ratings) - K12_USE_RATINGS:
+            raise ValueError("Unsupported K–12 use rating")
+        if ratings:
+            query = query.where(
+                select(qa_word_information.c.id)
+                .where(
+                    qa_word_information.c.id == table.c.id,
+                    qa_word_information.c.rating.in_(ratings),
+                )
+                .exists()
+            )
         return query
 
     def get_rows(
@@ -213,6 +230,7 @@ class WordSourceService:
         range_start: int | None = None,
         range_end: int | None = None,
         parts_of_speech: list[str] | None = None,
+        k12_use_ratings: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         normalized, table = self.approved_table(table_name)
         if inventory_engine is None:
@@ -224,6 +242,7 @@ class WordSourceService:
             range_start=range_start,
             range_end=range_end,
             parts_of_speech=parts_of_speech,
+            k12_use_ratings=k12_use_ratings,
         ).subquery()
         lookup = aac_word_lookup.alias("word_lookup")
         path_columns = [selected.c[column.name] for column in table.columns if column.name.endswith("_path")]
