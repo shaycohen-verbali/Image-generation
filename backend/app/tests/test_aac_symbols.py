@@ -122,8 +122,11 @@ def test_single_concept_generates_symbols_even_when_no_person_is_needed(db_sessi
     class SymbolReviewer(MockOpenAI):
         def _vision_json(self, *, prompt, **kwargs):
             if "reference_communicates_target" in prompt:
-                return {"reference_communicates_target": True, "critical_components": [{"id": "C1", "description": "apple fruit"}]}, {}
-            return {"symbol_communicates_target": True, "components": [{"id": "C1", "status": "present"}]}, {}
+                return {"reference_communicates_target": True, "person_required_for_target": False,
+                        "critical_components": [{"id": "C1", "description": "apple fruit"}]}, {}
+            return {"symbol_communicates_target": True, "components": [{"id": "C1", "status": "present"}],
+                    "single_symbol": True, "contains_text_or_labels": False,
+                    "contains_unrelated_subjects": False, "contains_person": False}, {}
     runner = PipelineRunner(db_session, openai_client=SymbolReviewer(scores=[95]),
                             replicate_client=MockReplicate(), google_image_client=google)
     result = runner.process_run(run.id)
@@ -184,12 +187,34 @@ def test_library_returns_symbol_images_and_prompts(monkeypatch):
 def test_symbol_meaning_check_rejects_missing_or_invalid_component_evidence(results):
     from app.services.aac_symbols import check_symbol_meaning
     responses = iter([
-        {"reference_communicates_target": True, "critical_components": [{"id": "C1", "description": "apple"}]},
-        {"symbol_communicates_target": True, "components": results},
+        {"reference_communicates_target": True, "person_required_for_target": False,
+         "critical_components": [{"id": "C1", "description": "apple"}]},
+        {"symbol_communicates_target": True, "components": results, "single_symbol": True,
+         "contains_text_or_labels": False, "contains_unrelated_subjects": False, "contains_person": False},
     ])
     client = SimpleNamespace(_vision_json=lambda **kwargs: (next(responses), {}))
     result = check_symbol_meaning(client, Path("source.jpg"), Path("symbol.jpg"), meaning="apple", model="test")
     assert result["passed"] is False
+
+
+@pytest.mark.parametrize("violation", [
+    {"single_symbol": False}, {"contains_text_or_labels": True},
+    {"contains_unrelated_subjects": True}, {"contains_person": True},
+    {"single_symbol": None},
+])
+def test_symbol_validation_rejects_reference_boards_labels_and_people_in_object_symbols(violation):
+    from app.services.aac_symbols import check_symbol_meaning
+    responses = iter([
+        {"reference_communicates_target": True, "person_required_for_target": False,
+         "critical_components": [{"id": "C1", "description": "apple"}]},
+        {"symbol_communicates_target": True, "components": [{"id": "C1", "status": "present"}],
+         "single_symbol": True, "contains_text_or_labels": False,
+         "contains_unrelated_subjects": False, "contains_person": False, **violation},
+    ])
+    client = SimpleNamespace(_vision_json=lambda **kwargs: (next(responses), {}))
+    result = check_symbol_meaning(client, Path("source.jpg"), Path("symbol.jpg"), meaning="apple", model="test")
+    assert result["passed"] is False
+    assert result["format_passed"] is False
 
 
 @pytest.mark.parametrize("has_person", ["yes", "no"])
