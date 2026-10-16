@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import CloudUpload, CloudUploadBatch
+from app.models import CloudUpload, CloudUploadBatch, MatalkClassUpload
 from app.services.image_filenames import (
     final_image_filename_for_field,
     inventory_variant,
@@ -35,9 +35,29 @@ def r2_destination_url(endpoint: str, bucket: str, object_key: str) -> str:
     return f"{base_url}/{bucket_path}/{key_path}"
 
 
+def is_class_bucket(bucket: str) -> bool:
+    return bool(bucket) and bucket == get_settings().cloudflare_r2_class_bucket
+
+
+def upload_model(bucket: str):
+    return MatalkClassUpload if is_class_bucket(bucket) else CloudUpload
+
+
+def r2_credentials(bucket: str) -> tuple[str, str, str]:
+    settings = get_settings()
+    prefix = "cloudflare_r2_class" if is_class_bucket(bucket) else "cloudflare_r2"
+    return tuple(str(getattr(settings, f"{prefix}_{name}") or "") for name in
+                 ("endpoint", "access_key_id", "secret_access_key"))
+
+
 def configured_buckets() -> list[str]:
-    raw = str(get_settings().cloudflare_r2_buckets or "").strip()
-    return list(dict.fromkeys(value.strip() for value in raw.split(",") if value.strip()))
+    settings = get_settings()
+    buckets = [value.strip() for value in str(settings.cloudflare_r2_buckets or "").split(",") if value.strip()]
+    # Never offer the Class bucket with the AAC account's credentials.
+    buckets = [bucket for bucket in buckets if not is_class_bucket(bucket)]
+    if settings.cloudflare_r2_class_bucket and all(r2_credentials(settings.cloudflare_r2_class_bucket)):
+        buckets.append(settings.cloudflare_r2_class_bucket)
+    return list(dict.fromkeys(buckets))
 
 
 class CloudflareUploadService:
@@ -45,9 +65,10 @@ class CloudflareUploadService:
         self.db = db
 
     @staticmethod
-    def _client():
+    def _client(bucket: str = ""):
         settings = get_settings()
-        if not settings.cloudflare_r2_endpoint or not settings.cloudflare_r2_access_key_id or not settings.cloudflare_r2_secret_access_key:
+        endpoint, access_key, secret_key = r2_credentials(bucket)
+        if not all((endpoint, access_key, secret_key)):
             raise RuntimeError("Cloudflare R2 is not configured. Add the R2 endpoint, access key ID, and secret access key to Render.")
         try:
             import boto3
@@ -56,10 +77,10 @@ class CloudflareUploadService:
             raise RuntimeError("Cloudflare upload support is missing boto3") from exc
         return boto3.client(
             "s3",
-            endpoint_url=settings.cloudflare_r2_endpoint.rstrip("/"),
+            endpoint_url=endpoint.rstrip("/"),
             region_name="auto",
-            aws_access_key_id=settings.cloudflare_r2_access_key_id,
-            aws_secret_access_key=settings.cloudflare_r2_secret_access_key,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
             config=Config(
                 connect_timeout=10,
                 read_timeout=30,
@@ -99,6 +120,8 @@ class CloudflareUploadService:
             raise ValueError("Choose a Cloudflare R2 bucket")
         if allowed and selected_bucket not in allowed:
             raise ValueError("That Cloudflare R2 bucket is not configured")
+        ledger_model = upload_model(selected_bucket)
+        endpoint = r2_credentials(selected_bucket)[0]
         compression_quality = max(1, min(100, int(quality or settings.cloudflare_r2_compression_quality)))
         batch_id = batch_id or f"r2_{uuid.uuid4().hex[:24]}"
         batch = self.db.get(CloudUploadBatch, batch_id)
@@ -139,9 +162,11 @@ class CloudflareUploadService:
                 # Keep the R2 bucket flat. The object key is the filename only,
                 # so uploads land directly under the selected bucket root.
                 object_key = filename
-                destination_url = r2_destination_url(settings.cloudflare_r2_endpoint, selected_bucket, object_key)
+                destination_url = r2_destination_url(endpoint, selected_bucket, object_key)
                 upload_items.append(
                     {
+                        "category": str(row.get("category") or ""),
+                        "meaning": str(row.get("sense_oxford") or row.get("sense_wordnet") or ""),
                         "row_id": row_id,
                         "source_table": str(row.get("_word_source_table") or "word_inventory"),
                         "word": word,
@@ -166,9 +191,9 @@ class CloudflareUploadService:
         existing_by_key: dict[str, CloudUpload] = {}
         for offset in range(0, len(object_keys), 500):
             existing_rows = self.db.scalars(
-                select(CloudUpload).where(
-                    CloudUpload.bucket == selected_bucket,
-                    CloudUpload.object_key.in_(object_keys[offset:offset + 500]),
+                select(ledger_model).where(
+                    ledger_model.bucket == selected_bucket,
+                    ledger_model.object_key.in_(object_keys[offset:offset + 500]),
                 )
             ).all()
             existing_by_key.update({row.object_key: row for row in existing_rows})
@@ -188,7 +213,7 @@ class CloudflareUploadService:
                 continue
             # One object key is uploaded once even if the same source path was
             # selected through more than one duplicate inventory row.
-            ledger = existing or CloudUpload(
+            ledger = existing or ledger_model(
                 batch_id=batch_id,
                 source_table=item["source_table"],
                 source_row_id=item["row_id"],
@@ -203,6 +228,9 @@ class CloudflareUploadService:
                 destination_url=item["destination_url"],
                 compression_quality=compression_quality,
             )
+            if is_class_bucket(selected_bucket):
+                ledger.category = item["category"]
+                ledger.meaning = item["meaning"]
             ledger.batch_id = batch_id
             ledger.destination_url = item["destination_url"]
             ledger.status = "uploading"
@@ -216,14 +244,14 @@ class CloudflareUploadService:
         # Compression and object uploads are independent per image. Keep the
         # concurrency bounded so one export is much faster without overwhelming
         # Render, Supabase downloads, or the R2 connection pool.
-        self._client()  # Validate credentials before starting worker threads.
+        self._client(selected_bucket)  # Validate credentials before starting worker threads.
         worker_state = local()
 
         def upload_one(item: dict[str, str]) -> dict[str, Any]:
             try:
                 client = getattr(worker_state, "client", None)
                 if client is None:
-                    client = self._client()
+                    client = self._client(selected_bucket)
                     worker_state.client = client
                 original = materialize_path(item["source_path"], cache_namespace="cloudflare_uploads").read_bytes()
                 compressed = self._compress(original, compression_quality)

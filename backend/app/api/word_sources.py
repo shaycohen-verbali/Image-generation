@@ -25,7 +25,7 @@ from app.schemas import (
     WordSourceRowsOut,
 )
 from app.models import CloudUpload, CloudUploadBatch
-from app.services.cloudflare_upload import CloudflareUploadService, configured_buckets
+from app.services.cloudflare_upload import CloudflareUploadService, configured_buckets, upload_model, r2_credentials
 from app.services.csv_dag_service import CsvDagService
 from app.services.csv_service import validate_entry_row
 from app.services.matalk_export import MATALK_ARTIFACT_FILENAMES, build_matalk_tables, write_matalk_artifacts
@@ -75,7 +75,7 @@ def list_word_sources() -> list[WordSourceOut]:
 def cloudflare_config() -> dict[str, object]:
     settings = get_settings()
     return {
-        "configured": bool(settings.cloudflare_r2_endpoint and settings.cloudflare_r2_access_key_id and settings.cloudflare_r2_secret_access_key),
+        "configured": bool(all(r2_credentials(settings.cloudflare_r2_default_bucket)) or all(r2_credentials(settings.cloudflare_r2_class_bucket))),
         "buckets": configured_buckets(),
         "default_bucket": settings.cloudflare_r2_default_bucket,
         "compression_quality": settings.cloudflare_r2_compression_quality,
@@ -137,8 +137,10 @@ def _prepare_cloudflare_matalk_artifacts(
 
 
 def _cloudflare_upload_report_csv(batch_id: str, db: Session) -> str:
+    batch = db.get(CloudUploadBatch, batch_id)
+    model = upload_model(batch.bucket) if batch else CloudUpload
     rows = db.scalars(
-        select(CloudUpload).where(CloudUpload.batch_id == batch_id).order_by(CloudUpload.created_at, CloudUpload.id)
+        select(model).where(model.batch_id == batch_id).order_by(model.created_at, model.id)
     ).all()
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=list(CLOUDFLARE_UPLOAD_REPORT_FIELDS), extrasaction="ignore")
