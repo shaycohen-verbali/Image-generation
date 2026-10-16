@@ -66,7 +66,16 @@ def _postgres_existing_columns(conn, table_name: str) -> set[str]:
 
 
 def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+    # Create and secure the Class ledger in one transaction. The uploader's
+    # database owner still writes it; no public API access is needed.
+    with engine.begin() as conn:
+        Base.metadata.create_all(bind=conn)
+        if conn.dialect.name == "postgresql":
+            conn.execute(text("ALTER TABLE matalk_class_uploads ENABLE ROW LEVEL SECURITY"))
+            conn.execute(text("REVOKE ALL ON matalk_class_uploads FROM PUBLIC"))
+            for role in ("anon", "authenticated"):
+                if conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": role}).scalar():
+                    conn.execute(text(f"REVOKE ALL ON matalk_class_uploads FROM {role}"))
     init_inventory_db()
     _ensure_hot_indexes()
     _ensure_inventory_columns()
