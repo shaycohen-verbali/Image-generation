@@ -1306,6 +1306,8 @@ class PipelineRunner:
                     filename=self._variant_filename("stage5_variant_white_bg", entry, profile, winner_attempt),
                     image_bytes=payload["image_bytes"], origin_url=payload["origin_url"],
                     model_name=payload["model_name"], output_mime_type=image_format,
+                    generation_prompt_id=variant_generation_prompt.id if variant_generation_prompt else None,
+                    source_asset_id=regular_asset.id,
                 )
                 preservation = self._check_aac_symbol_meaning(entry, source_asset, white_bg_asset, runtime_config)
                 return {
@@ -2159,6 +2161,21 @@ class PipelineRunner:
         ) -> dict[str, Any]:
             profile_description = profile_prompt_fragment(profile)
             try:
+                if is_symbol_profile(profile) and white_background:
+                    # Symbols already have a white canvas. Preserve the checked pixels
+                    # instead of asking the provider to draw the symbol a second time.
+                    return {
+                        "ok": True, "profile": profile, "branch_role": branch_role,
+                        "source_profile": source_profile, "source_asset": source_asset,
+                        "profile_description": profile_description,
+                        "prediction_status": "succeeded",
+                        "payload": {
+                            "image_bytes": self._local_asset_path(str(source_asset["abs_path"])).read_bytes(),
+                            "origin_url": source_asset.get("origin_url", ""),
+                            "model_name": source_asset.get("model_name", ""),
+                            "profile_description": profile_description,
+                        },
+                    }
                 submitted = self._submit_profile_variant_prediction(
                     self._local_asset_path(str(source_asset["abs_path"])),
                     symbol_meaning(entry) if is_symbol_profile(profile) else entry.word,

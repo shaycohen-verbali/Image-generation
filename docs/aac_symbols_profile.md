@@ -9,7 +9,7 @@ Select **AAC symbols** in Shared Run Settings → Additional profiles, or in a c
 - Nano Banana 2 receives the source image and `backend/app/assets/aac_symbols/style-reference-v1.png` together on every conversion. The fixed prompt includes the word, part of speech, sense/category and context, and handles objects, actions, expressions and interactions.
 - Symbols use `1:1` output even when ordinary images use another aspect ratio. Resolution, saved format and safety settings retain the current run settings.
 - A person-free word still receives a symbol. The demographic age/wardrobe critique is bypassed; semantic preservation checks the source's critical meaning against the symbol instead.
-- In CSV DAG the generated symbol already has a white background, so both output slots are saved from the same generated pixels. No second restyling request is needed.
+- In both CSV DAG and Single Concept the generated symbol already has a white background, so both output slots are saved from the same generated pixels. No second restyling request is needed.
 
 ## Identity and storage
 
@@ -23,6 +23,8 @@ Inventory slots:
 - `symbol_male_white_white_bg_prompt`
 
 The existing additive startup schema upgrade creates these four columns on an existing inventory. Existing demographic paths are untouched. Inventory readback, export field selection, and package exports preserve the distinct symbol identity. MaTalk table exports identify these rows with `age=symbol`; consuming systems need to support that additional profile.
+
+Library includes the saved symbols and offers **AAC symbols** in its age/profile filter. For object-only words, MaTalk exports retain the reserved symbol identity instead of collapsing it into the original person-free image rows.
 
 ## Activation and validation
 

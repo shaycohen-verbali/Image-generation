@@ -59,7 +59,7 @@ MATALK_ARTIFACT_FILENAMES = {
 }
 
 _PATH_FIELD_RE = re.compile(
-    r"^(?P<age>toddler|kid|tween|teenager)_(?P<gender>male|female)_"
+    r"^(?P<age>toddler|kid|tween|teenager|symbol)_(?P<gender>male|female)_"
     r"(?P<skin>white|black|asian|brown)_(?P<background>regular|white_bg)_path$"
 )
 _FALSE_VALUES = {"0", "false", "no", "n", "off", "inactive", "disabled"}
@@ -352,7 +352,7 @@ def build_matalk_tables(
             source_path = _text(row.get(field_name))
             if not source_path:
                 continue
-            if _has_person(row):
+            if match.group("age") == "symbol" or _has_person(row):
                 age = match.group("age")
                 gender = match.group("gender")
                 skin = match.group("skin")

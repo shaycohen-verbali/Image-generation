@@ -20,7 +20,7 @@ const POS_OPTIONS = [
   'infinitive marker',
   'linking verb',
 ]
-const AGE_OPTIONS = ['All ages', 'toddler', 'kid', 'tween', 'teenager']
+const AGE_OPTIONS = ['All ages', 'toddler', 'kid', 'tween', 'teenager', 'symbol']
 const GENDER_OPTIONS = ['All genders', 'male', 'female']
 const SKIN_OPTIONS = ['All skin tones', 'white', 'black', 'asian', 'brown']
 const BACKGROUND_OPTIONS = ['All backgrounds', 'regular', 'white_bg']
@@ -101,7 +101,13 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
 }
 
 function formatLabel(value) {
+  if (value === 'symbol') return 'AAC symbols'
   return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function imageProfileLabel(image) {
+  if (image.age === 'symbol') return 'AAC symbols'
+  return [image.age, image.gender, image.skin_tone].map(formatLabel).join(' · ')
 }
 
 function normalizeLemma(item) {
@@ -272,11 +278,11 @@ function ImageCard({ image, selected, onSelect, onOpenLightbox }) {
         aria-label={hasImage ? `Open ${formatLabel(image.background)} image` : `${formatLabel(image.background)} image unavailable`}
         aria-disabled={!hasImage}
       >
-        {hasImage ? <img src={image.image_url} alt={`${formatLabel(image.background)} image for ${image.age} ${image.gender} ${image.skin_tone}`} /> : <span className="library-image-empty"><Icon name="image" size={28} /><span>Image unavailable</span></span>}
+        {hasImage ? <img src={image.image_url} alt={`${formatLabel(image.background)} image for ${imageProfileLabel(image)}`} /> : <span className="library-image-empty"><Icon name="image" size={28} /><span>Image unavailable</span></span>}
         <span className="library-image-check" aria-hidden="true">{selected ? '✓' : ''}</span>
       </button>
       <div className="library-image-copy">
-        <div className="library-image-meta-line"><strong>{formatLabel(image.background)} background</strong><span>{formatLabel(image.age)} · {formatLabel(image.gender)} · {formatLabel(image.skin_tone)}</span></div>
+        <div className="library-image-meta-line"><strong>{formatLabel(image.background)} background</strong><span>{imageProfileLabel(image)}</span></div>
         <span className="library-prompt-label">Winning image prompt</span>
         <p>{image.prompt || 'No prompt stored for this image.'}</p>
         <button type="button" className="library-link-button" onClick={() => onSelect(image)}>View full prompt <Icon name="arrowRight" size={16} /></button>
@@ -318,7 +324,7 @@ function ImageLightbox({ images, image, onClose, onChange, onCopy }) {
     <div className="library-lightbox-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="library-lightbox" role="dialog" aria-modal="true" aria-label="Full-size image viewer">
         <div className="library-lightbox-heading">
-          <div><h2>{formatLabel(image.background)} background</h2><p>{image.word || 'Library image'}{image.part_of_speech ? ` · ${formatLabel(image.part_of_speech)}` : ''} · {formatLabel(image.age)} · {formatLabel(image.gender)} · {formatLabel(image.skin_tone)}</p></div>
+          <div><h2>{formatLabel(image.background)} background</h2><p>{image.word || 'Library image'}{image.part_of_speech ? ` · ${formatLabel(image.part_of_speech)}` : ''} · {imageProfileLabel(image)}</p></div>
           <button ref={closeRef} type="button" className="library-icon-button" onClick={onClose} aria-label="Close image viewer"><Icon name="close" size={22} /></button>
         </div>
         <div className="library-lightbox-body">

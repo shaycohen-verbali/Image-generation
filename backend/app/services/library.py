@@ -19,7 +19,7 @@ from app.services.storage import materialize_path
 
 settings = get_settings()
 
-SENSE_SLOT_RE = re.compile(r"^(toddler|kid|tween|teenager)_(male|female)_(white|black|asian|brown)_(regular|white_bg)_path$")
+SENSE_SLOT_RE = re.compile(r"^(toddler|kid|tween|teenager|symbol)_(male|female)_(white|black|asian|brown)_(regular|white_bg)_path$")
 MAX_LEMMA_RESULTS = 50
 MAX_LOOKUP_ROWS = 50_000
 MAX_INVENTORY_ROWS = 50_000

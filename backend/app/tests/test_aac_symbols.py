@@ -106,8 +106,11 @@ def test_symbol_request_contains_both_images_and_square_output(tmp_path, monkeyp
         client.close()
 
 
-def test_single_concept_generates_symbols_even_when_no_person_is_needed(db_session, monkeypatch):
+@pytest.mark.parametrize("immutable_assets", [False, True])
+def test_single_concept_generates_symbols_even_when_no_person_is_needed(db_session, monkeypatch, immutable_assets):
+    from app.core.config import get_settings
     from app.tests.test_pipeline_integration import MockGoogleImageClient, MockOpenAI, MockReplicate
+    monkeypatch.setattr(get_settings(), "selected_winner_flow_enabled", immutable_assets)
     monkeypatch.setattr("app.services.pipeline.sleep", lambda seconds: None)
     repo = Repository(db_session)
     entry = repo.create_entry({
@@ -125,11 +128,68 @@ def test_single_concept_generates_symbols_even_when_no_person_is_needed(db_sessi
                             replicate_client=MockReplicate(), google_image_client=google)
     result = runner.process_run(run.id)
     assert result.status == "completed_pass", result.error_detail
-    assert len(google.variant_submissions) == 2
+    assert len(google.variant_submissions) == 1
     assert all(p["model_choice"] == "nano-banana-2" for p in google.variant_submissions)
     assert all("AAC symbols" in p["profile_description"] for p in google.variant_submissions)
     _, _, _, assets, _ = repo.run_details(run.id)
     assert any("symbol" in a.file_name and a.stage_name == "stage5_variant_white_bg" for a in assets)
+    regular = next(a for a in assets if "symbol" in a.file_name and a.stage_name == "stage4_variant_generate")
+    white = next(a for a in assets if "symbol" in a.file_name and a.stage_name == "stage5_variant_white_bg")
+    assert Path(regular.abs_path).read_bytes() == Path(white.abs_path).read_bytes()
+    assert white.source_asset_id == regular.id
+
+
+@pytest.mark.parametrize("has_person", ["yes", "no"])
+def test_matalk_export_keeps_symbol_identity_separate_from_originals(has_person):
+    from app.services.matalk_export import build_matalk_tables
+    tables = build_matalk_tables([{
+        "word": "apple", "sense_id": "apple-fruit", "canonical_sense_id": "apple-fruit",
+        "part_of_speech": "noun", "has_person": has_person,
+        "kid_male_white_regular_path": "https://example.test/original.jpg",
+        "symbol_male_white_regular_path": "https://example.test/symbol.jpg",
+        "symbol_male_white_white_bg_path": "https://example.test/symbol-white.jpg",
+    }])
+    assert len(tables.image_rows) == 3
+    symbols = [image for image in tables.image_rows if image["age"] == "symbol"]
+    assert {image["image_url"] for image in symbols} == {
+        "https://example.test/symbol.jpg", "https://example.test/symbol-white.jpg",
+    }
+
+
+def test_library_returns_symbol_images_and_prompts(monkeypatch):
+    from sqlalchemy import create_engine
+    from app.services import library
+    monkeypatch.setattr(library, "inventory_engine", create_engine("sqlite:///:memory:"))
+    row = {
+        "word": "apple", "sense_id": "apple-fruit",
+        "symbol_male_white_regular_path": "/images/apple-symbol.jpg",
+        "symbol_male_white_regular_prompt": "Fixed AAC style conversion",
+    }
+    monkeypatch.setattr(library, "_inventory_detail_rows", lambda *args, **kwargs: [row])
+    monkeypatch.setattr(library, "_lookup_rows_for_sense_ids", lambda *args: [])
+    result = library.list_sense_images("apple-fruit")
+    assert len(result["images"]) == 1
+    image = result["images"][0]
+    assert image["age"] == "symbol"
+    assert image["path"] == row["symbol_male_white_regular_path"]
+    assert image["prompt"] == row["symbol_male_white_regular_prompt"]
+
+
+@pytest.mark.parametrize("results", [
+    [],
+    [{"id": "C1", "status": "missing"}],
+    [{"id": "unknown", "status": "present"}],
+    [{"id": "C1", "status": "present"}, {"id": "C1", "status": "present"}],
+])
+def test_symbol_meaning_check_rejects_missing_or_invalid_component_evidence(results):
+    from app.services.aac_symbols import check_symbol_meaning
+    responses = iter([
+        {"reference_communicates_target": True, "critical_components": [{"id": "C1", "description": "apple"}]},
+        {"symbol_communicates_target": True, "components": results},
+    ])
+    client = SimpleNamespace(_vision_json=lambda **kwargs: (next(responses), {}))
+    result = check_symbol_meaning(client, Path("source.jpg"), Path("symbol.jpg"), meaning="apple", model="test")
+    assert result["passed"] is False
 
 
 @pytest.mark.parametrize("has_person", ["yes", "no"])
