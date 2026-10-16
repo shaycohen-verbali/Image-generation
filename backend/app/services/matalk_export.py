@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import CloudUpload
+from app.models import CloudUpload, MatalkClassUpload
 
 
 MATALK_DICTIONARY_FIELDS = (
@@ -193,27 +193,31 @@ def _explicit_image_url(row: dict[str, Any], field_name: str, source_path_count:
     return ""
 
 
-def _cloudflare_urls(db: Session | None, source_paths: set[str]) -> dict[tuple[str, str], str]:
+def _cloudflare_urls(db: Session | None, source_paths: set[str], bucket: str | None = None) -> dict[tuple[str, str], str]:
     if db is None or not source_paths:
         return {}
+    settings = get_settings()
+    bucket = bucket or settings.cloudflare_r2_default_bucket
+    model = MatalkClassUpload if bucket == settings.cloudflare_r2_class_bucket else CloudUpload
     try:
         records = db.execute(
             select(
-                CloudUpload.source_path,
-                CloudUpload.object_key,
-                CloudUpload.variant,
-                CloudUpload.destination_url,
+                model.source_path,
+                model.object_key,
+                model.variant,
+                model.destination_url,
             )
             .where(
-                CloudUpload.status == "uploaded",
-                CloudUpload.source_path.in_(sorted(source_paths)),
+                model.status == "uploaded",
+                model.bucket == bucket,
+                model.source_path.in_(sorted(source_paths)),
             )
-            .order_by(CloudUpload.updated_at.desc(), CloudUpload.created_at.desc())
+            .order_by(model.updated_at.desc(), model.created_at.desc())
         ).all()
     except Exception:  # noqa: BLE001 - export should still work without an upload ledger
         return {}
 
-    base_url = _text(getattr(get_settings(), "cloudflare_r2_public_base_url", "")).rstrip("/")
+    base_url = "" if model is MatalkClassUpload else _text(settings.cloudflare_r2_public_base_url).rstrip("/")
     resolved: dict[tuple[str, str], str] = {}
     for source_path, object_key, variant, destination_url in records:
         source = _text(source_path)
@@ -246,6 +250,7 @@ def build_matalk_tables(
     selected_fields: list[str] | None = None,
     db: Session | None = None,
     image_location: str = "remote",
+    cloudflare_bucket: str | None = None,
     image_references: Mapping[tuple[str, str, str], str] | None = None,
 ) -> MatalkTables:
     """Translate the app's wide inventory rows into the three MaTalk tables.
@@ -272,7 +277,7 @@ def build_matalk_tables(
         for field_name in path_fields
         if _text(row.get(field_name))
     }
-    cloudflare_urls = _cloudflare_urls(db, source_paths)
+    cloudflare_urls = _cloudflare_urls(db, source_paths, cloudflare_bucket)
 
     dictionary_by_source: dict[str, dict[str, Any]] = {}
     meta_by_canonical: dict[str, dict[str, Any]] = {}

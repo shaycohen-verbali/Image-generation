@@ -205,9 +205,8 @@ class CloudflareUploadService:
             existing = existing_by_key.get(object_key)
             if existing is not None:
                 existing.destination_url = item["destination_url"]
-            if existing and existing.status == "uploaded":
-                summary["skipped"] += 1
-                continue
+            # Capture immutable values before refreshing the ledger on the main thread.
+            item["previous_source_sha256"] = existing.source_sha256 if existing and existing.status == "uploaded" and existing.compression_quality == compression_quality else ""
             if object_key in scheduled_object_keys:
                 summary["skipped"] += 1
                 continue
@@ -231,6 +230,12 @@ class CloudflareUploadService:
             if is_class_bucket(selected_bucket):
                 ledger.category = item["category"]
                 ledger.meaning = item["meaning"]
+            for field, value in {"source_table": item["source_table"], "source_row_id": item["row_id"],
+                                 "word": item["word"], "part_of_speech": item["pos"],
+                                 "sense_id": item["sense_id"], "variant": item["variant"],
+                                 "source_path": item["source_path"], "original_filename": item["filename"],
+                                 "compression_quality": compression_quality}.items():
+                setattr(ledger, field, value)
             ledger.batch_id = batch_id
             ledger.destination_url = item["destination_url"]
             ledger.status = "uploading"
@@ -254,6 +259,9 @@ class CloudflareUploadService:
                     client = self._client(selected_bucket)
                     worker_state.client = client
                 original = materialize_path(item["source_path"], cache_namespace="cloudflare_uploads").read_bytes()
+                source_sha256 = hashlib.sha256(original).hexdigest()
+                if item.get("previous_source_sha256") == source_sha256:
+                    return {"status": "skipped"}
                 compressed = self._compress(original, compression_quality)
                 cloudflare_response = client.put_object(
                     Bucket=selected_bucket,
@@ -312,7 +320,10 @@ class CloudflareUploadService:
                     item, ledger = pending_futures[future]
                     result = future.result()
                     completed_count += 1
-                    if result["status"] == "uploaded":
+                    if result["status"] == "skipped":
+                        ledger.status = "uploaded"
+                        summary["skipped"] += 1
+                    elif result["status"] == "uploaded":
                         ledger.status = "uploaded"
                         ledger.original_bytes = result["original_bytes"]
                         ledger.compressed_bytes = result["compressed_bytes"]
