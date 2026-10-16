@@ -6,8 +6,9 @@ import logging
 import os
 import socket
 import time
+from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -112,18 +113,28 @@ def _process_cloud_upload_batch(batch_id: str) -> None:
 
 
 def _claim_next_cloud_upload_batch() -> str | None:
+    # Render can overlap old and new workers during a rollout. Claim with a
+    # conditional update so a fresh running batch belongs to only one worker.
+    # Progress updates renew updated_at; abandoned batches can resume later.
+    now = datetime.utcnow()
+    eligible = or_(
+        CloudUploadBatch.status == "queued",
+        and_(CloudUploadBatch.status == "running",
+             CloudUploadBatch.updated_at < now - timedelta(minutes=10)),
+    )
     with SessionLocal() as db:
-        batch = db.scalars(
-            select(CloudUploadBatch)
-            .where(CloudUploadBatch.status.in_(("queued", "running")))
-            .order_by(CloudUploadBatch.created_at.asc())
-            .limit(1)
-        ).first()
-        if batch is None:
+        batch_id = db.scalar(
+            select(CloudUploadBatch.id).where(eligible)
+            .order_by(CloudUploadBatch.created_at.asc()).limit(1)
+        )
+        if batch_id is None:
             return None
-        batch.status = "running"
+        claimed = db.scalar(
+            update(CloudUploadBatch).where(CloudUploadBatch.id == batch_id, eligible)
+            .values(status="running", updated_at=now).returning(CloudUploadBatch.id)
+        )
         db.commit()
-        return batch.id
+        return claimed
 
 
 def _claim_budget(active_count: int, target_parallelism: int) -> int:
