@@ -15,10 +15,14 @@ Identify the smallest recognizable combination of subject, pose, expression, obj
 2. SIMPLIFY AND RECOMPOSE
 Keep only meaning-bearing elements. Remove incidental surroundings, furniture, props, clothing patterns, resting limbs, and secondary people. Retain any of those elements when the concept actually depends on them. Do not replace the source meaning with a different metaphor just to match an example.
 
+Use the stated intended sense, not a different dictionary sense suggested by a source prop. Test each element: if removing it leaves that exact meaning clear, remove it. Remove redundant cues and incidental hands entering the frame. For an affirmative reply, one affirmative gesture or expression plus a small meaningful checkmark is sufficient; do not retain an offering hand unless the intended sense is physically receiving an object.
+
 Objects, foods, animals, and places: show the main subject with its identifying features; do not add a person.
 Actions: show the minimum necessary person or body parts plus the object involved. Keep contact and pose clear. Use a full body only when the action requires it.
 Emotions: use face and shoulders, adding hands or posture only when essential. Change eyebrows and mouth to communicate the exact expression; do not add a smile to every symbol.
 Interactions and relational concepts: retain the required participants and their spatial relationship. A speech bubble, checkmark, or other cue is allowed only when it carries meaning.
+
+A speech bubble may contain a small meaningful cue, such as a checkmark. Never place the character or whole composition inside a speech bubble. Do not use a large enclosing bubble, circle, badge, or frame around the subject. Keep the main figure on the open white canvas, with no decorative enclosure.
 
 3. APPLY THE FIXED VISUAL SYSTEM
 Use rounded solid shapes, clean dark navy outlines of consistent apparent thickness, rounded joins, and minimal internal lines, matching Image 2.
