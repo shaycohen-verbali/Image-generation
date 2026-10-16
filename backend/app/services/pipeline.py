@@ -2860,7 +2860,7 @@ class PipelineRunner:
         )
         if result.get("passed") is not True:
             self._raise_with_context(
-                "AAC symbol lost essential meaning: " + str(result.get("summary") or "meaning check failed"),
+                "AAC symbol failed validation: " + str(result.get("summary") or "meaning or output format check failed"),
                 request_json={"meaning": symbol_meaning(entry)}, response_json=result,
             )
         return result

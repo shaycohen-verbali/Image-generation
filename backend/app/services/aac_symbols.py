@@ -64,9 +64,13 @@ def check_symbol_meaning(client: Any, source: Path, symbol: Path, *, meaning: st
         prompt=(
             f"Inspect this source AAC image for the intended meaning: {meaning}. "
             "Return JSON with reference_communicates_target (boolean), critical_components "
-            "(a nonempty list of objects with unique id and description), and summary (string). "
+            "(a nonempty list of objects with unique id and description), person_required_for_target "
+            "(boolean: whether a person or body parts are needed to express this target), and summary (string). "
             "List only indispensable subjects, gestures, expressions, identifying features and relationships. "
-            "Exclude scenery, furniture, clothing details and textures unless the meaning depends on them."
+            "Apply this counterfactual to every proposed component: if it were removed while the other "
+            "cues remained, would the exact intended sense still be clear? If yes, exclude it. "
+            "Do not require incidental reaching hands, redundant gestures, scenery, furniture, clothing "
+            "details or textures. Preserve multiple participants only when the actual relationship requires them."
         ),
     )
     components = extracted.get("critical_components", [])
@@ -75,7 +79,8 @@ def check_symbol_meaning(client: Any, source: Path, symbol: Path, *, meaning: st
         and all(isinstance(c, dict) and c.get("id") and c.get("description") for c in components)
         and len({str(c["id"]) for c in components}) == len(components)
     )
-    if extracted.get("reference_communicates_target") is not True or not valid_components:
+    if (extracted.get("reference_communicates_target") is not True or not valid_components
+            or not isinstance(extracted.get("person_required_for_target"), bool)):
         return {"passed": False, "summary": "The source does not establish a clear target meaning",
                 "extraction": extracted, "extraction_raw": extraction_raw}
     verified, verification_raw = client._vision_json(
@@ -84,8 +89,13 @@ def check_symbol_meaning(client: Any, source: Path, symbol: Path, *, meaning: st
             f"Inspect this generated AAC symbol for the intended meaning: {meaning}. "
             f"Essential source components: {json.dumps(components, ensure_ascii=True)}. "
             "Return JSON with symbol_communicates_target (boolean), components (one object for every "
-            "source id, with id and status equal to present, missing or uncertain), and summary (string). "
-            "Accept simplified shapes and changed rendering, but require all indispensable meaning to remain."
+            "source id, with id and status equal to present, missing or uncertain), single_symbol (boolean), "
+            "contains_text_or_labels (boolean), contains_unrelated_subjects (boolean), contains_person (boolean), "
+            "and summary (string). Accept simplified shapes and changed rendering, but require all "
+            "indispensable meaning to remain. There must be exactly ONE symbol composition for the target. "
+            "A reference sheet, labeled grid, multiple example icons or neighboring unrelated objects FAIL, "
+            "even if the target appears somewhere on that sheet. Do not count required interacting subjects "
+            "as separate symbols. Text and copied reference headings or labels always fail."
         ),
     )
     results = verified.get("components", [])
@@ -95,7 +105,17 @@ def check_symbol_meaning(client: Any, source: Path, symbol: Path, *, meaning: st
         and all(isinstance(c, dict) and c.get("status") == "present" for c in results)
         and {str(c.get("id", "")) for c in results} == expected_ids
     )
-    passed = verified.get("symbol_communicates_target") is True and valid_results
-    return {"passed": passed, "summary": str(verified.get("summary") or "AAC symbol meaning check"),
+    format_ok = (
+        verified.get("single_symbol") is True
+        and verified.get("contains_text_or_labels") is False
+        and verified.get("contains_unrelated_subjects") is False
+        and isinstance(verified.get("contains_person"), bool)
+        and (extracted["person_required_for_target"] or verified["contains_person"] is False)
+    )
+    passed = verified.get("symbol_communicates_target") is True and valid_results and format_ok
+    summary = str(verified.get("summary") or "AAC symbol validation")
+    if not format_ok:
+        summary = "Expected one unlabeled symbol with no unrelated subjects or unnecessary people. " + summary
+    return {"passed": passed, "format_passed": format_ok, "summary": summary,
             "extraction": extracted, "verification": verified,
             "extraction_raw": extraction_raw, "verification_raw": verification_raw}

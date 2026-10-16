@@ -5,6 +5,8 @@ ATTACHMENT ROLES
 Image 1 is the SOURCE IMAGE. It supplies the intended subject, action, expression, or relationship.
 Image 2, named 01-style-reference-v1.png, is the FIXED STYLE REFERENCE. It supplies appearance and simplification level only. Its headings and labels are not part of the requested output.
 
+Image 2 is a multi-example board, NEVER the output composition. Do not recreate that board. If the requested subject appears on it, use only that one subject's visual construction and draw it ALONE. Omit every other example, all headings, all labels, and the grid. The source and stated meaning choose the subject; the reference chooses only its appearance.
+
 Make a new symbol that belongs to the exact same collection as Image 2. This is semantic simplification followed by style matching, not a tracing or restyling of the source scene.
 
 1. EXTRACT THE MEANING
@@ -31,3 +33,5 @@ Square pure-white canvas. Center the complete meaningful composition inside appr
 Before returning the image, check: correct meaning; only essential content; same character construction; same outline weight and color treatment; clean spacing; no copied reference headings or labels.
 
 OUTPUT: one symbol only. No text, caption, border, grid, presentation sheet, decorative marks, or extra versions.
+
+FINAL CHECK: return only the requested word's symbol, by itself. A complete or partial copy of the reference board is an invalid answer even if it contains the requested word's symbol.
