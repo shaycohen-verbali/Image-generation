@@ -100,17 +100,19 @@ export default function SubmitPage() {
   }
 
   const selectedGenderCount = form.person_gender_options.length
-  const selectedAgeCount = form.person_age_options.length
+  const selectedAgeCount = form.person_age_options.filter((age) => age !== 'symbol').length
+  const symbolsSelected = form.person_age_options.includes('symbol')
   const selectedSkinCount = form.person_skin_color_options.length
-  const selectedCombinationCount = selectedGenderCount * selectedAgeCount * selectedSkinCount
+  const demographicCombinationCount = selectedGenderCount * selectedAgeCount * selectedSkinCount
+  const selectedCombinationCount = demographicCombinationCount + (symbolsSelected ? 1 : 0)
   const generatedProfileCap = 16
-  const generatedProfileCount = Math.min(selectedCombinationCount, generatedProfileCap)
+  const generatedProfileCount = Math.min(demographicCombinationCount, generatedProfileCap) + (symbolsSelected ? 1 : 0)
   const extraVariantCount = Math.max(0, generatedProfileCount - 1)
   const selectedWordSourceConfig = wordSources.find((source) => source.table_name === selectedWordSource)
   const selectedWordSourceAvailable = Boolean(selectedWordSourceConfig?.available)
 
   const validateCsvDagSelections = () => {
-    if (!form.person_gender_options.length || !form.person_age_options.length || !form.person_skin_color_options.length) {
+    if (!symbolsSelected && (!form.person_gender_options.length || !selectedAgeCount || !form.person_skin_color_options.length)) {
       setMessage('For CSV DAG, choose at least one gender, one age, and one skin color')
       return false
     }
@@ -626,6 +628,21 @@ export default function SubmitPage() {
                   <span>Brown (Indian origin)</span>
                 </label>
               </fieldset>
+              <fieldset className="checkbox-group">
+                <legend>Additional profiles</legend>
+                <label className="checkbox-option">
+                  <input
+                    type="checkbox"
+                    checked={symbolsSelected}
+                    onChange={() => toggleOption('person_age_options', 'symbol')}
+                  />
+                  <span>AAC symbols</span>
+                </label>
+                <p className="config-help-text">
+                  Creates one symbol per word from the white boy (kid) base image using the fixed Soft Signal style reference.
+                  Works for words with or without a person. Symbol outputs use a square white background.
+                </p>
+              </fieldset>
               <label className="checkbox-option">
                 <input
                   type="checkbox"
@@ -635,8 +652,8 @@ export default function SubmitPage() {
                 <span>Override existing inventory images for requested variants</span>
               </label>
               <p className="config-help-text">
-                Selected combinations: {selectedCombinationCount} requested person profile{selectedCombinationCount === 1 ? '' : 's'}.
-                {selectedCombinationCount > generatedProfileCap
+                Selected combinations: {selectedCombinationCount} requested output profile{selectedCombinationCount === 1 ? '' : 's'}.
+                {demographicCombinationCount > generatedProfileCap
                   ? ` The generator will use a capped review set of ${generatedProfileCount} profiles to avoid creating too many images.`
                   : ''}
                 {selectedCombinationCount === 0
@@ -972,7 +989,7 @@ export default function SubmitPage() {
               </button>
               <p className="config-help-text">
                 Ranges use stable alphabetical positions before the POS filter. Writeback targets the exact word + POS + sense ID row.
-                Existing images for a requested person profile are skipped unless Override existing inventory variants is checked.
+                Existing images for a requested output profile are skipped unless Override existing inventory variants is checked.
               </p>
             </div>
           )}

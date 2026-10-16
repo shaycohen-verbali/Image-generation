@@ -357,6 +357,16 @@ def _ensure_inventory_columns() -> None:
     if inv_engine is None:
         return
     with inv_engine.begin() as conn:
+        # The AAC-symbol output owns separate slots; never replace demographic images.
+        if str(inv_engine.url).startswith("sqlite"):
+            symbol_existing = {row[1] for row in conn.execute(text("PRAGMA table_info(word_inventory)"))}
+        else:
+            symbol_existing = _postgres_existing_columns(conn, "word_inventory")
+        for background in BACKGROUND_VALUES:
+            for suffix in ("path", "prompt"):
+                name = f"symbol_male_white_{background}_{suffix}"
+                if name not in symbol_existing:
+                    conn.execute(text(f"ALTER TABLE word_inventory ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"))
         if str(inv_engine.url).startswith("sqlite"):
             rows = conn.execute(text("PRAGMA table_info(word_inventory)")).fetchall()
             existing = {row[1] for row in rows}
@@ -369,6 +379,8 @@ def _ensure_inventory_columns() -> None:
             for age in AGE_VALUES:
                 for gender in GENDER_VALUES:
                     for skin_color in SKIN_VALUES:
+                        if age == "symbol" and (gender != "male" or skin_color != "white"):
+                            continue
                         for background in BACKGROUND_VALUES:
                             column_name = inventory_prompt_column_name(age, gender, skin_color, background)
                             if column_name not in existing:
@@ -384,6 +396,8 @@ def _ensure_inventory_columns() -> None:
             for age in AGE_VALUES:
                 for gender in GENDER_VALUES:
                     for skin_color in SKIN_VALUES:
+                        if age == "symbol" and (gender != "male" or skin_color != "white"):
+                            continue
                         for background in BACKGROUND_VALUES:
                             column_name = inventory_prompt_column_name(age, gender, skin_color, background)
                             if column_name not in existing:

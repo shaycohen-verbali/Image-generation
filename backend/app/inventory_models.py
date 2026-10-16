@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, MetaData, String, Table, Text, UniqueConstraint, column, table
 
-AGE_VALUES = ("toddler", "kid", "tween", "teenager")
+AGE_VALUES = ("toddler", "kid", "tween", "teenager", "symbol")
 GENDER_VALUES = ("male", "female")
 SKIN_VALUES = ("white", "black", "asian", "brown")
 BACKGROUND_VALUES = ("regular", "white_bg")
@@ -28,6 +28,7 @@ slot_columns = [
     for gender in GENDER_VALUES
     for skin_color in SKIN_VALUES
     for background in BACKGROUND_VALUES
+    if age != "symbol" or (gender == "male" and skin_color == "white")
 ]
 
 
@@ -41,6 +42,7 @@ prompt_columns = [
     for gender in GENDER_VALUES
     for skin_color in SKIN_VALUES
     for background in BACKGROUND_VALUES
+    if age != "symbol" or (gender == "male" and skin_color == "white")
 ]
 
 word_inventory = Table(

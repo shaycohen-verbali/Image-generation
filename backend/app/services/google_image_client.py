@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 from app.core.config import get_settings
+from app.services.aac_symbols import STYLE_VERSION, symbol_conversion_prompt, symbol_reference_path
 from app.services.http_client import get_http_session
 from app.services.model_catalog import (
     google_image_model_name,
@@ -374,6 +375,20 @@ class GoogleImageClient:
     ) -> dict[str, Any]:
         selected_model = normalize_stage3_generation_model(model_choice)
         provider_model = google_image_model_name(selected_model) if is_google_image_generation_model(selected_model) else google_image_model_name("gemini-3.1-flash-lite-image")
+        if target_age == "symbol":
+            reference = symbol_reference_path()
+            return {
+                "model": selected_model,
+                "provider_model": provider_model,
+                "prompt": symbol_conversion_prompt(word, white_background=white_background),
+                "source_image_path": image_path.as_posix(),
+                "reference_image_path": reference.as_posix(),
+                "style_version": STYLE_VERSION,
+                "white_background": white_background,
+                "aspect_ratio": "1:1",
+                "image_size": image_size or "",
+                "safety_level": normalize_nano_banana_safety_level(self.settings.nano_banana_safety_level),
+            }
         teenager_target = str(target_age or "").strip().lower() == "teenager"
         if white_background:
             prompt = (
@@ -531,8 +546,8 @@ class GoogleImageClient:
                     model_choice=model_choice,
                 )["prompt"]
             ),
-            image_paths=[image_path],
-            aspect_ratio=aspect_ratio,
+            image_paths=[image_path, symbol_reference_path()] if target_age == "symbol" and not white_background else [image_path],
+            aspect_ratio="1:1" if target_age == "symbol" else aspect_ratio,
             image_size=image_size,
             safety_level=self.settings.nano_banana_safety_level,
         )
