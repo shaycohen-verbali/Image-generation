@@ -115,8 +115,8 @@ export async function getCloudflareConfig() {
   return fetchJson(`${API_BASE}/word-sources/cloudflare/config`, {}, 1)
 }
 
-export async function getCloudflareUploadStatus(batchId) {
-  return fetchJson(`${API_BASE}/word-sources/cloud-uploads/${encodeURIComponent(batchId)}`, {}, 1)
+export async function getCloudflareUploadStatus(batchId, signal) {
+  return fetchJson(`${API_BASE}/word-sources/cloud-uploads/${encodeURIComponent(batchId)}`, { signal }, 1)
 }
 
 export async function downloadWordSourceReport(tableName, params = {}) {
