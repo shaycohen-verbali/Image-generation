@@ -19,7 +19,7 @@ from app.services.storage import materialize_path
 
 settings = get_settings()
 
-SENSE_SLOT_RE = re.compile(r"^(toddler|kid|tween|teenager)_(male|female)_(white|black|asian|brown)_(regular|white_bg)_path$")
+SENSE_SLOT_RE = re.compile(r"^(toddler|kid|tween|teenager|symbol)_(male|female)_(white|black|asian|brown)_(regular|white_bg)_path$")
 MAX_LEMMA_RESULTS = 50
 MAX_LOOKUP_ROWS = 50_000
 MAX_INVENTORY_ROWS = 50_000
@@ -79,6 +79,37 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _sense_definition(row: dict[str, Any]) -> str:
+    """Return the generation-facing sense stored by the inventory contract."""
+    return (
+        _clean(row.get("category"))
+        or _clean(row.get("sense_wordnet"))
+        or _clean(row.get("sense_oxford"))
+        or "No definition available"
+    )
+
+
+def _image_source_metadata(
+    *,
+    requested_word: str,
+    sense_id: str,
+    canonical_words: set[str],
+    canonical_sense_ids: set[str],
+) -> dict[str, Any]:
+    canonical_word = sorted({_clean(value) for value in canonical_words if _clean(value)}, key=str.casefold)
+    canonical_sense_id = sorted({_clean(value) for value in canonical_sense_ids if _clean(value)})
+    image_source_word = canonical_word[0] if canonical_word else _clean(requested_word)
+    image_source_sense_id = canonical_sense_id[0] if canonical_sense_id else _clean(sense_id)
+    return {
+        "canonical_word": image_source_word,
+        "canonical_sense_id": image_source_sense_id,
+        "uses_canonical_image": (
+            image_source_word.casefold() != _clean(requested_word).casefold()
+            or image_source_sense_id != _clean(sense_id)
+        ),
+    }
+
+
 def _normalise_pos(value: Any) -> str:
     normalized = " ".join(_clean(value).casefold().replace("_", " ").split())
     return POS_ALIASES.get(normalized, normalized)
@@ -118,14 +149,18 @@ def _library_secret() -> bytes:
     return (configured or fallback).encode("utf-8")
 
 
-def make_image_token(path: str) -> str:
-    payload = {"path": _clean(path), "exp": int(time.time()) + IMAGE_TOKEN_TTL_SECONDS}
+def make_image_token(path: str, *, version: str = "") -> str:
+    payload = {
+        "path": _clean(path),
+        "version": _clean(version),
+        "exp": int(time.time()) + IMAGE_TOKEN_TTL_SECONDS,
+    }
     raw = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
     signature = hmac.new(_library_secret(), raw.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{raw}.{signature}"
 
 
-def resolve_image_token(token: str) -> str:
+def _resolve_image_token_payload(token: str) -> dict[str, str]:
     raw, separator, signature = _clean(token).partition(".")
     if not separator or not raw or not signature:
         raise ValueError("Invalid image token")
@@ -142,7 +177,11 @@ def resolve_image_token(token: str) -> str:
     path = _clean(payload.get("path"))
     if not path:
         raise ValueError("Image path missing")
-    return path
+    return {"path": path, "version": _clean(payload.get("version"))}
+
+
+def resolve_image_token(token: str) -> str:
+    return _resolve_image_token_payload(token)["path"]
 
 
 def _image_columns() -> list[str]:
@@ -151,6 +190,52 @@ def _image_columns() -> list[str]:
 
 def _prompt_column(path_column: str) -> str:
     return path_column[:-5] + "_prompt"
+
+
+def _winning_prompts_by_path(conn: Any, paths: set[str]) -> dict[str, str]:
+    """Resolve final image paths to the prompt that created the winning source image."""
+    normalized_paths = sorted({_clean(path) for path in paths if _clean(path)})
+    if not normalized_paths:
+        return {}
+    params = {f"path_{index}": path for index, path in enumerate(normalized_paths)}
+    placeholders = ", ".join(f":path_{index}" for index in range(len(normalized_paths)))
+    query = text(
+        f"""
+        SELECT final_asset.abs_path,
+               final_asset.canonical_path,
+               CASE
+                 WHEN final_asset.stage_name = 'stage3_post_quality_accessibility_generate'
+                   THEN COALESCE(source_prompt.prompt_text, final_prompt.prompt_text, '')
+                 ELSE COALESCE(final_prompt.prompt_text, '')
+               END AS winning_prompt
+        FROM assets AS final_asset
+        LEFT JOIN assets AS source_asset
+          ON source_asset.id = final_asset.source_asset_id
+        LEFT JOIN prompts AS final_prompt
+          ON final_prompt.id = final_asset.generation_prompt_id
+        LEFT JOIN prompts AS source_prompt
+          ON source_prompt.id = source_asset.generation_prompt_id
+        WHERE final_asset.abs_path IN ({placeholders})
+           OR final_asset.canonical_path IN ({placeholders})
+        """
+    )
+    try:
+        rows = conn.execute(query, params)
+    except SQLAlchemyError:
+        # Some inventory-only databases intentionally do not contain runtime
+        # asset provenance. Their stored slot prompt remains the fallback.
+        return {}
+    resolved: dict[str, str] = {}
+    for result in rows:
+        row = dict(result._mapping)
+        prompt = _clean(row.get("winning_prompt"))
+        if not prompt:
+            continue
+        for key in ("abs_path", "canonical_path"):
+            path = _clean(row.get(key))
+            if path:
+                resolved[path] = prompt
+    return resolved
 
 
 def _slot_profile(path_column: str) -> dict[str, str] | None:
@@ -168,6 +253,7 @@ def _fallback_inventory_rows(conn: Any, lemma: str = "", pos: str = "") -> list[
         word_inventory.c.part_of_speech,
         word_inventory.c.part_of_sentence,
         word_inventory.c.sense_id,
+        word_inventory.c.category,
         word_inventory.c.sense_oxford,
         word_inventory.c.sense_wordnet,
         word_inventory.c.updated_at,
@@ -249,6 +335,7 @@ def _inventory_search_rows(conn: Any, *, lemma: str = "", pos: str = "", limit: 
         word_inventory.c.part_of_speech,
         word_inventory.c.part_of_sentence,
         word_inventory.c.sense_id,
+        word_inventory.c.category,
         word_inventory.c.sense_oxford,
         word_inventory.c.sense_wordnet,
         word_inventory.c.updated_at,
@@ -295,6 +382,7 @@ def _inventory_detail_rows(conn: Any, *, lemma: str = "", sense_ids: set[str] | 
         word_inventory.c.part_of_speech,
         word_inventory.c.part_of_sentence,
         word_inventory.c.sense_id,
+        word_inventory.c.category,
         word_inventory.c.sense_oxford,
         word_inventory.c.sense_wordnet,
         word_inventory.c.updated_at,
@@ -470,7 +558,15 @@ def get_lemma(lemma: str) -> dict[str, Any]:
     canonical_words_by_sense: dict[str, set[str]] = defaultdict(set)
     canonical_senses_by_sense: dict[str, set[str]] = defaultdict(set)
 
-    def add_sense(group: dict[str, Any], sense_id: str, definition: str, oxford: str = "", wordnet: str = "") -> None:
+    def add_sense(
+        group: dict[str, Any],
+        sense_id: str,
+        definition: str,
+        oxford: str = "",
+        wordnet: str = "",
+        *,
+        authoritative: bool = False,
+    ) -> None:
         if not sense_id:
             return
         sense = next((item for item in group["senses"] if item["id"] == sense_id), None)
@@ -483,7 +579,7 @@ def get_lemma(lemma: str) -> dict[str, Any]:
                 "image_count": 0,
             }
             group["senses"].append(sense)
-        elif sense.get("definition") == "No definition available" and definition:
+        elif authoritative or (sense.get("definition") == "No definition available" and definition):
             sense["definition"] = definition
             sense["sense_oxford"] = oxford
             sense["sense_wordnet"] = wordnet
@@ -498,7 +594,7 @@ def get_lemma(lemma: str) -> dict[str, Any]:
         if canonical_word:
             forms.add(canonical_word)
         sense_id = _clean(row.get("source_sense_id") or row.get("sense_id"))
-        definition = _clean(row.get("sense_oxford")) or _clean(row.get("sense_wordnet")) or "No definition available"
+        definition = _sense_definition(row)
         add_sense(group, sense_id, definition, _clean(row.get("sense_oxford")), _clean(row.get("sense_wordnet")))
         if sense_id:
             source_sense_words[sense_id].update(value for value in (form, _clean(row.get("word"))) if value)
@@ -524,9 +620,10 @@ def get_lemma(lemma: str) -> dict[str, Any]:
         add_sense(
             group,
             sense_id,
-            _clean(mapping.get("sense_oxford")) or _clean(mapping.get("sense_wordnet")),
+            _sense_definition(mapping),
             _clean(mapping.get("sense_oxford")),
             _clean(mapping.get("sense_wordnet")),
+            authoritative=True,
         )
         source_sense_words[sense_id].add(_clean(mapping.get("word")))
         if canonical_word and canonical_word.casefold() != requested:
@@ -557,6 +654,12 @@ def get_lemma(lemma: str) -> dict[str, Any]:
     for group in groups.values():
         for sense in group["senses"]:
             sense["image_count"] = counts.get(sense["id"], 0)
+            sense.update(_image_source_metadata(
+                requested_word=requested,
+                sense_id=sense["id"],
+                canonical_words=canonical_words_by_sense.get(sense["id"], set()),
+                canonical_sense_ids=canonical_senses_by_sense.get(sense["id"], set()),
+            ))
 
     ordered_groups = sorted(groups.values(), key=lambda item: item["pos"])
     return {"lemma": requested, "observed_forms": sorted(forms), "pos_groups": ordered_groups}
@@ -648,6 +751,12 @@ def list_sense_images(sense_id: str) -> dict[str, Any]:
             if _clean(row.get(path_column)) and path_column not in merged_slots:
                 merged_slots[path_column] = (row, inherited)
 
+    with engine.connect() as conn:
+        winning_prompts = _winning_prompts_by_path(
+            conn,
+            {_clean(row.get(path_column)) for path_column, (row, _) in merged_slots.items()},
+        )
+
     images = []
     for path_column in path_columns:
         slot = merged_slots.get(path_column)
@@ -659,7 +768,8 @@ def list_sense_images(sense_id: str) -> dict[str, Any]:
         if not path or profile is None:
             continue
         filename = path.rsplit("/", 1)[-1] or f"{requested}_{path_column}.jpg"
-        token = make_image_token(path)
+        row_version = _clean(row.get("updated_at"))
+        token = make_image_token(path, version=row_version)
         image_url = f"/api/v1/library/images/{token}"
         images.append({
             "id": f"{requested}:{path_column}",
@@ -668,7 +778,7 @@ def list_sense_images(sense_id: str) -> dict[str, Any]:
             "image_url": image_url,
             "original_url": f"{image_url}?download=1",
             "path": path,
-            "prompt": _clean(row.get(_prompt_column(path_column))),
+            "prompt": winning_prompts.get(path) or _clean(row.get(_prompt_column(path_column))),
             "word": _clean(row.get("word")),
             "canonical_word": _clean(row.get("canonical_word")),
             "part_of_speech": _clean(row.get("part_of_speech")),
@@ -678,5 +788,8 @@ def list_sense_images(sense_id: str) -> dict[str, Any]:
 
 
 def materialize_image(token: str):
-    path = resolve_image_token(token)
-    return materialize_path(path, cache_namespace="library-images")
+    payload = _resolve_image_token_payload(token)
+    version_key = hashlib.sha256(
+        f"{payload['path']}:{payload['version']}".encode("utf-8")
+    ).hexdigest()[:20]
+    return materialize_path(payload["path"], cache_namespace=f"library-images-{version_key}")

@@ -13,6 +13,7 @@ This repository implements a local web system that turns a concept key `(word, p
 - Entry creation (`POST /api/v1/entries`) with unique key enforcement.
 - CSV import (`POST /api/v1/entries/import-csv`) with current column compatibility.
 - Approved Supabase word sources (`GET /api/v1/word-sources`), currently supporting read/import/writeback for `word_inventory`.
+- The Supabase word picker supports multiple K–12 use ratings for preview and import. Leave all unchecked to include every rating (including unrated entries). Selected ratings use the QA-owned `qa_word_information` view, which must be readable by the inventory database connection; alphabetical range positions remain unchanged.
 - Run queueing (`POST /api/v1/runs`) and retry (`POST /api/v1/runs/{id}/retry`).
 - Run listing and detailed lineage (`GET /api/v1/runs`, `GET /api/v1/runs/{id}`).
 - 4-stage worker pipeline:
@@ -86,9 +87,9 @@ Generated files per run:
 
 ### MaTalk Class symbol uploads
 
-Set `CLOUDFLARE_R2_CLASS_BUCKET` (default `matalk-class-images`),
-`CLOUDFLARE_R2_CLASS_ENDPOINT`, `CLOUDFLARE_R2_CLASS_ACCESS_KEY_ID`, and
-`CLOUDFLARE_R2_CLASS_SECRET_ACCESS_KEY` on the API and worker services.
+Set `CLOUDFLARE_R2_MATALKCLASS_BUCKET` (default `matalk-class-images`),
+`CLOUDFLARE_R2_MATALKCLASS_ENDPOINT`, `CLOUDFLARE_R2_MATALKCLASS_ACCESS_KEY_ID`, and
+`CLOUDFLARE_R2_MATALKCLASS_SECRET_ACCESS_KEY` on the API and worker services.
 The Class bucket appears in Exports only when all three credentials are set.
 Its uploads, retry checks, and reports use the separate `matalk_class_uploads`
 table, created at startup in the same database as `cloud_uploads`. It includes

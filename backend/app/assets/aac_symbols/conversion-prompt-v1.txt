@@ -5,6 +5,8 @@ ATTACHMENT ROLES
 Image 1 is the SOURCE IMAGE. It supplies the intended subject, action, expression, or relationship.
 Image 2, named 01-style-reference-v1.png, is the FIXED STYLE REFERENCE. It supplies appearance and simplification level only. Its headings and labels are not part of the requested output.
 
+Image 2 is a multi-example board, NEVER the output composition. Do not recreate that board. If the requested subject appears on it, use only that one subject's visual construction and draw it ALONE. Omit every other example, all headings, all labels, and the grid. The source and stated meaning choose the subject; the reference chooses only its appearance.
+
 Make a new symbol that belongs to the exact same collection as Image 2. This is semantic simplification followed by style matching, not a tracing or restyling of the source scene.
 
 1. EXTRACT THE MEANING
@@ -13,10 +15,14 @@ Identify the smallest recognizable combination of subject, pose, expression, obj
 2. SIMPLIFY AND RECOMPOSE
 Keep only meaning-bearing elements. Remove incidental surroundings, furniture, props, clothing patterns, resting limbs, and secondary people. Retain any of those elements when the concept actually depends on them. Do not replace the source meaning with a different metaphor just to match an example.
 
+Use the stated intended sense, not a different dictionary sense suggested by a source prop. Test each element: if removing it leaves that exact meaning clear, remove it. Remove redundant cues and incidental hands entering the frame. For an affirmative reply, one affirmative gesture or expression plus a small meaningful checkmark is sufficient; do not retain an offering hand unless the intended sense is physically receiving an object.
+
 Objects, foods, animals, and places: show the main subject with its identifying features; do not add a person.
 Actions: show the minimum necessary person or body parts plus the object involved. Keep contact and pose clear. Use a full body only when the action requires it.
 Emotions: use face and shoulders, adding hands or posture only when essential. Change eyebrows and mouth to communicate the exact expression; do not add a smile to every symbol.
 Interactions and relational concepts: retain the required participants and their spatial relationship. A speech bubble, checkmark, or other cue is allowed only when it carries meaning.
+
+A speech bubble may contain a small meaningful cue, such as a checkmark. Never place the character or whole composition inside a speech bubble. Do not use a large enclosing bubble, circle, badge, or frame around the subject. Keep the main figure on the open white canvas, with no decorative enclosure.
 
 3. APPLY THE FIXED VISUAL SYSTEM
 Use rounded solid shapes, clean dark navy outlines of consistent apparent thickness, rounded joins, and minimal internal lines, matching Image 2.
@@ -31,3 +37,5 @@ Square pure-white canvas. Center the complete meaningful composition inside appr
 Before returning the image, check: correct meaning; only essential content; same character construction; same outline weight and color treatment; clean spacing; no copied reference headings or labels.
 
 OUTPUT: one symbol only. No text, caption, border, grid, presentation sheet, decorative marks, or extra versions.
+
+FINAL CHECK: return only the requested word's symbol, by itself. A complete or partial copy of the reference board is an invalid answer even if it contains the requested word's symbol.

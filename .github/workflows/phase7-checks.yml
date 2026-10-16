@@ -34,6 +34,12 @@ jobs:
           app/tests/test_health.py
           app/tests/test_schemas.py
           app/tests/test_repository.py
+          app/tests/test_aac_symbols.py
+          app/tests/test_google_image_client.py
+          app/tests/test_retry.py
+          app/tests/test_cloud_upload_claims.py
+          app/tests/test_cloudflare_upload.py
+          app/tests/test_matalk_export.py
         working-directory: backend
       - uses: actions/setup-node@v4
         with:

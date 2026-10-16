@@ -4,10 +4,13 @@ import json
 from datetime import datetime
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, func, select, text
 
+from app.api.word_sources import import_word_source_rows
 from app.inventory_models import inventory_metadata, inventory_slot_column_name, word_inventory
-from app.models import CsvJobItem, CsvTaskNode, Entry
+from app.models import CsvJob, CsvJobItem, CsvTaskNode, Entry
+from app.schemas import WordSourceImportRequest
 from app.services.pipeline import PipelineRunner
 from app.services.csv_dag_service import CsvDagService
 from app.services.inventory_sync import InventorySyncService
@@ -127,6 +130,45 @@ def test_word_inventory_read_import_and_writeback_targets_same_row(db_session, m
     assert row["source_csv_job_id"] == result["job_id"]
 
 
+def test_long_word_sense_imports_without_truncation(db_session, monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    inventory_metadata.create_all(bind=engine)
+    long_sense = "a detailed word sense " * 20
+    _seed_inventory_row(engine, sense_wordnet=long_sense)
+
+    import app.services.word_sources as word_sources_module
+
+    monkeypatch.setattr(word_sources_module, "inventory_engine", engine)
+    rows = WordSourceService().get_rows("word_inventory", selection_mode="range", range_start=1, range_end=1)
+    result = CsvDagService(db_session).import_word_source_rows(
+        table_name="word_inventory",
+        rows=rows,
+        person_gender_options=["male"],
+        person_age_options=["kid"],
+        person_skin_color_options=["white"],
+    )
+    entry = db_session.get(Entry, result["rows"][0]["entry_id"])
+    assert entry.category == long_sense.strip()
+    assert len(entry.category) > 256
+
+
+def test_word_source_preflight_rejects_oversized_word_before_creating_job(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(
+        WordSourceService,
+        "get_rows",
+        lambda *args, **kwargs: [{"word": "x" * 257, "part_of_sentence": "noun", "_word_source_position": 1508}],
+    )
+    with pytest.raises(HTTPException) as exc:
+        import_word_source_rows(
+            "word_inventory",
+            WordSourceImportRequest(selection_mode="range", range_start=1501, range_end=2000),
+            db_session,
+        )
+    assert exc.value.status_code == 400
+    assert "position 1508" in exc.value.detail
+    assert db_session.query(CsvJob).count() == 0
+
+
 def test_range_and_pos_selection_use_global_stable_positions(monkeypatch) -> None:
     engine = create_engine("sqlite:///:memory:", future=True)
     inventory_metadata.create_all(bind=engine)
@@ -155,6 +197,34 @@ def test_range_and_pos_selection_use_global_stable_positions(monkeypatch) -> Non
     assert preview["total"] == 2
     assert [row["position"] for row in preview["rows"]] == [1, 2]
     assert preview["parts_of_speech"] == ["adjective", "noun", "verb"]
+
+
+def test_k12_ratings_filter_preview_and_import_with_stable_positions(monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    inventory_metadata.create_all(bind=engine)
+    for row_id, word, pos in [("a", "apple", "noun"), ("b", "balance", "verb"), ("c", "calm", "adjective"), ("d", "dance", "verb")]:
+        _seed_inventory_row(engine, row_id, word=word, part_of_speech=pos, sense_id=f"sense-{row_id}")
+    # Stand-in for the QA-owned view: NULL represents an absent or stale rating.
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE qa_word_information (id TEXT PRIMARY KEY, rating TEXT)"))
+        conn.execute(text("INSERT INTO qa_word_information VALUES ('a', 'very probable'), ('b', 'probable'), ('c', 'not likely'), ('d', NULL)"))
+    import app.services.word_sources as word_sources_module
+    monkeypatch.setattr(word_sources_module, "inventory_engine", engine)
+    source = WordSourceService()
+    filters = dict(selection_mode="range", range_start=2, range_end=4,
+                   parts_of_speech=["verb"], k12_use_ratings=["very probable", "probable"])
+    preview = source.list_rows("word_inventory", **filters)
+    imported = source.get_rows("word_inventory", **filters)
+    assert preview["total"] == 1
+    assert [(row["id"], row["position"]) for row in preview["rows"]] == [("b", 2)]
+    assert [row["_word_source_row_id"] for row in imported] == ["b"]
+    assert source.list_rows("word_inventory", k12_use_ratings=[])["total"] == 4
+    assert source.list_rows("word_inventory", k12_use_ratings=["very probable", "probable"])["total"] == 2
+    assert source.list_rows("word_inventory", search="balance", k12_use_ratings=["very probable"])["total"] == 0
+    assert source.get_rows("word_inventory", selection_mode="single", row_id="c", k12_use_ratings=["probable"]) == []
+    assert source.list_rows("word_inventory", k12_use_ratings=["possible but not common"])["total"] == 0
+    with pytest.raises(ValueError, match="Unsupported K–12"):
+        source.get_rows("word_inventory", selection_mode="all", k12_use_ratings=["invalid"])
 
 
 def test_export_rows_support_last_job_range_and_exact_word_pos(monkeypatch) -> None:

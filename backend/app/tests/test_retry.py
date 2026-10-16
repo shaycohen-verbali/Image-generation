@@ -1,4 +1,6 @@
-from app.services.retry import RetryExceededError, with_backoff
+import pytest
+
+from app.services.retry import with_backoff
 
 
 def test_with_backoff_retries_until_success() -> None:
@@ -16,11 +18,15 @@ def test_with_backoff_retries_until_success() -> None:
 
 
 def test_with_backoff_raises_when_exhausted() -> None:
-    def always_fail() -> str:
-        raise ValueError("boom")
+    original_error = ValueError("boom")
+    original_error.request_json = {"model": "test-model"}
+    original_error.response_json = {"status_code": 503}
 
-    try:
+    def always_fail() -> str:
+        raise original_error
+
+    with pytest.raises(ValueError) as captured:
         with_backoff(always_fail, retries=1, retryable=(ValueError,), base_delay=0)
-        assert False, "expected RetryExceededError"
-    except RetryExceededError:
-        assert True
+    assert captured.value is original_error
+    assert captured.value.request_json == {"model": "test-model"}
+    assert captured.value.response_json == {"status_code": 503}

@@ -61,4 +61,7 @@ def validate_entry_row(row: dict[str, str]) -> str | None:
         return "word is required"
     if not row.get("part_of_sentence"):
         return "part_of_sentence is required"
+    for field, maximum in (("word", 256), ("part_of_sentence", 128), ("sense_id", 256)):
+        if len(str(row.get(field) or "")) > maximum:
+            return f"{field} exceeds {maximum} characters"
     return None

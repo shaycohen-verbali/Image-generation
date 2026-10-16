@@ -318,6 +318,27 @@ def test_job_items_page_bounds_items_and_tasks(db_session) -> None:
     assert metadata["tasks"] == []
 
 
+def test_failure_filter_counts_and_pages_matches_beyond_first_unfiltered_page(db_session) -> None:
+    repo = Repository(db_session)
+    service = CsvDagService(db_session)
+    job = repo.create_csv_job(batch_id="failure_filter", source_file_name="test.csv", execution_mode="csv_dag", config_snapshot={})
+    for row_index in range(1, 56):
+        entry = _make_entry(repo, word=f"filter-word-{row_index}")
+        item = repo.create_csv_job_item(csv_job_id=job.id, entry_id=entry.id, row_index=row_index, source_row={"word": entry.word})
+        repo.update_csv_job_item(item, status="failed" if row_index == 54 else "canceled" if row_index == 55 else "completed")
+    unfiltered = service.job_items_page(job.id, offset=0, limit=50)
+    assert unfiltered["total"] == 55
+    assert all(item["main_status"] == "completed" for item in unfiltered["items"])
+    failures = service.job_items_page(job.id, offset=0, limit=1, status_filter="failure")
+    assert failures["total"] == 2
+    assert [item["row_index"] for item in failures["items"]] == [54]
+    next_page = service.job_items_page(job.id, offset=1, limit=1, status_filter="failure")
+    assert next_page["total"] == 2
+    assert [item["row_index"] for item in next_page["items"]] == [55]
+    completed = service.job_items_page(job.id, offset=0, limit=50, status_filter="completed")
+    assert completed["total"] == 53
+
+
 def test_start_job_records_started_at_even_before_first_claim(db_session) -> None:
     repo = Repository(db_session)
     service = CsvDagService(db_session)

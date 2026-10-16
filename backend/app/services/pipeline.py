@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter, sleep
@@ -11,8 +12,9 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.models import Asset, Entry, Prompt, Run, StageResult
+from app.core.config import get_settings
 from app.services.google_image_client import GoogleImageClient
-from app.services.image_filenames import final_image_filename
+from app.services.image_filenames import attempt_image_filename, final_image_filename
 from app.services.model_catalog import is_google_image_generation_model, normalize_stage3_generation_model
 from app.services.openai_client import AssistantRunFailedError, OpenAIClient
 from app.services.aac_symbols import check_symbol_meaning, is_symbol_profile, symbol_meaning
@@ -37,8 +39,10 @@ from app.services.repository import Repository
 from app.services.storage import (
     image_dimensions,
     materialize_path,
+    materialize_verified_asset,
     normalize_saved_image,
     persist_run_image,
+    promote_run_image,
     sha256_bytes,
     write_metadata,
 )
@@ -249,15 +253,26 @@ class PipelineRunner:
         origin_url: str,
         model_name: str,
         output_mime_type: str | None = None,
+        generation_prompt_id: str | None = None,
+        source_asset_id: str | None = None,
     ) -> Asset:
+        feature_settings = get_settings()
+        selected_winner_enabled = bool(feature_settings.selected_winner_flow_enabled)
+        asset_id = f"ast_{uuid.uuid4().hex[:24]}" if selected_winner_enabled else None
+        stored_filename = (
+            attempt_image_filename(filename, attempt=attempt, asset_id=asset_id or "")
+            if selected_winner_enabled
+            else filename
+        )
         resolved_output_mime = output_mime_type or getattr(self.repo.get_runtime_config(), "image_format", "image/jpeg")
         normalized_bytes, mime_type, suffix = normalize_saved_image(image_bytes, resolved_output_mime)
         stored = persist_run_image(
             run_id,
-            Path(sanitize_filename(filename)).with_suffix(suffix).name,
+            Path(sanitize_filename(stored_filename)).with_suffix(suffix).name,
             normalized_bytes,
             mime_type=mime_type,
             storage_prefix=self._asset_storage_prefix,
+            upsert=not selected_winner_enabled,
         )
         width, height = image_dimensions(stored.local_path)
         return self.repo.add_asset(
@@ -272,7 +287,27 @@ class PipelineRunner:
             height=height,
             origin_url=origin_url,
             model_name=model_name,
+            asset_id=asset_id,
+            generation_prompt_id=generation_prompt_id,
+            source_asset_id=source_asset_id,
         )
+
+    def _promote_asset(self, asset: Asset, *, canonical_filename: str) -> Asset:
+        if not bool(get_settings().selected_winner_flow_enabled):
+            return asset
+        stored = promote_run_image(
+            asset.run_id,
+            canonical_filename,
+            asset.abs_path,
+            expected_sha256=asset.sha256,
+            mime_type=asset.mime_type,
+            storage_prefix=self._asset_storage_prefix,
+        )
+        return self.repo.promote_asset(asset.id, canonical_path=stored.persisted_path)
+
+    @staticmethod
+    def _canonical_asset_path(asset: Asset) -> Path:
+        return materialize_verified_asset(asset, prefer_canonical=True)
 
     def _configure_generation_clients(
         self,
@@ -426,7 +461,7 @@ class PipelineRunner:
         selected_model = normalize_stage3_generation_model(runtime_config.variant_correction_model)
         effective_model = selected_model if is_google_image_generation_model(selected_model) else "gemini-3.1-flash-lite-image"
 
-        self.repo.add_prompt(
+        correction_generation_prompt = self.repo.add_prompt(
             run_id=run_id,
             stage_name="stage4_variant_correction",
             attempt=attempt,
@@ -486,6 +521,8 @@ class PipelineRunner:
             origin_url=payload["origin_url"],
             model_name=payload["model_name"],
             output_mime_type=image_format,
+            generation_prompt_id=correction_generation_prompt.id,
+            source_asset_id=image_asset.id,
         )
         self._record_event(
             run_id=run_id,
@@ -517,7 +554,7 @@ class PipelineRunner:
     @staticmethod
     def _local_asset_path(asset_or_path: Asset | str) -> Path:
         if isinstance(asset_or_path, Asset):
-            return materialize_path(asset_or_path.abs_path, cache_namespace="assets")
+            return materialize_verified_asset(asset_or_path)
         return materialize_path(str(asset_or_path), cache_namespace="assets")
 
     def _get_latest_run(self, run_id: str) -> Run | None:
@@ -1015,6 +1052,7 @@ class PipelineRunner:
                 image_bytes=image_bytes,
                 origin_url=output_url,
                 model_name="black-forest-labs/flux-schnell",
+                generation_prompt_id=first_prompt.id,
             )
             self._record_stage(
                 run_id=run.id,
@@ -1224,8 +1262,9 @@ class PipelineRunner:
                 model_choice="gemini-3.1-flash-lite-image",
             )
             request_summary = self._json_dict(submitted.get("request_summary"))
+            variant_generation_prompt = None
             if request_summary.get("prompt"):
-                self.repo.add_prompt(
+                variant_generation_prompt = self.repo.add_prompt(
                     run_id=owner_run_id,
                     stage_name="stage4_variant_generate",
                     attempt=winner_attempt,
@@ -1258,6 +1297,8 @@ class PipelineRunner:
                 origin_url=payload["origin_url"],
                 model_name=payload["model_name"],
                 output_mime_type=image_format,
+                generation_prompt_id=variant_generation_prompt.id if variant_generation_prompt else None,
+                source_asset_id=source_asset.id if isinstance(source_asset, Asset) else None,
             )
             if is_symbol_profile(profile):
                 white_bg_asset = self._save_asset(
@@ -1265,6 +1306,8 @@ class PipelineRunner:
                     filename=self._variant_filename("stage5_variant_white_bg", entry, profile, winner_attempt),
                     image_bytes=payload["image_bytes"], origin_url=payload["origin_url"],
                     model_name=payload["model_name"], output_mime_type=image_format,
+                    generation_prompt_id=variant_generation_prompt.id if variant_generation_prompt else None,
+                    source_asset_id=regular_asset.id,
                 )
                 preservation = self._check_aac_symbol_meaning(entry, source_asset, white_bg_asset, runtime_config)
                 return {
@@ -1303,15 +1346,23 @@ class PipelineRunner:
                     correction_prompt=str(critique.get("correction_prompt") or ""),
                 )
 
+            regular_asset = self._promote_asset(
+                regular_asset,
+                canonical_filename=self._variant_filename(
+                    "stage4_variant_generate", entry, profile, winner_attempt
+                ),
+            )
+
             self._configure_generation_clients(nano_banana_safety_level=nano_banana_safety_level)
             white_bg_request = self.google_images.white_bg_request_summary(
-                self._local_asset_path(regular_asset),
+                self._canonical_asset_path(regular_asset),
                 word=entry.word,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
             )
+            white_bg_generation_prompt = None
             if white_bg_request.get("prompt"):
-                self.repo.add_prompt(
+                white_bg_generation_prompt = self.repo.add_prompt(
                     run_id=owner_run_id,
                     stage_name="stage5_variant_white_bg",
                     attempt=winner_attempt,
@@ -1321,7 +1372,7 @@ class PipelineRunner:
                     raw_response_json=white_bg_request,
                 )
             white_bg_result = self.google_images.nano_banana_white_bg(
-                self._local_asset_path(regular_asset),
+                self._canonical_asset_path(regular_asset),
                 entry.word,
                 run_id=owner_run_id,
                 aspect_ratio=aspect_ratio,
@@ -1350,6 +1401,14 @@ class PipelineRunner:
                 origin_url=white_bg_url,
                 model_name=str(white_bg_result.get("model") or "gemini-3.1-flash-lite-image"),
                 output_mime_type=image_format,
+                generation_prompt_id=white_bg_generation_prompt.id if white_bg_generation_prompt else None,
+                source_asset_id=regular_asset.id,
+            )
+            white_bg_asset = self._promote_asset(
+                white_bg_asset,
+                canonical_filename=self._variant_filename(
+                    "stage5_variant_white_bg", entry, profile, winner_attempt
+                ),
             )
 
             return {
@@ -1604,7 +1663,7 @@ class PipelineRunner:
             "resolved_need_person_reasoning": resolved_decision["resolved_need_person_reasoning"],
         }
 
-        self.repo.add_prompt(
+        stage3_generation_prompt = self.repo.add_prompt(
             run_id=run.id,
             stage_name="stage3_upgrade",
             attempt=attempt,
@@ -1723,6 +1782,8 @@ class PipelineRunner:
             image_bytes=image_bytes,
             origin_url=output_url,
             model_name=model_name,
+            generation_prompt_id=stage3_generation_prompt.id,
+            source_asset_id=critique_source_asset.id,
         )
 
         self._record_stage(
@@ -1865,7 +1926,7 @@ class PipelineRunner:
             return {
                 "id": asset.id,
                 "file_name": asset.file_name,
-                "abs_path": asset.abs_path,
+                "abs_path": asset.canonical_path or asset.abs_path,
                 "origin_url": asset.origin_url,
                 "model_name": asset.model_name,
             }
@@ -1879,7 +1940,7 @@ class PipelineRunner:
 
         def stage_source_asset(stage_name: str) -> str:
             if stage_name == "stage4_variant_generate":
-                return upgraded_asset.abs_path
+                return upgraded_asset.canonical_path or upgraded_asset.abs_path
             return "derived_from_matching_stage4_variant_asset"
 
         def log_variant_event(
@@ -2100,6 +2161,21 @@ class PipelineRunner:
         ) -> dict[str, Any]:
             profile_description = profile_prompt_fragment(profile)
             try:
+                if is_symbol_profile(profile) and white_background:
+                    # Symbols already have a white canvas. Preserve the checked pixels
+                    # instead of asking the provider to draw the symbol a second time.
+                    return {
+                        "ok": True, "profile": profile, "branch_role": branch_role,
+                        "source_profile": source_profile, "source_asset": source_asset,
+                        "profile_description": profile_description,
+                        "prediction_status": "succeeded",
+                        "payload": {
+                            "image_bytes": self._local_asset_path(str(source_asset["abs_path"])).read_bytes(),
+                            "origin_url": source_asset.get("origin_url", ""),
+                            "model_name": source_asset.get("model_name", ""),
+                            "profile_description": profile_description,
+                        },
+                    }
                 submitted = self._submit_profile_variant_prediction(
                     self._local_asset_path(str(source_asset["abs_path"])),
                     symbol_meaning(entry) if is_symbol_profile(profile) else entry.word,
@@ -2213,6 +2289,8 @@ class PipelineRunner:
                 "prediction_id": prediction_id,
                 "prediction_status": last_status,
                 "provider_model": str(created.get("model") or prediction_result.get("model") or ""),
+                "request_summary": request_summary,
+                "created": created,
                 "status_transitions": status_transitions,
                 "payload": payload,
             }
@@ -2316,6 +2394,22 @@ class PipelineRunner:
                 return None
 
             payload = result["payload"]
+            variant_generation_prompt = None
+            if request_summary.get("prompt"):
+                variant_generation_prompt = self.repo.add_prompt(
+                    run_id=run.id,
+                    stage_name=stage_name,
+                    attempt=winner_attempt,
+                    prompt_text=str(request_summary.get("prompt") or ""),
+                    needs_person="yes",
+                    source="variant_white_bg" if stage_name == "stage5_variant_white_bg" else "variant_generate",
+                    raw_response_json={
+                        **request_summary,
+                        "target_profile": profile,
+                        "source_profile": source_profile or {},
+                    },
+                )
+            source_asset_snapshot = result.get("source_asset") if isinstance(result.get("source_asset"), dict) else {}
             variant_asset = self._save_asset(
                 run_id=run.id,
                 stage_name=stage_name,
@@ -2324,6 +2418,8 @@ class PipelineRunner:
                 image_bytes=payload["image_bytes"],
                 origin_url=payload["origin_url"],
                 model_name=payload["model_name"],
+                generation_prompt_id=variant_generation_prompt.id if variant_generation_prompt else None,
+                source_asset_id=str(source_asset_snapshot.get("id") or "") or None,
             )
             if stage_name == "stage4_variant_generate":
                 if is_symbol_profile(profile):
@@ -2379,6 +2475,19 @@ class PipelineRunner:
                             "effective_model": "",
                         }
                     )
+                variant_asset = self._promote_asset(
+                    variant_asset,
+                    canonical_filename=self._variant_filename(
+                        "stage4_variant_generate", entry, profile, winner_attempt
+                    ),
+                )
+            elif stage_name == "stage5_variant_white_bg":
+                variant_asset = self._promote_asset(
+                    variant_asset,
+                    canonical_filename=self._variant_filename(
+                        "stage5_variant_white_bg", entry, profile, winner_attempt
+                    ),
+                )
             append_variant_item(
                 stage_name,
                 self._variant_stage_item(
@@ -2751,7 +2860,7 @@ class PipelineRunner:
         )
         if result.get("passed") is not True:
             self._raise_with_context(
-                "AAC symbol lost essential meaning: " + str(result.get("summary") or "meaning check failed"),
+                "AAC symbol failed validation: " + str(result.get("summary") or "meaning or output format check failed"),
                 request_json={"meaning": symbol_meaning(entry)}, response_json=result,
             )
         return result
@@ -2847,16 +2956,21 @@ class PipelineRunner:
         upgraded_asset = self._winner_source_asset(run.id, winner_attempt)
         if upgraded_asset is None:
             raise RuntimeError(f"Missing winner image for attempt {winner_attempt}")
+        upgraded_asset = self._promote_asset(
+            upgraded_asset,
+            canonical_filename=self._final_image_filename(entry, background="regular"),
+        )
         runtime_config = self.repo.get_runtime_config()
         self.db.commit()
         white_bg_request = self.google_images.white_bg_request_summary(
-            self._local_asset_path(upgraded_asset),
+            self._canonical_asset_path(upgraded_asset),
             word=entry.word,
             aspect_ratio=runtime_config.image_aspect_ratio,
             image_size=runtime_config.image_resolution,
         )
+        white_bg_generation_prompt = None
         if white_bg_request.get("prompt"):
-            self.repo.add_prompt(
+            white_bg_generation_prompt = self.repo.add_prompt(
                 run_id=run.id,
                 stage_name="stage4_background",
                 attempt=winner_attempt,
@@ -2886,7 +3000,7 @@ class PipelineRunner:
         start = perf_counter()
         try:
             result = self.google_images.nano_banana_white_bg(
-                self._local_asset_path(upgraded_asset),
+                self._canonical_asset_path(upgraded_asset),
                 entry.word,
                 run_id=run.id,
                 aspect_ratio=runtime_config.image_aspect_ratio,
@@ -2942,7 +3056,7 @@ class PipelineRunner:
 
         image_bytes = self._download_generated_image(output_url)
         filename = self._final_image_filename(entry, background="white_bg")
-        self._save_asset(
+        white_bg_asset = self._save_asset(
             run_id=run.id,
             stage_name="stage4_white_bg",
             attempt=winner_attempt,
@@ -2950,7 +3064,10 @@ class PipelineRunner:
             image_bytes=image_bytes,
             origin_url=output_url,
             model_name="gemini-3.1-flash-lite-image",
+            generation_prompt_id=white_bg_generation_prompt.id if white_bg_generation_prompt else None,
+            source_asset_id=upgraded_asset.id,
         )
+        white_bg_asset = self._promote_asset(white_bg_asset, canonical_filename=filename)
 
         self._record_stage(
             run_id=run.id,
@@ -3139,8 +3256,9 @@ class PipelineRunner:
             model_choice=generate_model,
         )
         self.repo.update_run(run, current_stage="stage3_post_quality_accessibility_generate")
+        soften_generation_prompt = None
         if request_summary.get("prompt"):
-            self.repo.add_prompt(
+            soften_generation_prompt = self.repo.add_prompt(
                 run_id=run.id,
                 stage_name="stage3_post_quality_accessibility_generate",
                 attempt=winner_attempt,
@@ -3206,6 +3324,8 @@ class PipelineRunner:
             image_bytes=image_bytes,
             origin_url=output_url,
             model_name=str(prediction_result.get("model") or "gemini-3.1-flash-lite-image"),
+            generation_prompt_id=soften_generation_prompt.id if soften_generation_prompt else None,
+            source_asset_id=quality_asset.id,
         )
         self._record_stage(
             run_id=run.id,

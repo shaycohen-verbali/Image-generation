@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models import Asset
 from app.services.person_profiles import entry_age_options, entry_gender_options, entry_skin_color_options
 from app.services.repository import Repository
-from app.services.storage import exports_root, materialize_path, persist_export_artifact
+from app.services.storage import exports_root, materialize_verified_asset, persist_export_artifact
 from app.services.utils import sanitize_filename
 
 EXPORT_FIELD_SPECS: tuple[dict[str, str], ...] = (
@@ -186,6 +186,10 @@ class ExportService:
                     or last_stage3
                 )
                 selected_stage4 = winner_stage4 or last_stage4
+                if selected_stage3 and selected_stage3.generation_prompt_id:
+                    exact_prompt = self.repo.get_prompt(selected_stage3.generation_prompt_id)
+                    if exact_prompt is not None:
+                        upgraded_prompt = exact_prompt.prompt_text
                 file_name_upgraded = self._unique_export_name(base_slug, run.id, selected_stage3) if selected_stage3 else ""
                 file_name_without_background = self._unique_export_name(base_slug, run.id, selected_stage4) if selected_stage4 else ""
 
@@ -205,9 +209,9 @@ class ExportService:
                     "image_2": first_stage3.abs_path if first_stage3 else "",
                     "upgraded_prompt": upgraded_prompt,
                     "file_name_upgraded": file_name_upgraded,
-                    "upgraded_image_2": selected_stage3.abs_path if selected_stage3 else "",
+                    "upgraded_image_2": (selected_stage3.canonical_path or selected_stage3.abs_path) if selected_stage3 else "",
                     "file_name_without_background": file_name_without_background,
-                    "image_without_background": selected_stage4.abs_path if selected_stage4 else "",
+                    "image_without_background": (selected_stage4.canonical_path or selected_stage4.abs_path) if selected_stage4 else "",
                     "boy_or_girl": entry.boy_or_girl,
                 }
                 writer.writerow({EXPORT_FIELD_HEADERS[key]: full_row.get(key, "") for key in selected_keys})
@@ -223,7 +227,7 @@ class ExportService:
                     selected = self._latest_asset_for_stage(assets, "stage4_white_bg", preferred_attempt=preferred_attempt)
                     if selected is not None:
                         selected_assets.append(selected)
-                    selected_assets.extend(asset for asset in assets if asset.stage_name == "stage5_variant_white_bg")
+                    selected_assets.extend(self._canonical_assets_for_stage(assets, "stage5_variant_white_bg"))
                 elif stage_name == "stage3_upgraded":
                     selected_assets = []
                     preferred_attempt = int(run.optimization_attempt or 0)
@@ -238,14 +242,14 @@ class ExportService:
                     )
                     if selected is not None:
                         selected_assets.append(selected)
-                    selected_assets.extend(asset for asset in assets if asset.stage_name == "stage4_variant_generate")
+                    selected_assets.extend(self._canonical_assets_for_stage(assets, "stage4_variant_generate"))
                 else:
                     preferred_attempt = 0
                     selected = self._latest_asset_for_stage(assets, stage_name, preferred_attempt=preferred_attempt)
                     selected_assets = [selected] if selected is not None else []
 
                 for selected in selected_assets:
-                    asset_path = materialize_path(selected.abs_path, cache_namespace="exports")
+                    asset_path = materialize_verified_asset(selected, prefer_canonical=True)
                     if asset_path.exists():
                         archive.write(asset_path, arcname=self._unique_export_name(base_slug, run.id, selected))
 
@@ -272,10 +276,16 @@ class ExportService:
         return max(candidates, key=lambda item: item.attempt)
 
     @staticmethod
+    def _canonical_assets_for_stage(assets: list[Asset], stage_name: str) -> list[Asset]:
+        candidates = [asset for asset in assets if asset.stage_name == stage_name]
+        promoted = [asset for asset in candidates if asset.canonical_path]
+        return promoted or candidates
+
+    @staticmethod
     def _unique_export_name(base_slug: str, run_id: str, asset: Asset | None) -> str:
         if asset is None:
             return ""
-        safe_name = sanitize_filename(asset.file_name)
+        safe_name = sanitize_filename(Path(asset.canonical_path).name if asset.canonical_path else asset.file_name)
         return f"{base_slug}__{run_id}__{asset.id}__{safe_name}"
 
     def _build_manifest(self, runs_data: list[tuple], *, export_field_keys: list[str]) -> dict[str, Any]:
@@ -340,6 +350,9 @@ class ExportService:
                             "height": asset.height,
                             "origin_url": asset.origin_url,
                             "model_name": asset.model_name,
+                            "generation_prompt_id": asset.generation_prompt_id,
+                            "source_asset_id": asset.source_asset_id,
+                            "canonical_path": asset.canonical_path,
                         }
                         for asset in assets
                     ],

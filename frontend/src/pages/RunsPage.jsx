@@ -660,6 +660,7 @@ export default function RunsPage() {
   const csvOverviewRequestInFlightRef = useRef(false)
   const csvSummaryRequestInFlightRef = useRef(false)
   const csvItemsRequestInFlightRef = useRef(false)
+  const csvItemsRequestIdRef = useRef(0)
   const csvItemDetailRequestInFlightRef = useRef(false)
   const csvSummaryDetailsRequestInFlightRef = useRef(false)
 
@@ -768,10 +769,7 @@ export default function RunsPage() {
     () => csvJobOverview?.word_counts || csvJobWordSummary(csvJobItems, csvJobTasks),
     [csvJobOverview?.word_counts, csvJobItems, csvJobTasks],
   )
-  const filteredCsvJobItems = useMemo(() => {
-    if (!selectedCsvStatusFilter) return csvJobItems
-    return csvJobItems.filter((item) => String(item.main_status || '').toLowerCase() === selectedCsvStatusFilter)
-  }, [csvJobItems, selectedCsvStatusFilter])
+  const filteredCsvJobItems = csvJobItems
   const selectedCsvListItem = useMemo(
     () => filteredCsvJobItems.find((item) => item.id === selectedCsvItemId) || filteredCsvJobItems[0] || null,
     [filteredCsvJobItems, selectedCsvItemId]
@@ -813,11 +811,12 @@ export default function RunsPage() {
   const liveJobElapsedSeconds = useMemo(() => {
     return jobElapsedSeconds({
       startedAt: csvJobOverview?.job?.started_at,
-      isFinal: Boolean(compactJobSummary?.is_final),
+      finishedAt: csvJobOverview?.job?.finished_at,
+      isFinal: Boolean(compactJobSummary?.is_final) || isTerminalCsvJobStatus(csvJobOverview?.job?.status),
       finalSeconds: compactJobSummary?.wall_clock_seconds,
       nowMs: summaryClockNow,
     })
-  }, [compactJobSummary, csvJobOverview?.job?.started_at, summaryClockNow])
+  }, [compactJobSummary, csvJobOverview?.job?.started_at, csvJobOverview?.job?.finished_at, csvJobOverview?.job?.status, summaryClockNow])
   const csvSelectedItemProviderBreakdown = useMemo(
     () => normalizeProviderBreakdown(csvShadowRunDetail?.cost_summary?.provider_breakdown || selectedCsvItem?.provider_breakdown),
     [csvShadowRunDetail, selectedCsvItem]
@@ -1022,16 +1021,18 @@ export default function RunsPage() {
   }
 
   async function loadCsvJobItems(jobId, offset = 0) {
-    if (!jobId || csvItemsRequestInFlightRef.current) return
-    csvItemsRequestInFlightRef.current = true
+    const requestKey = `${jobId}:${selectedCsvStatusFilter}:${offset}`
+    if (!jobId || csvItemsRequestInFlightRef.current === requestKey) return
+    const requestId = ++csvItemsRequestIdRef.current
+    csvItemsRequestInFlightRef.current = requestKey
     try {
-      const data = await getCsvJobItems(jobId, { offset, limit: csvItemsPage.limit || 50 })
-      if (selectedCsvJobIdRef.current !== jobId) return
+      const data = await getCsvJobItems(jobId, { offset, limit: csvItemsPage.limit || 50, status: selectedCsvStatusFilter })
+      if (selectedCsvJobIdRef.current !== jobId || requestId !== csvItemsRequestIdRef.current) return
       setCsvItemsPage(data)
     } catch (error) {
-      setMessage(`Error loading CSV words: ${error.message}`)
+      if (requestId === csvItemsRequestIdRef.current) setMessage(`Error loading CSV words: ${error.message}`)
     } finally {
-      csvItemsRequestInFlightRef.current = false
+      if (requestId === csvItemsRequestIdRef.current) csvItemsRequestInFlightRef.current = false
     }
   }
 
@@ -1195,7 +1196,7 @@ export default function RunsPage() {
     loadCsvJobDetail(selectedCsvJobId)
     loadCsvJobItems(selectedCsvJobId, 0)
     return undefined
-  }, [selectedCsvJobId, pageVisible])
+  }, [selectedCsvJobId, pageVisible, selectedCsvStatusFilter])
 
   useEffect(() => {
     if (!selectedCsvJobId || !pageVisible) return undefined
@@ -1206,7 +1207,7 @@ export default function RunsPage() {
       loadCsvJobItems(selectedCsvJobId, csvItemsPage.offset || 0)
     }, shouldFastPollCsv ? CSV_DETAIL_POLL_FAST_MS : CSV_DETAIL_POLL_MS)
     return () => clearInterval(timer)
-  }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status, shouldFastPollCsv, csvItemsPage.offset])
+  }, [selectedCsvJobId, pageVisible, csvJobOverview?.job?.status, shouldFastPollCsv, csvItemsPage.offset, selectedCsvStatusFilter])
 
   useEffect(() => {
     if (!filteredCsvJobItems.length) {

@@ -15,3 +15,11 @@ test('completed elapsed time remains fixed', () => {
   assert.equal(jobElapsedSeconds({ startedAt: '2026-07-22T00:00:00Z', isFinal: true, finalSeconds: 42, nowMs: Date.now() }), 42)
   assert.equal(formatDurationSeconds(3661), '1h 1m 1s')
 })
+
+test('finished jobs use their finish timestamp when the compact summary is missing', () => {
+  const job = { startedAt: '2026-10-12T00:00:00', finishedAt: '2026-10-12T00:05:00', isFinal: true }
+  assert.equal(jobElapsedSeconds({ ...job, nowMs: Date.parse('2026-10-16T00:00:00Z') }), 300)
+  assert.equal(jobElapsedSeconds({ ...job, nowMs: Date.parse('2026-10-17T00:00:00Z') }), 300)
+  assert.equal(jobElapsedSeconds({ ...job, finishedAt: null, nowMs: Date.now() }), null)
+  assert.equal(jobElapsedSeconds({ ...job, finishedAt: 'invalid', nowMs: Date.now() }), null)
+})

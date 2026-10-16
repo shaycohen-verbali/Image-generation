@@ -92,6 +92,14 @@ def final_image_filename_for_field(
     )
 
 
+def attempt_image_filename(canonical_filename: str, *, attempt: int, asset_id: str) -> str:
+    """Keep attempts beside the canonical image without ever reusing a name."""
+    canonical = Path(sanitize_filename(canonical_filename))
+    suffix = canonical.suffix or ".jpg"
+    short_id = sanitize_filename(str(asset_id or "asset")).removeprefix("ast_")[-8:]
+    return f"{canonical.stem}__attempt_{max(0, int(attempt)):02d}__{short_id}{suffix}"
+
+
 def inventory_variant(field_name: str) -> str:
     match = PATH_FIELD_RE.match(str(field_name))
     if match is None:

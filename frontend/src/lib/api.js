@@ -88,6 +88,9 @@ export async function listWordSourceRows(tableName, filters = {}) {
   for (const partOfSpeech of filters.parts_of_speech || []) {
     query.append('parts_of_speech', partOfSpeech)
   }
+  for (const rating of filters.k12_use_ratings || []) {
+    query.append('k12_use_ratings', rating)
+  }
   query.set('limit', String(filters.limit || 200))
   query.set('offset', String(filters.offset || 0))
   return fetchJson(`${API_BASE}/word-sources/${encodeURIComponent(tableName)}/rows?${query.toString()}`, {}, 1)
@@ -161,8 +164,9 @@ export async function getCsvJobSummaryDetails(jobId) {
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary/details`, {}, 0)
 }
 
-export async function getCsvJobItems(jobId, { offset = 0, limit = 50 } = {}) {
+export async function getCsvJobItems(jobId, { offset = 0, limit = 50, status = '' } = {}) {
   const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  if (status) query.set('status', status)
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/items?${query.toString()}`, {}, 0)
 }
 

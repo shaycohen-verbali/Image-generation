@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_dependency
 from app.core.config import get_settings
 from app.schemas import (
+    K12UseRating,
     CsvJobImportResponse,
     CsvJobExportResponse,
     CloudflareUploadResponse,
@@ -26,6 +27,7 @@ from app.schemas import (
 from app.models import CloudUpload, CloudUploadBatch
 from app.services.cloudflare_upload import CloudflareUploadService, configured_buckets, upload_model, r2_credentials
 from app.services.csv_dag_service import CsvDagService
+from app.services.csv_service import validate_entry_row
 from app.services.matalk_export import MATALK_ARTIFACT_FILENAMES, build_matalk_tables, write_matalk_artifacts
 from app.services.storage import exports_root
 from app.services.utils import sanitize_filename
@@ -96,7 +98,7 @@ def _prepare_cloudflare_matalk_artifacts(
 
     export_dir = exports_root() / "cloudflare" / sanitize_filename(batch.id) / "matalk"
     try:
-        tables = build_matalk_tables(rows, db=db, image_location="remote")
+        tables = build_matalk_tables(rows, db=db, image_location="remote", cloudflare_bucket=batch.bucket)
         paths = write_matalk_artifacts(export_dir, tables)
         package_path = export_dir.parent / f"{sanitize_filename(batch.id)}_csv_package.zip"
         package_manifest = {
@@ -297,6 +299,7 @@ def list_word_source_rows(
     range_start: int | None = Query(default=None, ge=1),
     range_end: int | None = Query(default=None, ge=1, le=100_000),
     parts_of_speech: list[str] = Query(default=[]),
+    k12_use_ratings: list[K12UseRating] = Query(default=[]),
 ) -> WordSourceRowsOut:
     try:
         result = WordSourceService().list_rows(
@@ -309,6 +312,7 @@ def list_word_source_rows(
             range_start=range_start,
             range_end=range_end,
             parts_of_speech=parts_of_speech,
+            k12_use_ratings=k12_use_ratings,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -332,6 +336,7 @@ def import_word_source_rows(
             range_start=payload.range_start,
             range_end=payload.range_end,
             parts_of_speech=payload.parts_of_speech,
+            k12_use_ratings=payload.k12_use_ratings,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -339,6 +344,13 @@ def import_word_source_rows(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if not rows:
         raise HTTPException(status_code=404, detail="No word-source rows matched this selection")
+    for row in rows:
+        error = validate_entry_row(row)
+        if error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot import position {row.get('_word_source_position', '?')} ({row.get('word') or 'unnamed'}): {error}",
+            )
     result = CsvDagService(db).import_word_source_rows(
         table_name=table_name,
         rows=rows,

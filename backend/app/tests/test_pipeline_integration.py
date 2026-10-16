@@ -938,7 +938,9 @@ def test_post_quality_accessibility_flow_records_soften_asset_and_stage4_still_c
     assert json.loads(stage4_stage.request_json)["input_asset"] == soften_asset.abs_path
 
 
-def test_variant_critique_and_single_correction_are_recorded(db_session):
+def test_variant_critique_and_single_correction_are_recorded(db_session, monkeypatch):
+    settings = __import__("app.core.config", fromlist=["get_settings"]).get_settings()
+    monkeypatch.setattr(settings, "selected_winner_flow_enabled", True)
     run = _create_variant_run(db_session)
     runner = RecordingPipelineRunner(
         db_session,
@@ -951,7 +953,7 @@ def test_variant_critique_and_single_correction_are_recorded(db_session):
 
     assert result.status == "completed_pass"
     repo = Repository(db_session)
-    _, stages, prompts, _, _ = repo.run_details(run.id)
+    _, stages, prompts, assets, _ = repo.run_details(run.id)
     critique_stage = next(stage for stage in stages if stage.stage_name == "stage4_variant_critique")
     correction_stage = next(stage for stage in stages if stage.stage_name == "stage4_variant_correction")
     critique_response = json.loads(critique_stage.response_json)
@@ -963,6 +965,21 @@ def test_variant_critique_and_single_correction_are_recorded(db_session):
     assert any(not item.get("skipped") for item in correction_response["profiles"])
     assert any(prompt.stage_name == "stage4_variant_critique" for prompt in prompts)
     assert any(prompt.stage_name == "stage4_variant_correction" for prompt in prompts)
+    prompt_by_id = {prompt.id: prompt for prompt in prompts}
+    corrected_assets = [
+        asset
+        for asset in assets
+        if asset.stage_name == "stage4_variant_generate"
+        and asset.generation_prompt_id
+        and prompt_by_id[asset.generation_prompt_id].stage_name == "stage4_variant_correction"
+    ]
+    assert corrected_assets
+    assert all(asset.canonical_path for asset in corrected_assets)
+    assert any(
+        asset.stage_name == "stage5_variant_white_bg"
+        and asset.source_asset_id in {corrected.id for corrected in corrected_assets}
+        for asset in assets
+    )
 
 
 def test_variant_age_mismatch_triggers_single_repair_pass_for_teenager(db_session):

@@ -20,7 +20,7 @@ const POS_OPTIONS = [
   'infinitive marker',
   'linking verb',
 ]
-const AGE_OPTIONS = ['All ages', 'toddler', 'kid', 'tween', 'teenager']
+const AGE_OPTIONS = ['All ages', 'toddler', 'kid', 'tween', 'teenager', 'symbol']
 const GENDER_OPTIONS = ['All genders', 'male', 'female']
 const SKIN_OPTIONS = ['All skin tones', 'white', 'black', 'asian', 'brown']
 const BACKGROUND_OPTIONS = ['All backgrounds', 'regular', 'white_bg']
@@ -41,8 +41,8 @@ const PREVIEW_WORD = {
     {
       pos: 'noun',
       senses: [
-        { id: 'cc88eab6025a4403', definition: 'the trait of lacking restraint or control; reckless freedom from inhibition or worry', image_count: 2 },
-        { id: 'abandon-noun-2', definition: 'a feeling of extreme emotional intensity', image_count: 0 },
+        { id: 'cc88eab6025a4403', definition: 'the trait of lacking restraint or control; reckless freedom from inhibition or worry', image_count: 2, canonical_word: 'abandon', canonical_sense_id: 'cc88eab6025a4403' },
+        { id: 'abandon-noun-2', definition: 'a feeling of extreme emotional intensity', image_count: 0, canonical_word: 'abandon', canonical_sense_id: 'abandon-noun-2' },
       ],
     },
     {
@@ -101,7 +101,13 @@ function Icon({ name, size = 20, strokeWidth = 1.8 }) {
 }
 
 function formatLabel(value) {
+  if (value === 'symbol') return 'AAC symbols'
   return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function imageProfileLabel(image) {
+  if (image.age === 'symbol') return 'AAC symbols'
+  return [image.age, image.gender, image.skin_tone].map(formatLabel).join(' · ')
 }
 
 function normalizeLemma(item) {
@@ -143,7 +149,7 @@ function normalizeWord(payload) {
       senses: (group.senses || []).map((sense) => ({
         ...sense,
         id: sense.id || sense.sense_id || sense.source_sense_id,
-        definition: sense.definition || sense.sense_oxford || sense.sense_wordnet || 'No definition available',
+        definition: sense.definition || sense.category || sense.sense_wordnet || sense.sense_oxford || 'No definition available',
         image_count: Number(sense.image_count ?? sense.images ?? 0),
       })),
     })),
@@ -246,12 +252,15 @@ function LemmaList({ lemmas, selectedLemma, onSelect, loading }) {
 }
 
 function SenseRow({ sense, selected, onSelect }) {
+  const canonicalWord = sense.canonical_word || 'Unknown'
+  const canonicalSense = sense.canonical_sense_id || sense.id || 'Unknown sense'
   return (
     <button type="button" className={`library-sense-row${selected ? ' is-selected' : ''}`} onClick={() => onSelect(sense)}>
       <span className="library-sense-number">{sense.number || ''}</span>
       <span className="library-sense-copy">
         <strong>{sense.definition}</strong>
         <span><code>{sense.id || 'No sense ID'}</code><span className="library-sense-dot">•</span>{sense.image_count ? `${sense.image_count} V1 images` : 'No images'}</span>
+        <span className="library-sense-source">Images from <b>{canonicalWord}</b> <code>{canonicalSense}</code></span>
       </span>
       <Icon name="arrowRight" size={20} />
     </button>
@@ -269,12 +278,12 @@ function ImageCard({ image, selected, onSelect, onOpenLightbox }) {
         aria-label={hasImage ? `Open ${formatLabel(image.background)} image` : `${formatLabel(image.background)} image unavailable`}
         aria-disabled={!hasImage}
       >
-        {hasImage ? <img src={image.image_url} alt={`${formatLabel(image.background)} image for ${image.age} ${image.gender} ${image.skin_tone}`} /> : <span className="library-image-empty"><Icon name="image" size={28} /><span>Image unavailable</span></span>}
+        {hasImage ? <img src={image.image_url} alt={`${formatLabel(image.background)} image for ${imageProfileLabel(image)}`} /> : <span className="library-image-empty"><Icon name="image" size={28} /><span>Image unavailable</span></span>}
         <span className="library-image-check" aria-hidden="true">{selected ? '✓' : ''}</span>
       </button>
       <div className="library-image-copy">
-        <div className="library-image-meta-line"><strong>{formatLabel(image.background)} background</strong><span>{formatLabel(image.age)} · {formatLabel(image.gender)} · {formatLabel(image.skin_tone)}</span></div>
-        <span className="library-prompt-label">Prompt</span>
+        <div className="library-image-meta-line"><strong>{formatLabel(image.background)} background</strong><span>{imageProfileLabel(image)}</span></div>
+        <span className="library-prompt-label">Winning image prompt</span>
         <p>{image.prompt || 'No prompt stored for this image.'}</p>
         <button type="button" className="library-link-button" onClick={() => onSelect(image)}>View full prompt <Icon name="arrowRight" size={16} /></button>
       </div>
@@ -284,12 +293,12 @@ function ImageCard({ image, selected, onSelect, onOpenLightbox }) {
 
 function PromptPanel({ image, onCopy, onOpenLightbox }) {
   if (!image) {
-    return <aside className="library-prompt-panel library-prompt-panel-empty"><Icon name="image" size={28} /><h3>Image prompt</h3><p>Select an image to inspect its exact prompt.</p></aside>
+    return <aside className="library-prompt-panel library-prompt-panel-empty"><Icon name="image" size={28} /><h3>Winning image prompt</h3><p>Select an image to inspect the prompt that created its winning source image.</p></aside>
   }
   return (
     <aside className="library-prompt-panel" aria-label="Image prompt">
-      <h3>Image prompt</h3>
-      <span className="library-prompt-label">Full prompt</span>
+      <h3>Winning image prompt</h3>
+      <span className="library-prompt-label">Original generation prompt</span>
       <p className="library-full-prompt">{image.prompt || 'No prompt stored for this image.'}</p>
       <button type="button" className="library-primary-button" onClick={() => onCopy(image.prompt)}><Icon name="copy" size={18} /> Copy prompt</button>
       <button type="button" className="library-secondary-button" onClick={() => image.image_url && onOpenLightbox(image)} disabled={!image.image_url}><Icon name="external" size={18} /> Open full image</button>
@@ -315,7 +324,7 @@ function ImageLightbox({ images, image, onClose, onChange, onCopy }) {
     <div className="library-lightbox-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="library-lightbox" role="dialog" aria-modal="true" aria-label="Full-size image viewer">
         <div className="library-lightbox-heading">
-          <div><h2>{formatLabel(image.background)} background</h2><p>{image.word || 'Library image'}{image.part_of_speech ? ` · ${formatLabel(image.part_of_speech)}` : ''} · {formatLabel(image.age)} · {formatLabel(image.gender)} · {formatLabel(image.skin_tone)}</p></div>
+          <div><h2>{formatLabel(image.background)} background</h2><p>{image.word || 'Library image'}{image.part_of_speech ? ` · ${formatLabel(image.part_of_speech)}` : ''} · {imageProfileLabel(image)}</p></div>
           <button ref={closeRef} type="button" className="library-icon-button" onClick={onClose} aria-label="Close image viewer"><Icon name="close" size={22} /></button>
         </div>
         <div className="library-lightbox-body">
@@ -325,7 +334,7 @@ function ImageLightbox({ images, image, onClose, onChange, onCopy }) {
             <button type="button" className="library-lightbox-arrow right" onClick={() => index < images.length - 1 && onChange(images[index + 1])} disabled={index === images.length - 1} aria-label="Next image"><Icon name="arrowRight" size={22} /></button>
           </div>
           <aside className="library-lightbox-details">
-            <h3>Image details</h3><span className="library-prompt-label">Prompt</span>
+            <h3>Image details</h3><span className="library-prompt-label">Winning image prompt</span>
             <p className="library-full-prompt">{image.prompt || 'No prompt stored for this image.'}</p>
             <button type="button" className="library-primary-button" onClick={() => image.original_url && downloadImage(image)} disabled={!image.original_url}><Icon name="download" size={18} /> Download image</button>
             <button type="button" className="library-secondary-button" onClick={() => image.original_url && window.open(image.original_url, '_blank', 'noopener,noreferrer')} disabled={!image.original_url}><Icon name="external" size={18} /> Open original</button>
@@ -459,6 +468,10 @@ export default function LibraryPage() {
   return (
     <section className="library-page">
       <header className="library-page-heading"><h1>Word Library</h1><p>Search by lemma, explore senses, and inspect every V1 image prompt.</p></header>
+      <div className="library-data-guide">
+        <Icon name="book" size={20} />
+        <div><strong>How Library data works</strong><span>Senses come from AAC Word Lookup. Images, prompts, and categories come from Word Inventory. If a sense maps to another canonical word, Library reuses that canonical word’s images.</span></div>
+      </div>
       <LemmaSearch query={query} setQuery={setQuery} pos={pos} setPos={setPos} />
       <div className="library-mobile-back"><button type="button" onClick={() => setSelectedLemma(null)}><Icon name="arrowLeft" size={20} /> All lemmas</button></div>
       {!selectedLemma ? <div className="library-no-selection-list"><LemmaList lemmas={lemmas} selectedLemma={selectedLemma} onSelect={selectLemma} loading={loadingLemmas} /></div> : null}
@@ -474,7 +487,7 @@ export default function LibraryPage() {
             <div className="library-sense-list">
               {(activeGroup?.senses || []).map((sense, index) => <SenseRow key={sense.id || index} sense={{ ...sense, number: index + 1 }} selected={selectedSense?.id === sense.id} onSelect={selectSense} />)}
             </div>
-            <div className="library-gallery-heading"><div><h3>V1 images</h3><p>{selectedSense?.definition || 'Choose a sense to browse current inventory images.'}</p></div><span>{filteredImages.length} shown</span></div>
+            <div className="library-gallery-heading"><div><h3>V1 images</h3><p>{selectedSense?.definition || 'Choose a sense to browse current inventory images.'}</p>{selectedSense ? <p className="library-gallery-source">Canonical image source: <strong>{selectedSense.canonical_word || word.lemma}</strong> · {formatLabel(activeGroup?.pos)} · <code>{selectedSense.canonical_sense_id || selectedSense.id}</code></p> : null}</div><span>{filteredImages.length} shown</span></div>
             <div className="library-filter-row">
               <FilterSelect label="Age" compact value={filters.age} onChange={(value) => setFilters((current) => ({ ...current, age: value }))} options={AGE_OPTIONS} />
               <FilterSelect label="Gender" compact value={filters.gender} onChange={(value) => setFilters((current) => ({ ...current, gender: value }))} options={GENDER_OPTIONS} />
