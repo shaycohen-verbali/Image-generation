@@ -1922,11 +1922,11 @@ Debugging and backwards-compatible files are under `_metadata/`.
             "export_id": job.id if self.export_local_zip_path(job).exists() else None,
         }
 
-    def job_items_page(self, job_id: str, *, offset: int, limit: int, include_tasks: bool = False) -> dict[str, Any] | None:
+    def job_items_page(self, job_id: str, *, offset: int, limit: int, include_tasks: bool = False, status_filter: str = "") -> dict[str, Any] | None:
         job = self.repo.get_csv_job(job_id)
         if job is None:
             return None
-        items, total = self.repo.list_csv_job_items_page(job_id, offset=offset, limit=limit)
+        items, total = self.repo.list_csv_job_items_page(job_id, offset=offset, limit=limit, status_filter=status_filter)
         item_tasks = self.repo.list_csv_tasks_for_items(job_id, [item.id for item in items])
         tasks = item_tasks if include_tasks else []
         entries_by_id = self.repo.get_entries_by_ids([item.entry_id for item in items])

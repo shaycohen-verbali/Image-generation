@@ -1458,16 +1458,32 @@ class Repository:
             ).scalars()
         )
 
-    def list_csv_job_items_page(self, csv_job_id: str, *, offset: int, limit: int) -> tuple[list[CsvJobItem], int]:
+    def list_csv_job_items_page(self, csv_job_id: str, *, offset: int, limit: int, status_filter: str = "") -> tuple[list[CsvJobItem], int]:
+        predicates = [CsvJobItem.csv_job_id == csv_job_id]
+        # Match the job summary's user-facing status groups before counting or
+        # paginating, so failures outside the current page remain discoverable.
+        status_groups = {
+            "completed": ("completed",), "failure": ("failed", "canceled"),
+            "running": ("running", "queued"),
+        }
+        if status_filter in status_groups:
+            predicates.append(CsvJobItem.status.in_(status_groups[status_filter]))
+        elif status_filter == "pending":
+            predicates.append(CsvJobItem.status.not_in(("completed", "failed", "canceled", "running", "queued")))
+        elif status_filter == "previously_done":
+            # The compact job summary currently reports this group as zero.
+            predicates.append(CsvJobItem.id.is_(None))
+        elif status_filter:
+            raise ValueError("Unsupported CSV word status filter")
         total = int(
             self.db.execute(
-                select(func.count()).select_from(CsvJobItem).where(CsvJobItem.csv_job_id == csv_job_id)
+                select(func.count()).select_from(CsvJobItem).where(*predicates)
             ).scalar_one()
         )
         items = list(
             self.db.execute(
                 select(CsvJobItem)
-                .where(CsvJobItem.csv_job_id == csv_job_id)
+                .where(*predicates)
                 .order_by(CsvJobItem.row_index.asc())
                 .offset(offset)
                 .limit(limit)

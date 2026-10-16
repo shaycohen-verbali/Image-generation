@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { buildApiUrl, createExport, downloadWordSourceCsvPackage, downloadWordSourceReport, exportCsvJob, exportWordSourceRows, getCloudflareConfig, getCloudflareUploadStatus, listCsvJobs, listRuns, listWordSourceRows } from '../lib/api'
 
+import { isCloudUploadFinished, monitorCloudUpload } from '../lib/cloudUploadPolling'
+
 const LEGACY_STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
   { value: 'queued', label: 'Queued' },
@@ -177,6 +179,7 @@ export default function ExportsPage() {
   const [runs, setRuns] = useState([])
   const [csvJobs, setCsvJobs] = useState([])
   const [preparedExport, setPreparedExport] = useState(null)
+  const [creatingExport, setCreatingExport] = useState(false)
   const [message, setMessage] = useState('')
   const [selectedLegacyExportFields, setSelectedLegacyExportFields] = useState(() => LEGACY_EXPORT_FIELD_OPTIONS.map((item) => item.key))
   const [selectedCsvExportAge, setSelectedCsvExportAge] = useState('all')
@@ -198,6 +201,24 @@ export default function ExportsPage() {
   const [convertToMatalkTablesFormat, setConvertToMatalkTablesFormat] = useState(false)
   const cloudflareInventoryExport = sourceMode === 'word_inventory' && inventoryDestination === 'cloudflare'
   const packageOnlyInventoryExport = sourceMode === 'word_inventory' && inventoryDestination === 'csv_package'
+
+  const cloudUploadBatchId = preparedExport?.kind === 'cloudflare' ? preparedExport.batch_id : null
+  const cloudUploadActive = Boolean(cloudUploadBatchId && !isCloudUploadFinished(preparedExport.status))
+
+  useEffect(() => {
+    if (!cloudUploadBatchId) return
+    return monitorCloudUpload({
+      fetchStatus: (signal) => getCloudflareUploadStatus(cloudUploadBatchId, signal),
+      onStatus: (status) => {
+        setPreparedExport((current) => current?.batch_id === cloudUploadBatchId ? { ...current, ...status } : current)
+        const progress = `${status.uploaded} uploaded, ${status.skipped} skipped, ${status.failed} failed`
+        setMessage(isCloudUploadFinished(status.status)
+          ? `Cloudflare upload ${status.status}: ${progress}${status.error_detail ? ` — ${status.error_detail}` : ''}`
+          : `Cloudflare upload in progress: ${progress}. Checking automatically until it finishes.`)
+      },
+      onError: () => setMessage('Unable to check upload progress. Retrying automatically; your upload may still be running on the server.'),
+    })
+  }, [cloudUploadBatchId])
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) || null,
@@ -276,6 +297,8 @@ export default function ExportsPage() {
   }
 
   const create = async () => {
+    if (creatingExport || cloudUploadActive) return
+    setCreatingExport(true)
     // Clear the previous result as soon as a new export is requested so the
     // status card never shows stale download links while the new export runs.
     setPreparedExport(null)
@@ -356,15 +379,6 @@ export default function ExportsPage() {
         if (inventoryDestination === 'cloudflare') {
           setPreparedExport({ kind: 'cloudflare', ...result, export_summary: inventorySelectionMode.replaceAll('_', ' ') })
           setMessage(`Cloudflare upload started: ${result.row_count} selected rows contain ${result.total} images; processing is running on Render`)
-          for (let attempt = 0; attempt < 120; attempt += 1) {
-            await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 500 : 1000))
-            const status = await getCloudflareUploadStatus(result.batch_id)
-            setPreparedExport((current) => current ? { ...current, ...status } : current)
-            if (status.status === 'completed' || status.status === 'completed_with_errors' || status.status === 'failed') {
-              setMessage(`Cloudflare upload ${status.status}: ${status.uploaded} uploaded, ${status.skipped} skipped, ${status.failed} failed${status.error_detail ? ` — ${status.error_detail}` : ''}`)
-              break
-            }
-          }
           return
         }
         setPreparedExport({
@@ -403,6 +417,8 @@ export default function ExportsPage() {
       }
     } catch (error) {
       setMessage(`Error: ${error.message}`)
+    } finally {
+      setCreatingExport(false)
     }
   }
 
@@ -703,7 +719,7 @@ export default function ExportsPage() {
         </div>
 
         <div className="inline-fields">
-          <button onClick={create}>
+          <button onClick={create} disabled={creatingExport || cloudUploadActive}>
             {sourceMode === 'csv_job' ? (convertToMatalkTablesFormat ? 'Download CSV Job Package + MaTalk Tables' : 'Download CSV Job Package') : sourceMode === 'word_inventory' ? (inventoryDestination === 'cloudflare' ? 'Upload Images + CSV Package' : inventoryDestination === 'csv_package' ? 'Download CSV Package (No Upload)' : (convertToMatalkTablesFormat ? 'Download Package + MaTalk Tables' : 'Download word_inventory Package')) : 'Create And Download Export'}
           </button>
           <button onClick={refreshData} className="button-secondary">Refresh Lists</button>
