@@ -48,11 +48,12 @@ const CSV_JOB_EXPORT_BASE_FIELDS = [
 ]
 
 const CSV_JOB_AGE_OPTIONS = [
-  { value: 'all', label: 'All ages' },
+  { value: 'all', label: 'All ages and profiles' },
   { value: 'toddler', label: 'Toddler' },
   { value: 'kid', label: 'Kid' },
   { value: 'tween', label: 'Tween' },
   { value: 'teenager', label: 'Teenager' },
+  { value: 'symbol', label: 'AAC symbols' },
 ]
 
 const CSV_JOB_GENDER_OPTIONS = [
@@ -132,6 +133,7 @@ function csvExportFieldsFromSelection({ age, gender, race, includePrompt, includ
   const fields = [...CSV_JOB_EXPORT_BASE_FIELDS]
 
   for (const ageValue of ages) {
+    if (ageValue === 'symbol') continue
     for (const genderValue of genders) {
       for (const raceValue of races) {
         const base = `${ageValue}_${genderValue}_${raceValue}`
@@ -145,6 +147,15 @@ function csvExportFieldsFromSelection({ age, gender, race, includePrompt, includ
     }
   }
 
+  if (ages.includes('symbol')) {
+    const base = 'symbol_male_white'
+    fields.push(`${base}_regular_path`)
+    if (includeWhiteBackground) fields.push(`${base}_white_bg_path`)
+    if (includePrompt) {
+      fields.push(`${base}_regular_prompt`)
+      if (includeWhiteBackground) fields.push(`${base}_white_bg_prompt`)
+    }
+  }
   return fields
 }
 

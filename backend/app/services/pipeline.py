@@ -17,6 +17,7 @@ from app.services.google_image_client import GoogleImageClient
 from app.services.image_filenames import attempt_image_filename, final_image_filename
 from app.services.model_catalog import is_google_image_generation_model, normalize_stage3_generation_model
 from app.services.openai_client import AssistantRunFailedError, OpenAIClient
+from app.services.aac_symbols import check_symbol_meaning, is_symbol_profile, symbol_meaning
 from app.services.person_profiles import entry_default_profile, profile_edit_instruction, profile_key, profile_prompt_fragment, variant_branch_plan
 from app.services.prompt_templates import (
     apply_render_decision_to_prompt,
@@ -233,7 +234,7 @@ class PipelineRunner:
 
     @staticmethod
     def _should_run_variant_review(profile: dict[str, str], source_profile: dict[str, str] | None) -> bool:
-        if not source_profile:
+        if is_symbol_profile(profile) or not source_profile:
             return False
         source_gender = str(source_profile.get("gender") or "").strip().lower()
         target_gender = str(profile.get("gender") or "").strip().lower()
@@ -1251,7 +1252,7 @@ class PipelineRunner:
             local_source = self._local_asset_path(source_asset)
             submitted = self._submit_profile_variant_prediction(
                 local_source,
-                entry.word,
+                symbol_meaning(entry) if is_symbol_profile(profile) else entry.word,
                 owner_run_id,
                 profile,
                 False,
@@ -1299,6 +1300,21 @@ class PipelineRunner:
                 generation_prompt_id=variant_generation_prompt.id if variant_generation_prompt else None,
                 source_asset_id=source_asset.id if isinstance(source_asset, Asset) else None,
             )
+            if is_symbol_profile(profile):
+                white_bg_asset = self._save_asset(
+                    run_id=owner_run_id, stage_name="stage5_variant_white_bg", attempt=winner_attempt,
+                    filename=self._variant_filename("stage5_variant_white_bg", entry, profile, winner_attempt),
+                    image_bytes=payload["image_bytes"], origin_url=payload["origin_url"],
+                    model_name=payload["model_name"], output_mime_type=image_format,
+                )
+                preservation = self._check_aac_symbol_meaning(entry, source_asset, white_bg_asset, runtime_config)
+                return {
+                    "regular_asset": regular_asset, "white_bg_asset": white_bg_asset,
+                    "prediction_id": prediction_id, "status_transitions": status_transitions,
+                    "request_json": request_summary,
+                    "response_json": self._json_dict(prediction_result.get("response_json")),
+                    "semantic_preservation": preservation,
+                }
             critique, critique_raw = self._review_variant_asset(
                 run_id=owner_run_id,
                 entry=entry,
@@ -1871,10 +1887,17 @@ class PipelineRunner:
 
         stage3_response = json.loads(stage3_result.response_json) if stage3_result.response_json else {}
         decision = stage3_response.get("decision", {}) if isinstance(stage3_response, dict) else {}
-        if normalize_need_person(str(decision.get("resolved_need_person", "no"))) != "yes":
-            return
-
+        has_person = normalize_need_person(str(decision.get("resolved_need_person", "no"))) == "yes"
         branch_plan = variant_branch_plan(entry)
+        if not has_person:
+            symbols = [p for p in branch_plan["planned_profiles"] if is_symbol_profile(p)]
+            if not symbols:
+                return True
+            branch_plan.update(
+                planned_profiles=[branch_plan["base_profile"], *symbols],
+                male_age_variants=symbols, female_seed=None,
+                female_age_variants=[], appearance_variants=[],
+            )
         planned_profiles = list(branch_plan.get("planned_profiles") or [])[1:]
         if not planned_profiles:
             return
@@ -2138,7 +2161,7 @@ class PipelineRunner:
             try:
                 submitted = self._submit_profile_variant_prediction(
                     self._local_asset_path(str(source_asset["abs_path"])),
-                    entry.word,
+                    symbol_meaning(entry) if is_symbol_profile(profile) else entry.word,
                     run.id,
                     profile,
                     white_background,
@@ -2382,6 +2405,8 @@ class PipelineRunner:
                 source_asset_id=str(source_asset_snapshot.get("id") or "") or None,
             )
             if stage_name == "stage4_variant_generate":
+                if is_symbol_profile(profile):
+                    self._check_aac_symbol_meaning(entry, upgraded_asset, variant_asset, runtime_config)
                 critique, critique_raw = self._review_variant_asset(
                     run_id=run.id,
                     entry=entry,
@@ -2810,6 +2835,19 @@ class PipelineRunner:
                 response_json={},
             )
 
+    def _check_aac_symbol_meaning(self, entry: Entry, source: Asset | str, symbol: Asset, config: Any) -> dict[str, Any]:
+        result = check_symbol_meaning(
+            self.openai, self._local_asset_path(source), self._local_asset_path(symbol),
+            meaning=symbol_meaning(entry),
+            model=getattr(config, "semantic_preservation_model", config.quality_gate_model),
+        )
+        if result.get("passed") is not True:
+            self._raise_with_context(
+                "AAC symbol lost essential meaning: " + str(result.get("summary") or "meaning check failed"),
+                request_json={"meaning": symbol_meaning(entry)}, response_json=result,
+            )
+        return result
+
     def _submit_profile_variant_prediction(
         self,
         image_path: Path,
@@ -2825,6 +2863,9 @@ class PipelineRunner:
         edit_instruction_override: str = "",
     ) -> dict[str, Any]:
         profile_description = profile_prompt_fragment(profile)
+        if is_symbol_profile(profile):
+            model_choice = "nano-banana-2"
+            aspect_ratio = "1:1"
         edit_instruction = edit_instruction_override or profile_edit_instruction(profile, source_profile)
         request_summary = self.google_images.profile_variant_request_summary(
             image_path,

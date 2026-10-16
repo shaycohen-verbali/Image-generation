@@ -26,6 +26,7 @@ from app.services.matalk_export import (
     image_reference_key,
     write_matalk_artifacts,
 )
+from app.services.aac_symbols import SYMBOL_BASE_PROFILE, is_symbol_profile, selected_output_profiles
 from app.services.person_profiles import DEFAULT_AGE, DEFAULT_GENDER, DEFAULT_SKIN_COLOR, profile_key
 from app.services.pipeline import PipelineRunner
 from app.services.repository import Repository
@@ -46,7 +47,7 @@ def _generated_batch_id() -> str:
 
 IMPORT_COMMIT_CHUNK_SIZE = 25
 ALLOWED_GENDER_OPTIONS = ("male", "female")
-ALLOWED_AGE_OPTIONS = ("toddler", "kid", "tween", "teenager")
+ALLOWED_AGE_OPTIONS = ("toddler", "kid", "tween", "teenager", "symbol")
 ALLOWED_SKIN_OPTIONS = ("white", "black", "asian", "brown")
 TERMINAL_RUN_STATUSES = {"completed_pass", "completed_fail_threshold", "completed_base_assets", "failed_technical", "canceled"}
 EXPORT_GENDER_ABBREVIATIONS = {"male": "m", "female": "f"}
@@ -131,6 +132,8 @@ def _dependency_profile_for(profile: dict[str, str]) -> dict[str, str] | None:
       white female teenager   → white male teenager
       {any} female {non-kid}  → {same-race} female kid
     """
+    if is_symbol_profile(profile):
+        return dict(SYMBOL_BASE_PROFILE)
     gender = profile.get("gender", "")
     age = profile.get("age", "")
     skin = profile.get("skin_color", "")
@@ -181,6 +184,8 @@ def _friendly_variant_error_summary(profile_key_value: str, error_text: str, res
 
 
 def _branch_role_for(profile: dict[str, str]) -> str:
+    if is_symbol_profile(profile):
+        return "aac_symbol"
     gender = profile.get("gender", "")
     age = profile.get("age", "")
     skin = profile.get("skin_color", "")
@@ -235,14 +240,9 @@ class CsvDagService:
         gender_options = _clean_requested_options(snapshot.get("person_gender_options", []), ALLOWED_GENDER_OPTIONS)
         age_options = _clean_requested_options(snapshot.get("person_age_options", []), ALLOWED_AGE_OPTIONS)
         skin_options = _clean_requested_options(snapshot.get("person_skin_color_options", []), ALLOWED_SKIN_OPTIONS)
-        if not gender_options or not age_options or not skin_options:
+        if "symbol" not in age_options and (not gender_options or not age_options or not skin_options):
             raise RuntimeError("CSV DAG jobs require at least one gender, age, and skin selection")
-        return [
-            {"gender": gender, "age": age, "skin_color": skin_color}
-            for gender in gender_options
-            for age in age_options
-            for skin_color in skin_options
-        ]
+        return selected_output_profiles(gender_options, age_options, skin_options)
 
     def _override_existing_variants_enabled(self, job: CsvJob) -> bool:
         snapshot = self.repo.json_field_dict(job.config_snapshot_json)
@@ -678,7 +678,7 @@ class CsvDagService:
             _clean_requested_options(person_age_options, ALLOWED_AGE_OPTIONS),
             _clean_requested_options(person_skin_color_options, ALLOWED_SKIN_OPTIONS),
         ]
-        if not all(requested_profiles):
+        if "symbol" not in requested_profiles[1] and not all(requested_profiles):
             raise RuntimeError("Choose at least one gender, one age, and one skin color to continue")
 
         source_snapshot = self.repo.json_field_dict(source_job.config_snapshot_json)
@@ -1401,7 +1401,7 @@ class CsvDagService:
                     has_person_val = self._read_has_person_from_shadow_run(item.shadow_run_id)
                     if has_person_val:
                         self.repo.update_entry_has_person(entry.id, has_person_val)
-                if has_person_val == "no":
+                if has_person_val == "no" and not is_symbol_profile(_parse_profile_key(task.profile_key)):
                     self.repo.update_csv_task(
                         task,
                         status="completed",
@@ -1427,6 +1427,9 @@ class CsvDagService:
                         return None
                     if profile_key(source_profile) != f"{DEFAULT_GENDER}:{DEFAULT_AGE}:{DEFAULT_SKIN_COLOR}":
                         return None
+                    if is_symbol_profile(target_profile):
+                        symbol_source_id = item.base_white_bg_asset_id or item.base_regular_asset_id
+                        return self.repo.get_asset(symbol_source_id) if symbol_source_id else None
                     if item.base_soften_asset_id:
                         softened = self.repo.get_asset(item.base_soften_asset_id)
                         if softened is not None:
@@ -1482,6 +1485,10 @@ class CsvDagService:
                         background="regular",
                         source_row_id=self._word_source_row_id(item),
                     )
+                    if is_symbol_profile(target_profile):
+                        inventory_source = InventorySyncService(self.db).slot_path_for_entry_profile(
+                            entry, source_profile, background="white_bg", source_row_id=self._word_source_row_id(item),
+                        ) or inventory_source
                     if not inventory_source:
                         return _cannot_complete(f"Cannot complete: dependency image for '{profile_key(source_profile)}' is not yet available")
                     source_asset = inventory_source

@@ -20,6 +20,7 @@ from app.inventory_models import (
     inventory_slot_column_name,
     word_inventory,
 )
+from app.services.aac_symbols import selected_output_profiles
 from app.models import Asset, CsvJob, CsvJobItem, CsvTaskNode, Entry
 from app.services.repository import Repository
 from app.services.http_client import get_http_session
@@ -182,10 +183,8 @@ class InventorySyncService:
     def _expected_slot_names(self, job: CsvJob) -> list[str]:
         genders, ages, skins = self._requested_options(job)
         return [
-            inventory_slot_column_name(age, gender, skin_color, background)
-            for age in ages
-            for gender in genders
-            for skin_color in skins
+            inventory_slot_column_name(profile["age"], profile["gender"], profile["skin_color"], background)
+            for profile in selected_output_profiles(genders, ages, skins)
             for background in BACKGROUND_VALUES
         ]
 

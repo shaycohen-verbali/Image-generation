@@ -224,17 +224,20 @@ function personAttentionLabel(needsAttention) {
 
 function csvProfileSummary(profileKey) {
   const [gender, age, skinColor] = String(profileKey || '').split(':')
+  if (age === 'symbol') return 'AAC symbols'
   return [age, gender, skinColor].filter(Boolean).join(' ')
 }
 
 function normalizeProfileOptionLabel(value) {
   const text = String(value || '').trim()
   if (!text) return ''
+  if (text === 'symbol') return 'AAC symbols'
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function csvProfileDisplay(profileKey) {
   const [gender, age, skinColor] = String(profileKey || '').split(':')
+  if (age === 'symbol') return 'AAC symbols'
   return [skinColor, age, gender].filter(Boolean).map(normalizeProfileOptionLabel).join(' + ')
 }
 
@@ -1422,9 +1425,11 @@ export default function RunsPage() {
       return
     }
     if (
-      !continueSelections.person_gender_options.length ||
-      !continueSelections.person_age_options.length ||
-      !continueSelections.person_skin_color_options.length
+      !continueSelections.person_age_options.includes('symbol') && (
+        !continueSelections.person_gender_options.length ||
+        !continueSelections.person_age_options.length ||
+        !continueSelections.person_skin_color_options.length
+      )
     ) {
       setMessage('Choose at least one gender, one age, and one skin color for the next variants')
       return
@@ -2057,6 +2062,15 @@ export default function RunsPage() {
                       ))}
                     </fieldset>
                   </div>
+                  <fieldset className="checkbox-group">
+                    <legend>Additional profiles</legend>
+                    <label className="checkbox-option">
+                      <input type="checkbox"
+                        checked={continueSelections.person_age_options.includes('symbol')}
+                        onChange={() => onToggleContinueSelection('person_age_options', 'symbol')} />
+                      <span>AAC symbols — from the white boy base image</span>
+                    </label>
+                  </fieldset>
                   <label className="checkbox-option">
                     <input
                       type="checkbox"
