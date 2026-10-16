@@ -174,6 +174,10 @@ def test_class_uploads_are_isolated_and_reports_use_selected_bucket(db_session, 
     assert {call['Bucket'] for call in calls} == {'matalkimages', 'matalk-class-images'}
     assert 'matalk-class-images' in chosen
     assert all('class.example' not in url for url in _cloudflare_urls(db_session, {str(source)}).values())
+    class_urls = _cloudflare_urls(db_session, {str(source)}, 'matalk-class-images')
+    assert len(class_urls) == 1
+    assert all('class.example.test/matalk-class-images/' in url for url in class_urls.values())
+    assert not _cloudflare_urls(db_session, {str(source)}, 'other-bucket')
     report = list(DictReader(StringIO(cloudflare_upload_report('class', db_session).body.decode())))
     assert len(report) == 1 and report[0]['bucket'] == 'matalk-class-images'
     repeated = CloudflareUploadService(db_session).upload_rows([row], bucket='matalk-class-images', batch_id='class')
@@ -200,3 +204,38 @@ def test_class_client_uses_only_class_credentials(monkeypatch):
     import pytest
     with pytest.raises(RuntimeError):
         CloudflareUploadService._client('matalk-class-images')
+
+
+def test_reused_object_refreshes_source_links_and_checks_content(db_session, tmp_path, monkeypatch):
+    from app.services.matalk_export import build_matalk_tables
+
+    calls = []
+    class Client:
+        def put_object(self, **kwargs):
+            calls.append(kwargs)
+            return {}
+    monkeypatch.setattr(CloudflareUploadService, '_client', staticmethod(lambda bucket='': Client()))
+    monkeypatch.setattr(CloudflareUploadService, '_compress', staticmethod(lambda data, quality: data))
+    old = tmp_path / 'old.jpg'
+    new = tmp_path / 'new.jpg'
+    old.write_bytes(b'same image')
+    new.write_bytes(b'same image')
+    row = {'id': 'apple', 'word': 'apple', 'sense_id': 'sense-apple', 'part_of_speech': 'noun',
+           'kid_male_white_white_bg_path': str(old)}
+    service = CloudflareUploadService(db_session)
+    assert service.upload_rows([row], bucket='matalkimages')['uploaded'] == 1
+    db_session.commit()
+    row['kid_male_white_white_bg_path'] = str(new)
+    assert service.upload_rows([row], bucket='matalkimages')['skipped'] == 1
+    assert len(calls) == 1
+    ledger = db_session.scalars(select(CloudUpload)).one()
+    assert ledger.source_path == str(new)
+    db_session.commit()
+    assert len(build_matalk_tables([row], db=db_session).image_rows) == 1
+    db_session.commit()
+    new.write_bytes(b'changed image')
+    assert service.upload_rows([row], bucket='matalkimages')['uploaded'] == 1
+    assert len(calls) == 2
+    db_session.commit()
+    assert service.upload_rows([row], bucket='matalkimages', quality=50)['uploaded'] == 1
+    assert len(calls) == 3

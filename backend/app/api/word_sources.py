@@ -98,7 +98,7 @@ def _prepare_cloudflare_matalk_artifacts(
 
     export_dir = exports_root() / "cloudflare" / sanitize_filename(batch.id) / "matalk"
     try:
-        tables = build_matalk_tables(rows, db=db, image_location="remote")
+        tables = build_matalk_tables(rows, db=db, image_location="remote", cloudflare_bucket=batch.bucket)
         paths = write_matalk_artifacts(export_dir, tables)
         package_path = export_dir.parent / f"{sanitize_filename(batch.id)}_csv_package.zip"
         package_manifest = {

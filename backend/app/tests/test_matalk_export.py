@@ -271,3 +271,26 @@ def test_matalk_files_are_added_to_the_package_in_import_order(db_session, tmp_p
     }
     assert set(package_manifest["csv_files"]) == expected_csv_files
     assert expected_csv_files <= set(names)
+
+
+def test_class_batch_package_uses_only_selected_bucket_ledger(db_session, monkeypatch):
+    from app.models import MatalkClassUpload
+    monkeypatch.setattr(get_settings(), 'cloudflare_r2_class_bucket', 'matalk-class-images')
+    source = '/inventory/eat.png'
+    row = {**_person_row(), 'kid_male_white_regular_path': source,
+           'kid_male_white_white_bg_path': ''}
+    for model, bucket, url in [
+        (CloudUpload, 'matalkimages', 'https://aac.test/eat.jpg'),
+        (MatalkClassUpload, 'matalk-class-images', 'https://class.test/eat.jpg'),
+    ]:
+        db_session.add(model(batch_id='test', source_path=source, variant='kid/male/white/regular',
+                             bucket=bucket, object_key='eat.jpg', destination_url=url, status='uploaded'))
+    batch = CloudUploadBatch(id='class-package', bucket='matalk-class-images',
+                             source_rows_json=json.dumps([row]), matalk_enabled=True, status='completed')
+    db_session.add(batch)
+    db_session.commit()
+    _, counts, warnings, paths = _prepare_cloudflare_matalk_artifacts(batch, db_session)
+    assert counts['aac_images'] == 1
+    images = list(csv.DictReader(paths['images'].open(encoding='utf-8')))
+    assert images[0]['image_url'] == 'https://class.test/eat.jpg'
+    assert not warnings
