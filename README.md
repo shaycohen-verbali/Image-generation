@@ -83,3 +83,15 @@ Generated files per run:
 - `stage3_upgraded_attempt_{n}.jpg`
 - `stage4_white_bg_attempt_{n}.jpg`
 - `metadata_attempt_{n}.json`
+
+### MaTalk Class symbol uploads
+
+Set `CLOUDFLARE_R2_CLASS_BUCKET` (default `matalk-class-images`),
+`CLOUDFLARE_R2_CLASS_ENDPOINT`, `CLOUDFLARE_R2_CLASS_ACCESS_KEY_ID`, and
+`CLOUDFLARE_R2_CLASS_SECRET_ACCESS_KEY` on the API and worker services.
+The Class bucket appears in Exports only when all three credentials are set.
+Its uploads, retry checks, and reports use the separate `matalk_class_uploads`
+table, created at startup in the same database as `cloud_uploads`. It includes
+inventory category and sense meaning. AAC exports continue to use only
+`cloud_uploads` and the existing account settings. Configure the bucket's public
+domain and CORS separately; no upload credentials belong in browser code.

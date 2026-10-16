@@ -87,7 +87,7 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
             }
 
     fake_client = FakeClient()
-    monkeypatch.setattr(CloudflareUploadService, "_client", staticmethod(lambda: fake_client))
+    monkeypatch.setattr(CloudflareUploadService, "_client", staticmethod(lambda bucket="": fake_client))
     monkeypatch.setattr(
         CloudflareUploadService,
         "_compress",
@@ -129,3 +129,74 @@ def test_cloudflare_uploads_images_in_bounded_worker_pool(db_session, tmp_path, 
         "https://r2.example.test/matalkimages/first__noun__reg__m__kid__w__sense-first__v1.jpg",
         "https://r2.example.test/matalkimages/second__noun__reg__m__kid__w__sense-second__v1.jpg",
     }
+
+
+def test_class_uploads_are_isolated_and_reports_use_selected_bucket(db_session, tmp_path, monkeypatch):
+    from app.models import MatalkClassUpload
+    from app.services.cloudflare_upload import configured_buckets
+    from app.services.matalk_export import _cloudflare_urls
+
+    settings = get_settings()
+    for name, value in {
+        'cloudflare_r2_class_bucket': 'matalk-class-images',
+        'cloudflare_r2_class_endpoint': 'https://class.example.test',
+        'cloudflare_r2_class_access_key_id': 'class-key',
+        'cloudflare_r2_class_secret_access_key': 'class-secret',
+        'cloudflare_r2_public_base_url': 'https://aac.example.test',
+    }.items():
+        monkeypatch.setattr(settings, name, value)
+    assert 'matalk-class-images' in configured_buckets()
+    source = tmp_path / 'apple.jpg'
+    source.write_bytes(b'image')
+    row = {'id': 'apple', 'word': 'apple', 'sense_id': 'sense-apple', 'part_of_speech': 'noun',
+           'category': 'Food', 'sense_oxford': 'a fruit', 'sense_wordnet': 'fallback',
+           'kid_male_white_white_bg_path': str(source)}
+    calls = []
+    class Client:
+        def put_object(self, **kwargs):
+            calls.append(kwargs)
+            return {}
+    chosen = []
+    def client(bucket=''):
+        chosen.append(bucket)
+        return Client()
+    monkeypatch.setattr(CloudflareUploadService, '_client', staticmethod(client))
+    monkeypatch.setattr(CloudflareUploadService, '_compress', staticmethod(lambda data, quality: data))
+    for bucket, batch_id in [('matalkimages', 'aac'), ('matalk-class-images', 'class')]:
+        db_session.add(CloudUploadBatch(id=batch_id, bucket=bucket))
+        db_session.commit()
+        result = CloudflareUploadService(db_session).upload_rows([row], bucket=bucket, batch_id=batch_id)
+        assert result['uploaded'] == 1  # AAC's existing image must not skip Class.
+    record = db_session.scalars(select(MatalkClassUpload)).one()
+    assert (record.category, record.meaning) == ('Food', 'a fruit')
+    assert record.destination_url.startswith('https://class.example.test/matalk-class-images/')
+    assert len(db_session.scalars(select(CloudUpload)).all()) == 1
+    assert {call['Bucket'] for call in calls} == {'matalkimages', 'matalk-class-images'}
+    assert 'matalk-class-images' in chosen
+    assert all('class.example' not in url for url in _cloudflare_urls(db_session, {str(source)}).values())
+    report = list(DictReader(StringIO(cloudflare_upload_report('class', db_session).body.decode())))
+    assert len(report) == 1 and report[0]['bucket'] == 'matalk-class-images'
+    repeated = CloudflareUploadService(db_session).upload_rows([row], bucket='matalk-class-images', batch_id='class')
+    assert repeated['skipped'] == 1 and repeated['uploaded'] == 0
+
+
+def test_class_client_uses_only_class_credentials(monkeypatch):
+    import boto3
+    from app.services.cloudflare_upload import configured_buckets
+    settings = get_settings()
+    monkeypatch.setattr(settings, 'cloudflare_r2_class_endpoint', 'https://class.example.test')
+    monkeypatch.setattr(settings, 'cloudflare_r2_class_access_key_id', 'class-key')
+    monkeypatch.setattr(settings, 'cloudflare_r2_class_secret_access_key', 'class-secret')
+    captured = {}
+    def fake_client(*args, **kwargs):
+        captured.update(kwargs)
+    monkeypatch.setattr(boto3, 'client', fake_client)
+    CloudflareUploadService._client('matalk-class-images')
+    assert captured['endpoint_url'] == 'https://class.example.test'
+    assert captured['aws_access_key_id'] == 'class-key'
+    assert captured['aws_secret_access_key'] == 'class-secret'
+    monkeypatch.setattr(settings, 'cloudflare_r2_class_secret_access_key', '')
+    assert 'matalk-class-images' not in configured_buckets()
+    import pytest
+    with pytest.raises(RuntimeError):
+        CloudflareUploadService._client('matalk-class-images')
