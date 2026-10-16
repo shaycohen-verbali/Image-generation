@@ -118,8 +118,8 @@ export async function getCloudflareConfig() {
   return fetchJson(`${API_BASE}/word-sources/cloudflare/config`, {}, 1)
 }
 
-export async function getCloudflareUploadStatus(batchId) {
-  return fetchJson(`${API_BASE}/word-sources/cloud-uploads/${encodeURIComponent(batchId)}`, {}, 1)
+export async function getCloudflareUploadStatus(batchId, signal) {
+  return fetchJson(`${API_BASE}/word-sources/cloud-uploads/${encodeURIComponent(batchId)}`, { signal }, 1)
 }
 
 export async function downloadWordSourceReport(tableName, params = {}) {
@@ -164,8 +164,9 @@ export async function getCsvJobSummaryDetails(jobId) {
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/summary/details`, {}, 0)
 }
 
-export async function getCsvJobItems(jobId, { offset = 0, limit = 50 } = {}) {
+export async function getCsvJobItems(jobId, { offset = 0, limit = 50, status = '' } = {}) {
   const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+  if (status) query.set('status', status)
   return fetchJson(`${API_BASE}/csv-jobs/${jobId}/items?${query.toString()}`, {}, 0)
 }
 

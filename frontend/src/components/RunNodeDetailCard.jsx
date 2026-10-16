@@ -17,6 +17,7 @@ function prettyValue(value) {
 }
 
 function profileStateLabel(item) {
+  if (item?.profile?.age === 'symbol') return 'AAC symbols'
   if (!item || typeof item !== 'object') return '-'
   const profile = item.profile || {}
   const parts = [profile.gender, profile.age, profile.skin_color].filter(Boolean)

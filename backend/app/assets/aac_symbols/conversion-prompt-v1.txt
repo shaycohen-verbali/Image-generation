@@ -1,0 +1,33 @@
+Create ONE AAC symbol for this word or meaning:
+[REPLACE THIS LINE WITH THE WORD / INTENDED MEANING]
+
+ATTACHMENT ROLES
+Image 1 is the SOURCE IMAGE. It supplies the intended subject, action, expression, or relationship.
+Image 2, named 01-style-reference-v1.png, is the FIXED STYLE REFERENCE. It supplies appearance and simplification level only. Its headings and labels are not part of the requested output.
+
+Make a new symbol that belongs to the exact same collection as Image 2. This is semantic simplification followed by style matching, not a tracing or restyling of the source scene.
+
+1. EXTRACT THE MEANING
+Identify the smallest recognizable combination of subject, pose, expression, object, and relationship needed to communicate the stated meaning. Preserve distinguishing features. If the stated word is ambiguous, use the source image to select the intended sense.
+
+2. SIMPLIFY AND RECOMPOSE
+Keep only meaning-bearing elements. Remove incidental surroundings, furniture, props, clothing patterns, resting limbs, and secondary people. Retain any of those elements when the concept actually depends on them. Do not replace the source meaning with a different metaphor just to match an example.
+
+Objects, foods, animals, and places: show the main subject with its identifying features; do not add a person.
+Actions: show the minimum necessary person or body parts plus the object involved. Keep contact and pose clear. Use a full body only when the action requires it.
+Emotions: use face and shoulders, adding hands or posture only when essential. Change eyebrows and mouth to communicate the exact expression; do not add a smile to every symbol.
+Interactions and relational concepts: retain the required participants and their spatial relationship. A speech bubble, checkmark, or other cue is allowed only when it carries meaning.
+
+3. APPLY THE FIXED VISUAL SYSTEM
+Use rounded solid shapes, clean dark navy outlines of consistent apparent thickness, rounded joins, and minimal internal lines, matching Image 2.
+Use solid fills with no photographic detail, watercolor, grain, gradients, shading, highlights, shadows, or 3D rendering. If the reference contains subtle tonal variation, simplify it to solid fills while matching its shapes, palette, and outlines.
+For generic people, reuse the reference's brown-haired character construction, oval head, tan skin, small navy oval eyes, simple eyebrows and mouth, plain teal shirt, and rounded limbs. Keep the same head-to-torso proportions across the collection; change pose and expression rather than inventing a new character. If identity, age, assistive equipment, or a body feature is the actual subject, preserve the necessary cues using the same visual construction.
+Match the reference's color family: navy outlines, teal clothing, warm tan skin, brown hair, coral red, warm yellow, blue, and leaf green. Use subject-appropriate colors. Preserve color when the concept depends on it.
+Reuse the reference's object designs when the same objects appear in other words. Match their construction for new objects. Maintain the source's meaningful object type, such as a glass versus a mug.
+
+4. FRAME THE SYMBOL
+Square pure-white canvas. Center the complete meaningful composition inside approximately 12% clear margins. Match the reference examples' perceived size and density. Keep all essential parts visible; do not crop hands or objects. End any intentionally partial torso cleanly.
+
+Before returning the image, check: correct meaning; only essential content; same character construction; same outline weight and color treatment; clean spacing; no copied reference headings or labels.
+
+OUTPUT: one symbol only. No text, caption, border, grid, presentation sheet, decorative marks, or extra versions.

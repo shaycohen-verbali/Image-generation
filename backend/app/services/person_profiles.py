@@ -4,13 +4,15 @@ import json
 from itertools import product
 from typing import Any
 
+from app.services.aac_symbols import SYMBOL_OPTION, SYMBOL_PROFILE, is_symbol_profile, selected_output_profiles
+
 DEFAULT_GENDER = "male"
 DEFAULT_AGE = "kid"
 DEFAULT_SKIN_COLOR = "white"
 MAX_TOTAL_PROFILES = 16
 
 GENDER_OPTIONS = ("male", "female")
-AGE_OPTIONS = ("toddler", "kid", "tween", "teenager")
+AGE_OPTIONS = ("toddler", "kid", "tween", "teenager", SYMBOL_OPTION)
 SKIN_COLOR_OPTIONS = ("white", "black", "asian", "brown")
 
 AGE_LABELS = {
@@ -104,6 +106,8 @@ def entry_default_profile(entry: Any) -> dict[str, str]:
 
 
 def profile_label(profile: dict[str, str]) -> str:
+    if is_symbol_profile(profile):
+        return "AAC symbols"
     gender = GENDER_LABELS.get(profile.get("gender", ""), profile.get("gender", "person"))
     age = AGE_LABELS.get(profile.get("age", ""), profile.get("age", "child"))
     skin = SKIN_COLOR_LABELS.get(profile.get("skin_color", ""), profile.get("skin_color", ""))
@@ -115,6 +119,8 @@ def profile_key(profile: dict[str, str]) -> str:
 
 
 def profile_prompt_fragment(profile: dict[str, str]) -> str:
+    if is_symbol_profile(profile):
+        return "AAC symbols, Soft Signal v1, derived from the white boy base image"
     gender = str(profile.get("gender", "") or "").strip().lower()
     age = str(profile.get("age", "") or "").strip().lower()
     skin = SKIN_COLOR_LABELS.get(profile.get("skin_color", ""), profile.get("skin_color", ""))
@@ -281,6 +287,8 @@ def profile_race_phrase(skin_color: str, gender: str, age: str) -> str:
 
 
 def profile_edit_instruction(target: dict[str, str], source: dict[str, str] | None) -> str:
+    if is_symbol_profile(target):
+        return "Convert the base image into an AAC symbol using the fixed Soft Signal reference."
     source_profile = source or {}
     target_gender = str(target.get("gender", "") or "").strip().lower()
     target_age = str(target.get("age", "") or "").strip().lower()
@@ -319,10 +327,7 @@ def all_selected_profiles(entry: Any) -> list[dict[str, str]]:
     genders = entry_gender_options(entry)
     ages = entry_age_options(entry)
     skins = entry_skin_color_options(entry)
-    profiles = [
-        {"gender": gender, "age": age, "skin_color": skin}
-        for gender, age, skin in product(genders, ages, skins)
-    ]
+    profiles = selected_output_profiles(genders, ages, skins)
     default = entry_default_profile(entry)
     ordered = [default]
     ordered.extend(
@@ -353,7 +358,8 @@ def _append_unique_profile(
 
 def planned_review_profiles(entry: Any) -> list[dict[str, str]]:
     genders = entry_gender_options(entry)
-    ages = entry_age_options(entry)
+    selected_ages = entry_age_options(entry)
+    ages = [age for age in selected_ages if age != SYMBOL_OPTION]
     skins = entry_skin_color_options(entry)
     default = entry_default_profile(entry)
 
@@ -411,9 +417,9 @@ def planned_review_profiles(entry: Any) -> list[dict[str, str]]:
             {"gender": gender, "age": age, "skin_color": skin},
         )
         if len(ordered) >= MAX_TOTAL_PROFILES:
-            return ordered
+            return ordered + ([dict(SYMBOL_PROFILE)] if SYMBOL_OPTION in selected_ages else [])
 
-    return ordered[:MAX_TOTAL_PROFILES]
+    return ordered[:MAX_TOTAL_PROFILES] + ([dict(SYMBOL_PROFILE)] if SYMBOL_OPTION in selected_ages else [])
 
 
 def variant_branch_plan(entry: Any) -> dict[str, Any]:

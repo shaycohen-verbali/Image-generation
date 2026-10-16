@@ -173,7 +173,7 @@ class Repository:
         existing = self.db.execute(select(Entry).where(Entry.id == entry_id)).scalar_one_or_none()
         if existing:
             gender_options = normalize_option_set(payload.get("person_gender_options", []), ("male", "female"), DEFAULT_GENDER)
-            age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+            age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager", "symbol"), DEFAULT_AGE)
             skin_options = normalize_option_set(payload.get("person_skin_color_options", []), ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
             existing.context = payload.get("context", "").strip()
             existing.sense_id = str(payload.get("sense_id") or payload.get("_word_source_sense_id") or "").strip()
@@ -190,7 +190,7 @@ class Repository:
             return existing
 
         gender_options = normalize_option_set(payload.get("person_gender_options", []), ("male", "female"), DEFAULT_GENDER)
-        age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+        age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager", "symbol"), DEFAULT_AGE)
         skin_options = normalize_option_set(payload.get("person_skin_color_options", []), ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
         entry = Entry(
             id=entry_id,
@@ -222,7 +222,7 @@ class Repository:
         entry_id = deterministic_entry_id(payload["word"], payload["part_of_sentence"], payload["category"])
         row_hash = source_row_hash(payload)
         gender_options = normalize_option_set(payload.get("person_gender_options", []), ("male", "female"), DEFAULT_GENDER)
-        age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+        age_options = normalize_option_set(payload.get("person_age_options", []), ("toddler", "kid", "tween", "teenager", "symbol"), DEFAULT_AGE)
         skin_options = normalize_option_set(payload.get("person_skin_color_options", []), ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
         existing = self.db.get(Entry, entry_id)
         if existing is None:
@@ -274,7 +274,7 @@ class Repository:
         if not entries:
             return 0
         gender_options = normalize_option_set(person_gender_options, ("male", "female"), DEFAULT_GENDER)
-        age_options = normalize_option_set(person_age_options, ("toddler", "kid", "tween", "teenager"), DEFAULT_AGE)
+        age_options = normalize_option_set(person_age_options, ("toddler", "kid", "tween", "teenager", "symbol"), DEFAULT_AGE)
         skin_options = normalize_option_set(person_skin_color_options, ("white", "black", "asian", "brown"), DEFAULT_SKIN_COLOR)
         for entry in entries:
             entry.boy_or_girl = gender_options[0]
@@ -1458,16 +1458,32 @@ class Repository:
             ).scalars()
         )
 
-    def list_csv_job_items_page(self, csv_job_id: str, *, offset: int, limit: int) -> tuple[list[CsvJobItem], int]:
+    def list_csv_job_items_page(self, csv_job_id: str, *, offset: int, limit: int, status_filter: str = "") -> tuple[list[CsvJobItem], int]:
+        predicates = [CsvJobItem.csv_job_id == csv_job_id]
+        # Match the job summary's user-facing status groups before counting or
+        # paginating, so failures outside the current page remain discoverable.
+        status_groups = {
+            "completed": ("completed",), "failure": ("failed", "canceled"),
+            "running": ("running", "queued"),
+        }
+        if status_filter in status_groups:
+            predicates.append(CsvJobItem.status.in_(status_groups[status_filter]))
+        elif status_filter == "pending":
+            predicates.append(CsvJobItem.status.not_in(("completed", "failed", "canceled", "running", "queued")))
+        elif status_filter == "previously_done":
+            # The compact job summary currently reports this group as zero.
+            predicates.append(CsvJobItem.id.is_(None))
+        elif status_filter:
+            raise ValueError("Unsupported CSV word status filter")
         total = int(
             self.db.execute(
-                select(func.count()).select_from(CsvJobItem).where(CsvJobItem.csv_job_id == csv_job_id)
+                select(func.count()).select_from(CsvJobItem).where(*predicates)
             ).scalar_one()
         )
         items = list(
             self.db.execute(
                 select(CsvJobItem)
-                .where(CsvJobItem.csv_job_id == csv_job_id)
+                .where(*predicates)
                 .order_by(CsvJobItem.row_index.asc())
                 .offset(offset)
                 .limit(limit)

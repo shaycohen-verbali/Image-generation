@@ -9,6 +9,7 @@ This repository implements a local web system that turns a concept key `(word, p
 - Storage: local filesystem under `/Users/anna.cohen/Documents/Image generation/runtime_data`
 
 ## Features Implemented
+- **AAC symbols** is an optional additional profile under Shared Run Settings → Additional profiles. It creates one symbol per word from the white male kid base image, alongside the selected demographic variants, using Nano Banana 2 and the bundled Soft Signal v1 reference. It applies to Single Concept, CSV DAG imports, and continued CSV jobs, including concepts without a person. Symbol outputs are square with a white background and have separate inventory/export slots.
 - Entry creation (`POST /api/v1/entries`) with unique key enforcement.
 - CSV import (`POST /api/v1/entries/import-csv`) with current column compatibility.
 - Approved Supabase word sources (`GET /api/v1/word-sources`), currently supporting read/import/writeback for `word_inventory`.

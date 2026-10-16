@@ -196,10 +196,11 @@ def get_csv_job_items(
     job_id: str,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
+    status: str = Query(default="", pattern="^(|pending|running|completed|failure|previously_done)$"),
     db: Session = Depends(db_dependency),
 ) -> CsvJobItemsPageOut:
     service = CsvDagService(db)
-    page = service.job_items_page(job_id, offset=offset, limit=limit)
+    page = service.job_items_page(job_id, offset=offset, limit=limit, status_filter=status)
     if page is None:
         raise HTTPException(status_code=404, detail="CSV job not found")
     return CsvJobItemsPageOut(**page)
