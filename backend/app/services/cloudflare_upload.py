@@ -230,8 +230,6 @@ class CloudflareUploadService:
             if object_key in resume_keys:
                 continue
             existing = existing_by_key.get(object_key)
-            if existing is not None:
-                existing.destination_url = item["destination_url"]
             # Capture immutable values before refreshing the ledger on the main thread.
             item["previous_source_sha256"] = existing.source_sha256 if existing and existing.status == "uploaded" and existing.compression_quality == compression_quality else ""
             if object_key in scheduled_object_keys:
@@ -254,20 +252,9 @@ class CloudflareUploadService:
                 destination_url=item["destination_url"],
                 compression_quality=compression_quality,
             )
-            if is_class_bucket(selected_bucket):
-                ledger.category = item["category"]
-                ledger.meaning = item["meaning"]
-            for field, value in {"source_table": item["source_table"], "source_row_id": item["row_id"],
-                                 "word": item["word"], "part_of_speech": item["pos"],
-                                 "sense_id": item["sense_id"], "variant": item["variant"],
-                                 "source_path": item["source_path"], "original_filename": item["filename"],
-                                 "compression_quality": compression_quality}.items():
-                setattr(ledger, field, value)
-            ledger.batch_id = batch_id
-            ledger.destination_url = item["destination_url"]
-            ledger.status = "uploading"
-            ledger.error_detail = ""
-            self.db.add(ledger)
+            # Defer ledger mutations until this image has a result. Preparing
+            # thousands of updates here holds table locks for minutes on a
+            # remote Postgres connection and delays both uploads and deploys.
             pending_uploads.append((item, ledger))
             scheduled_object_keys.add(object_key)
 
@@ -349,6 +336,20 @@ class CloudflareUploadService:
                     item, ledger = pending_futures[future]
                     result = future.result()
                     completed_count += 1
+                    if is_class_bucket(selected_bucket):
+                        ledger.category = item["category"]
+                        ledger.meaning = item["meaning"]
+                    for field, value in {"source_table": item["source_table"], "source_row_id": item["row_id"],
+                                         "word": item["word"], "part_of_speech": item["pos"],
+                                         "sense_id": item["sense_id"], "variant": item["variant"],
+                                         "source_path": item["source_path"], "original_filename": item["filename"],
+                                         "compression_quality": compression_quality}.items():
+                        setattr(ledger, field, value)
+                    ledger.batch_id = batch_id
+                    ledger.destination_url = item["destination_url"]
+                    ledger.status = "uploading"
+                    ledger.error_detail = ""
+                    self.db.add(ledger)
                     if result["status"] == "skipped":
                         ledger.status = "uploaded"
                         summary["skipped"] += 1
