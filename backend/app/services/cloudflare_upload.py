@@ -21,7 +21,7 @@ from app.services.image_filenames import (
     inventory_variant,
     versioned_upload_filename,
 )
-from app.services.storage import materialize_path
+from app.services.storage import read_binary
 
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,8 @@ class CloudflareUploadService:
         compression_quality = max(1, min(100, int(quality or settings.cloudflare_r2_compression_quality)))
         batch_id = batch_id or f"r2_{uuid.uuid4().hex[:24]}"
         batch = self.db.get(CloudUploadBatch, batch_id)
+        resuming = batch is not None and batch.status == "running"
+        previous_counts = {name: int(getattr(batch, name, 0) or 0) for name in ("uploaded", "skipped", "failed")}
         if batch is not None:
             batch.status = "running"
             self.db.commit()
@@ -181,7 +183,6 @@ class CloudflareUploadService:
                 )
 
         summary["total"] = len(upload_items)
-        save_progress(force=True)
 
         # Do not probe R2 with HeadObject. Cloudflare credentials can permit
         # PutObject while denying HEAD, and that probe previously stalled entire
@@ -198,10 +199,36 @@ class CloudflareUploadService:
             ).all()
             existing_by_key.update({row.object_key: row for row in existing_rows})
 
+        # A resumed batch has a fixed saved selection. Preserve its completed
+        # checkpoint when every counted result still has a matching ledger row.
+        # Other batches still check source bytes before reusing existing objects.
+        resume_keys = {
+            item["object_key"] for item in upload_items
+            if (existing := existing_by_key.get(item["object_key"])) is not None
+            and existing.batch_id == batch_id
+            and existing.status in {"uploaded", "failed"}
+            and existing.source_path == item["source_path"]
+            and existing.compression_quality == compression_quality
+        }
+        if resuming and len(object_keys) == len(upload_items) and len(resume_keys) == sum(previous_counts.values()):
+            summary.update(previous_counts)
+            completed_count = len(resume_keys)
+        else:
+            resume_keys = set()
+        save_progress(force=True)
+        if resume_keys:
+            logger.info("Cloudflare upload resumed from durable checkpoint", extra={
+                "cloudflare_batch_id": batch_id, "cloudflare_bucket": selected_bucket,
+                "cloudflare_completed": len(resume_keys),
+                "cloudflare_remaining": len(upload_items) - len(resume_keys),
+            })
+
         pending_uploads: list[tuple[dict[str, str], CloudUpload]] = []
         scheduled_object_keys: set[str] = set()
         for item in upload_items:
             object_key = item["object_key"]
+            if object_key in resume_keys:
+                continue
             existing = existing_by_key.get(object_key)
             if existing is not None:
                 existing.destination_url = item["destination_url"]
@@ -258,7 +285,9 @@ class CloudflareUploadService:
                 if client is None:
                     client = self._client(selected_bucket)
                     worker_state.client = client
-                original = materialize_path(item["source_path"], cache_namespace="cloudflare_uploads").read_bytes()
+                # Upload sources are consumed once. Caching thousands of them on
+                # Render exhausts its 2 GB temporary volume and kills the worker.
+                original = read_binary(item["source_path"])
                 source_sha256 = hashlib.sha256(original).hexdigest()
                 if item.get("previous_source_sha256") == source_sha256:
                     return {"status": "skipped"}
