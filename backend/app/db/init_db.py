@@ -547,12 +547,16 @@ def _ensure_csv_job_item_columns() -> None:
 def _refresh_class_upload_categories() -> None:
     """Give MaTalk Class uploads their Category mapping topic (main_category)."""
     from app.db.inventory_session import inventory_engine as inv_engine
-    from app.services.class_categories import refresh_class_upload_categories
+    from app.services.class_categories import ensure_class_dictionary_view, refresh_class_upload_categories
 
     try:
         refresh_class_upload_categories(engine, inv_engine)
     except Exception as exc:  # noqa: BLE001 - a category refresh must never stop startup
         logger.warning("MaTalk Class category refresh skipped: %s", exc)
+    try:
+        ensure_class_dictionary_view(inv_engine)
+    except Exception as exc:  # noqa: BLE001 - MaTalk Class's dictionary view must never stop startup
+        logger.warning("MaTalk Class dictionary view skipped: %s", exc)
 
 
 def _ensure_cloud_upload_columns() -> None:

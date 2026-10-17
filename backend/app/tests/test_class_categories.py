@@ -70,3 +70,9 @@ def test_refresh_without_inventory_does_nothing():
     ledger = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(ledger)
     assert refresh_class_upload_categories(ledger, None) == 0
+
+
+def test_dictionary_view_is_postgres_only():
+    from app.services.class_categories import ensure_class_dictionary_view
+    assert ensure_class_dictionary_view(None) is False
+    assert ensure_class_dictionary_view(create_engine("sqlite:///:memory:", future=True)) is False
