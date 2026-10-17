@@ -19,6 +19,7 @@ class JsonFormatter(logging.Formatter):
             "oldest_running_age_seconds", "worker_heartbeat_age_seconds", "query_ms",
             "cloudflare_batch_id", "cloudflare_bucket", "cloudflare_key",
             "cloudflare_response", "cloudflare_error",
+            "cloudflare_completed", "cloudflare_remaining",
         ):
             if hasattr(record, field):
                 payload[field] = getattr(record, field)

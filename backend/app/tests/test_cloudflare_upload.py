@@ -239,3 +239,57 @@ def test_reused_object_refreshes_source_links_and_checks_content(db_session, tmp
     db_session.commit()
     assert service.upload_rows([row], bucket='matalkimages', quality=50)['uploaded'] == 1
     assert len(calls) == 3
+
+
+def test_upload_reads_remote_bytes_without_populating_disk_cache(db_session, monkeypatch):
+    import app.services.cloudflare_upload as upload
+    import app.services.storage as storage
+    calls = []
+    class Client:
+        def put_object(self, **kwargs):
+            calls.append(kwargs)
+            return {}
+    monkeypatch.setattr(CloudflareUploadService, '_client', staticmethod(lambda bucket='': Client()))
+    monkeypatch.setattr(CloudflareUploadService, '_compress', staticmethod(lambda data, quality: data))
+    downloaded = []
+    def download(uri):
+        downloaded.append(uri)
+        return b'remote image bytes'
+    monkeypatch.setattr(storage, '_download_from_supabase', download)
+    def no_disk_cache(*args, **kwargs):
+        raise AssertionError('Upload sources must not enter the persistent disk cache')
+    monkeypatch.setattr(storage, 'runtime_cache_root', no_disk_cache)
+    rows = [{'id': str(i), 'word': f'word-{i}', 'sense_id': str(i),
+             'kid_male_white_regular_path': f'supabase://images/{i}.jpg'} for i in range(25)]
+    result = upload.CloudflareUploadService(db_session).upload_rows(rows, bucket='matalkimages')
+    assert result['uploaded'] == len(rows) == len(downloaded) == len(calls)
+
+
+def test_resumed_batch_preserves_counts_and_reads_only_unfinished_images(db_session, monkeypatch):
+    import app.services.cloudflare_upload as upload
+    sources = []
+    class Client:
+        def put_object(self, **kwargs):
+            return {}
+    monkeypatch.setattr(CloudflareUploadService, '_client', staticmethod(lambda bucket='': Client()))
+    monkeypatch.setattr(CloudflareUploadService, '_compress', staticmethod(lambda data, quality: data))
+    def read(source):
+        sources.append(source)
+        return b'image'
+    monkeypatch.setattr(upload, 'read_binary', read)
+    first = {'id': 'first', 'word': 'first', 'sense_id': 'first', 'kid_male_white_regular_path': 'supabase://images/first.jpg'}
+    second = {'id': 'second', 'word': 'second', 'sense_id': 'second', 'kid_male_white_regular_path': 'supabase://images/second.jpg'}
+    batch = CloudUploadBatch(id='resumed', bucket='matalkimages', status='running')
+    db_session.add(batch)
+    db_session.commit()
+    service = CloudflareUploadService(db_session)
+    service.upload_rows([first], bucket='matalkimages', batch_id=batch.id)
+    batch.status = 'running'
+    batch.total = 2
+    db_session.commit()
+    sources.clear()
+    result = service.upload_rows([first, second], bucket='matalkimages', batch_id=batch.id)
+    assert sources == ['supabase://images/second.jpg']
+    assert result['total'] == result['uploaded'] == 2
+    assert result['skipped'] == result['failed'] == 0
+    assert result['status'] == 'completed'
