@@ -1,4 +1,5 @@
 import json
+import logging
 
 from sqlalchemy import select, text
 
@@ -22,6 +23,8 @@ from app.services.prompt_templates import (
     DEFAULT_VISUAL_STYLE_NAME,
     DEFAULT_VISUAL_STYLE_PROMPT_BLOCK,
 )
+
+logger = logging.getLogger(__name__)
 
 MIN_QUALITY_THRESHOLD = 95
 MIN_PARALLEL_RUNS = 1
@@ -94,6 +97,7 @@ def init_db() -> None:
     _ensure_asset_columns()
     _ensure_csv_job_item_columns()
     _ensure_cloud_upload_columns()
+    _refresh_class_upload_categories()
     _ensure_runtime_config_columns()
     _ensure_hot_indexes()
     settings = get_settings()
@@ -538,6 +542,17 @@ def _ensure_csv_job_item_columns() -> None:
             existing = _postgres_existing_columns(conn, "csv_job_items")
             if "base_soften_asset_id" not in existing:
                 conn.execute(text("ALTER TABLE csv_job_items ADD COLUMN base_soften_asset_id TEXT"))
+
+
+def _refresh_class_upload_categories() -> None:
+    """Give MaTalk Class uploads their Category mapping topic (main_category)."""
+    from app.db.inventory_session import inventory_engine as inv_engine
+    from app.services.class_categories import refresh_class_upload_categories
+
+    try:
+        refresh_class_upload_categories(engine, inv_engine)
+    except Exception as exc:  # noqa: BLE001 - a category refresh must never stop startup
+        logger.warning("MaTalk Class category refresh skipped: %s", exc)
 
 
 def _ensure_cloud_upload_columns() -> None:
