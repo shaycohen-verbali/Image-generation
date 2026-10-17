@@ -93,6 +93,6 @@ Set `CLOUDFLARE_R2_MATALKCLASS_BUCKET` (default `matalk-class-images`),
 The Class bucket appears in Exports only when all three credentials are set.
 Its uploads, retry checks, and reports use the separate `matalk_class_uploads`
 table, created at startup in the same database as `cloud_uploads`. It includes
-inventory category and sense meaning. AAC exports continue to use only
+the inventory's `main_category` (the Category mapping topic) and sense meaning. AAC exports continue to use only
 `cloud_uploads` and the existing account settings. Configure the bucket's public
 domain and CORS separately; no upload credentials belong in browser code.
