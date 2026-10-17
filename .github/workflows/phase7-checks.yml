@@ -38,6 +38,7 @@ jobs:
           app/tests/test_google_image_client.py
           app/tests/test_retry.py
           app/tests/test_cloud_upload_claims.py
+          app/tests/test_class_ledger_security.py
           app/tests/test_cloudflare_upload.py
           app/tests/test_matalk_export.py
         working-directory: backend

@@ -65,17 +65,28 @@ def _postgres_existing_columns(conn, table_name: str) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+def _secure_class_upload_ledger(conn) -> None:
+    if conn.dialect.name == "postgresql":
+        # ALTER takes an exclusive table lock even when RLS is already on.
+        # Avoid blocking an active upload merely to reapply the same state.
+        rls_enabled = conn.execute(text(
+            "SELECT relrowsecurity FROM pg_class "
+            "WHERE oid = 'matalk_class_uploads'::regclass"
+        )).scalar_one()
+        if not rls_enabled:
+            conn.execute(text("ALTER TABLE matalk_class_uploads ENABLE ROW LEVEL SECURITY"))
+        conn.execute(text("REVOKE ALL ON matalk_class_uploads FROM PUBLIC"))
+        for role in ("anon", "authenticated"):
+            if conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": role}).scalar():
+                conn.execute(text(f"REVOKE ALL ON matalk_class_uploads FROM {role}"))
+
+
 def init_db() -> None:
     # Create and secure the Class ledger in one transaction. The uploader's
     # database owner still writes it; no public API access is needed.
     with engine.begin() as conn:
         Base.metadata.create_all(bind=conn)
-        if conn.dialect.name == "postgresql":
-            conn.execute(text("ALTER TABLE matalk_class_uploads ENABLE ROW LEVEL SECURITY"))
-            conn.execute(text("REVOKE ALL ON matalk_class_uploads FROM PUBLIC"))
-            for role in ("anon", "authenticated"):
-                if conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": role}).scalar():
-                    conn.execute(text(f"REVOKE ALL ON matalk_class_uploads FROM {role}"))
+        _secure_class_upload_ledger(conn)
     init_inventory_db()
     _ensure_inventory_columns()
     _ensure_entry_columns()

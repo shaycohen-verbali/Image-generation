@@ -293,3 +293,28 @@ def test_resumed_batch_preserves_counts_and_reads_only_unfinished_images(db_sess
     assert result['total'] == result['uploaded'] == 2
     assert result['skipped'] == result['failed'] == 0
     assert result['status'] == 'completed'
+
+
+def test_existing_ledger_is_not_rewritten_before_image_io(db_session, tmp_path, monkeypatch):
+    import app.services.cloudflare_upload as upload
+    class Client:
+        def put_object(self, **kwargs):
+            return {}
+    monkeypatch.setattr(CloudflareUploadService, '_client', staticmethod(lambda bucket='': Client()))
+    monkeypatch.setattr(CloudflareUploadService, '_compress', staticmethod(lambda data, quality: data))
+    old = tmp_path / 'old.jpg'
+    old.write_bytes(b'image')
+    row = {'id': 'apple', 'word': 'apple', 'sense_id': 'apple', 'kid_male_white_regular_path': str(old)}
+    service = CloudflareUploadService(db_session)
+    service.upload_rows([row], bucket='matalkimages')
+    db_session.commit()
+    ledger = db_session.scalars(select(CloudUpload)).one()
+    row['kid_male_white_regular_path'] = 'supabase://images/new.jpg'
+    def read(source):
+        assert ledger.status == 'uploaded'
+        assert ledger.source_path == str(old)
+        return b'new image'
+    monkeypatch.setattr(upload, 'read_binary', read)
+    result = service.upload_rows([row], bucket='matalkimages')
+    assert result['uploaded'] == 1
+    assert ledger.source_path == 'supabase://images/new.jpg'
