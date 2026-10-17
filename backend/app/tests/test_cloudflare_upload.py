@@ -149,7 +149,7 @@ def test_class_uploads_are_isolated_and_reports_use_selected_bucket(db_session, 
     source = tmp_path / 'apple.jpg'
     source.write_bytes(b'image')
     row = {'id': 'apple', 'word': 'apple', 'sense_id': 'sense-apple', 'part_of_speech': 'noun',
-           'category': 'Food', 'sense_oxford': 'a fruit', 'sense_wordnet': 'fallback',
+           'category': 'a dictionary line', 'main_category': 'food or drink', 'sense_oxford': 'a fruit', 'sense_wordnet': 'fallback',
            'kid_male_white_white_bg_path': str(source)}
     calls = []
     class Client:
@@ -168,7 +168,7 @@ def test_class_uploads_are_isolated_and_reports_use_selected_bucket(db_session, 
         result = CloudflareUploadService(db_session).upload_rows([row], bucket=bucket, batch_id=batch_id)
         assert result['uploaded'] == 1  # AAC's existing image must not skip Class.
     record = db_session.scalars(select(MatalkClassUpload)).one()
-    assert (record.category, record.meaning) == ('Food', 'a fruit')
+    assert (record.category, record.meaning) == ('food or drink', 'a fruit')
     assert record.destination_url.startswith('https://class.example.test/matalk-class-images/')
     assert len(db_session.scalars(select(CloudUpload)).all()) == 1
     assert {call['Bucket'] for call in calls} == {'matalkimages', 'matalk-class-images'}

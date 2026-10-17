@@ -167,7 +167,9 @@ class CloudflareUploadService:
                 destination_url = r2_destination_url(endpoint, selected_bucket, object_key)
                 upload_items.append(
                     {
-                        "category": str(row.get("category") or ""),
+                        # The topic from Category mapping. word_inventory.category is the
+                        # generator's own input field and often holds dictionary text.
+                        "category": str(row.get("main_category") or "").strip(),
                         "meaning": str(row.get("sense_oxford") or row.get("sense_wordnet") or ""),
                         "row_id": row_id,
                         "source_table": str(row.get("_word_source_table") or "word_inventory"),
